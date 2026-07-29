@@ -398,7 +398,1475 @@ class MainWindow(QMainWindow):
         preview_title = QLabel("å®æ—¶ç”»é¢")
         preview_title.setObjectName("cardTitle")
         self.point_label = QLabel("å•å‡»é€‰ç‚¹ Â· æ‹–åŠ¨æ¡†é€‰æ¨¡æ¿")
-       ÛNôæÚ$z{-®éÜj×–bÖ…ö6Æ–6·2æB6Æ–6·2ãÒÖ…ö6Æ–6·3 ¢6VÆbæÆör‚.[{.‹ëîX‹iÈZI®x+X{¾jÊi[8""¢'&V°¢G'“ ¢–bwV&BæBæ÷BF&vWBæf÷&Vw&÷VæEö—5övÖR‚“ ¢VÆ6VBÒF–ÖRæÖöæ÷Föæ–2‚’Ò7F'FV@¢–bVÆ6VBÒÆ7Eö–FÆRãÒ3 ¢6VÆbæÆör‚.k‹hˆşKˆŞYÊX˜ŞXûûÈÎiÊÎ‹Úîi¨.XÎ8""¢Æ7Eö–FÆRÒVÆ6V@¢VÆ–bÖöFRÓÒ&f—†VB# ¢76W'Bf—†VE÷ö–çB—2æ÷BæöæRæBf—†VE÷6÷W&6U÷6—¦R—2æ÷BæöæP¢ö–çBÒ66ÆU÷&V6÷&FVE÷ö–çB†f—†VE÷ö–çBÂf—†VE÷6÷W&6U÷6—¦RÂF&vWBç67&VVå÷6—¦R‚’¢F&vWBçF‚§ö–çB¢6Æ–6·2³Ò¢6VÆbç6–væÇ2æ6Æ–6·2æVÖ—B†6Æ–6·2¢–b6Æ–6·2ÓÒ÷"6Æ–6·2R#ÓÒ ¢6VÆbæÆör†b.[{.x+X{²¶6Æ–6·7ÒjÊûÈÎYÙjr·ö–çGŞ8""¢VÇ6S ¢–ÖvRÒF&vWBç67&VVç6†÷B‚¢ö–çBÂ66÷&RÒÖF6…÷FV×ÆFR†–ÖvRÂFV×ÆFRÂF‡&W6†öÆBÂFV×ÆFU÷&VfW&Væ6U÷6—¦R‡FV×ÆFR’¢ÖF6†VEöæÖRÒFV×ÆFRç7FVĞ¢–bö–çC ¢F&vWBçF‚§ö–çB¢6Æ–6·2³Ò¢6VÆbç6–væÇ2æ6Æ–6·2æVÖ—B†6Æ–6·2¢6VÆbæÆör†b.ŠønXŠ¾h‰X©ş[›nx+X{²¶ÖF6†VEöæÖWÒ·ö–çGŞûÈÎy»KËÎ[ªb·66÷&S¢ã6gŞûÈÎ{JşŠê¶6Æ–6·7ÒjÊ8""¢VÇ6S ¢VÆ6VBÒF–ÖRæÖöæ÷Föæ–2‚’Ò7F'FV@¢–bVÆ6VBÒÆ7Eö–FÆRãÒ3 ¢6VÆbæÆör†b.zØ[è^hÈ™*îX{®xëûÈÎ[Ù>X˜ŞiÈš¹y»KËÎ[ªb·66÷&S¢ã6gŞ8""¢Æ7Eö–FÆRÒVÆ6V@¢f–ÇW&W2Ò ¢W†6WBW†6WF–öâ2W†3 ¢f–ÇW&W2³Ò¢6VÆbæÆör†b.iÊÎ‹ÚîZK‹J^ûÈ‡¶f–ÇW&W7Òó>ûÈûÉ§¶W†7Ò"¢–bf–ÇW&W2ãÒ3 ¢'&V°¢–b6VÆbç7F÷öWfVçBçv—B†–çFW'fÂ“ ¢'&V°¢6VÆbæÆör†b.‹ùŠÎ{¹>iÙşûÈÎX[x+X{²¶6Æ–6·7ÒjÊ8"" ¢6VÆbå÷7F'E÷v÷&¶W"‡F&vWBæFWf–6RÂ¦ö" ¢FVb÷7F'E÷v÷&¶W"‡6VÆbÂFWf–6S¢7G"Â6ÆÆ&6³¢6ÆÆ&ÆUµµÒÂæöæUÒ’ÓâæöæS ¢–b6VÆbçv÷&¶W"æB6VÆbçv÷&¶W"æ—5öÆ—fR‚“ ¢ÖW76vT&÷‚æ–æf÷&ÖF–öâ‡6VÆbÂôäÔRÂ.[Ù>X˜Şz©~Xú>[{.iÈK»¾XªjÚ>YÊ‹ùŠÎ8""¢&WGW&à¢6VÆbç7F÷öWfVçBæ6ÆV"‚¢6VÆbç6–væÇ2æ6Æ–6·2æVÖ—Bƒ ¢FVb&÷FV7FVB‚’ÓâæöæS ¢ÆV6RÒFWf–6TÆV6R†FWf–6R¢–bæ÷BÆV6Ræ7V—&R‚“ ¢6VÆbæÆör†b.ZéîKè²¶FWf–6WÒ[{.Š*¾XúnKˆKŠ®z©~Xú>XÚyJûÈÎiÊÎz©~Xú>iÊ®Y
-şXªK»¾Xª8""¢6VÆbç6–væÇ2æÆW'BæVÖ—B„ôäÔRÂb'¶FWf–6WÒ[{.YÊXúnKˆKŠ®Xªh˜¾z©~Xú>‹ùŠÎ8%ÆîK‹®™‹.jÚ.˜xŞZHŞx+X{¾ûÈÎiÊÎz©~Xú>iÊ®Y
-şXªK»¾Xª8""¢&WGW&à¢6VÆbç6–væÇ2ç'Vææ–æræVÖ—B…G'VRÂ.‹ùŠÎKŠÒ"¢G'“ ¢6ÆÆ&6²‚¢f–æÆÇ“ ¢ÆV6Rç&VÆV6R‚¢6VÆbç7F÷öWfVçBç6WB‚¢6VÆbç6–væÇ2ç'Vææ–æræVÖ—B„fÇ6RÂ.[{.XÎjÚ"" ¢6VÆbçv÷&¶W"ÒF‡&VF–æråF‡&VB‡F&vWC×&÷FV7FVBÂFVÖöãÕG'VR¢6VÆbçv÷&¶W"ç7F'B‚ ¢FVb7F÷öÆÂ‡6VÆb’ÓâæöæS ¢6VÆbç7F÷öWfVçBç6WB‚¢6VÆbæÆör‚.[{.XùX{®XÎjÚ.hÈ~KºN8"" ¢FVb÷WFFU÷'VçF–ÖR‡6VÆb’ÓâæöæS ¢6V6öæG2ÒÖ‚ƒÂ–çB‡F–ÖRæÖöæ÷Föæ–2‚’Ò6VÆbç7F'FVEöB’¢6VÆbç'VçF–ÖUöÆ&VÂç6WEFW‡B†b'·6V6öæG2òò3c£&GÓ§·6V6öæG2òòcRc£&GÓ§·6V6öæG2Rc£&GÒ" ¢FVbö76—7FçEö6öÖÖæB‡6VÆbÂFWf–6S¢7G"Â7F'GWöÖöFS¢7G"ÂæöæRÒæöæR’ÓâÆ—7E·7G%Ó ¢–bvWFGG"‡7—2Â&g&÷¦Vâ"ÂfÇ6R“ ¢6öÖÖæBÒ·7—2æW†V7WF&ÆUĞ¢VÇ6S ¢6öÖÖæBÒ·7—2æW†V7WF&ÆRÂ7G"…F‚…õöf–ÆUõò’ç&W6öÇfR‚’•Ğ¢6öÖÖæB³Ò²"ÒÖFWf–6R"ÂFWf–6UĞ¢–b7F'GWöÖöFRÓÒ&†VÇ# ¢6öÖÖæB³Ò²"ÒÖWFòÖ†VÇ"Â"ÒÖ–çFW'fÂ"Â7G"‡6VÆbæ–çFW'fÅ÷7–âçfÇVR‚’•Ğ¢VÆ–b7F'GWöÖöFRÓÒ'&VE÷6¶WB# ¢6öÖÖæB³Ò²"ÒÖWFò×&VB×6¶WB"Â"ÒÖ–çFW'fÂ"Â7G"‡6VÆbç&VE÷6¶WEö–çFW'fÅ÷7–âçfÇVR‚’•Ğ¢&WGW&â6öÖÖæ@ ¢FVb÷7våö–ç7Fæ6R‡6VÆbÂFWf–6S¢7G"Â7F'GWöÖöFS¢7G"ÂæöæRÒæöæR’ÓâæöæS ¢G'“ ¢7V'&ö6W72å÷Vâ€¢6VÆbåö76—7FçEö6öÖÖæB†FWf–6RÂ7F'GWöÖöFR’À¢7vC×7G"…F‚‡7—2æW†V7WF&ÆR’ç&W6öÇfR‚’ç&VçB–bvWFGG"‡7—2Â&g&÷¦Vâ"ÂfÇ6R’VÇ6RF‚…õöf–ÆUõò’ç&W6öÇfR‚’ç&VçB’À¢7&VF–öæfÆw3Ô5$TDUôäõõt”äDõrÀ¢¢ÖöFU÷FW‡BÒ²&†VÇ#¢.[›n[ÈZx¾ˆNy¹ş[ŠîXª’"Â'&VE÷6¶WB#¢.[›n[ÈZx¾hª.{ª.XÈR'ÒævWB‡7F'GWöÖöFRÂ""¢6VÆbæÆör†b.[{.K‹¢¶FWf–6WÒh™>[ÈxºÎz¸¾z©~Xú7¶ÖöFU÷FW‡GŞ8""¢W†6WBõ4W'&÷"2W†3 ¢ÖW76vT&÷‚çv&æ–ær‡6VÆbÂôäÔRÂb.izk9^h™>[ÈxºÎz¸¾z©~Xú>ûÉ§¶W†7Ò" ¢FVbö÷Vå÷6VÆV7FVE÷v–æF÷r‡6VÆb’ÓâæöæS ¢–b6VÆbæF# ¢6VÆbå÷7våö–ç7Fæ6R‡6VÆbæF"æFWf–6R ¢FVb÷7F'EöÆÅö–ç7Fæ6W2‡6VÆbÂ7F'GWöÖöFS¢7G"Ò&†VÇ"’ÓâæöæS ¢–bæ÷B6VÆbæFWf–6W3 ¢ÖW76vT&÷‚çv&æ–ær‡6VÆbÂôäÔRÂ.k*iÈXùxë‹ùŠÎKŠŞy¨B×T×RZéîKè¾8""¢&WGW&à¢f÷"FWf–6R–â6VÆbæFWf–6W3 ¢6VÆbå÷7våö–ç7Fæ6R†FWf–6RÂ7F'GWöÖöFR¢ÖöFU÷FW‡BÒ.ˆNy¹ş[ŠîXª’"–b7F'GWöÖöFRÓÒ&†VÇ"VÇ6R.ˆNy¹ş{ª.XÈR ¢6VÆbæÆör†b.[{.K‹¢¶ÆVâ‡6VÆbæFWf–6W2—ÒKŠ®ZéîKè¾XˆnXŠ¾Y
-şXª‡¶ÖöFU÷FW‡GŞz©~Xú>8"" ¢FVböÆöE÷F6·2‡6VÆb’ÓâF–7E·7G"ÂÆ—7E¶F–7E·7G"Âç•ÕÕÓ ¢G'“ ¢FFÒ§6öâæÆöG2…D4µôd”ÄRç&VE÷FW‡B†Væ6öF–æsÒ'WFbÓ‚"’¢–b—6–ç7Fæ6R†FFÂF–7B“ ¢&WGW&â·7G"†¶W’“¢Æ—7B‡fÇVR’f÷"¶W’ÂfÇVR–âFFæ—FV×2‚’–b—6–ç7Fæ6R‡fÇVRÂÆ—7B—Ğ¢W†6WB„õ4W'&÷"Â§6öâä¥4ôäFV6öFTW'&÷"ÂG—TW'&÷"“ ¢70¢&WGW&â¶æÖS¢¶F–7B‡7FW’f÷"7FW–â7FW5Òf÷"æÖRÂ7FW2–âDTdTÅEõD4µ2æ—FV×2‚—Ğ ¢FVb÷&Vg&W6…÷F6·2‡6VÆb’ÓâæöæS ¢7W'&VçBÒ6VÆbçF6µö6öÖ&òæ7W'&VçEFW‡B‚’–b†6GG"‡6VÆbÂ'F6µö6öÖ&ò"’VÇ6R" ¢6VÆbçF6µö6öÖ&òæ&Æö6µ6–væÇ2…G'VR¢6VÆbçF6µö6öÖ&òæ6ÆV"‚¢6VÆbçF6µö6öÖ&òæFD—FV×2‡6÷'FVB‡6VÆbçF6·2’¢–b7W'&VçB–â6VÆbçF6·3 ¢6VÆbçF6µö6öÖ&òç6WD7W'&VçEFW‡B†7W'&VçB¢6VÆbçF6µö6öÖ&òæ&Æö6µ6–væÇ2„fÇ6R¢6VÆbåöÆöE÷6VÆV7FVE÷F6²‚ ¢FVböÆöE÷6VÆV7FVE÷F6²‡6VÆb’ÓâæöæS ¢6VÆbæ7F—fU÷7FW2Ò¶F–7B‡7FW’f÷"7FW–â6VÆbçF6·2ævWB‡6VÆbçF6µö6öÖ&òæ7W'&VçEFW‡B‚’ÂµÒ•Ğ¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVb÷7FW÷FW‡B‡6VÆbÂ–æFWƒ¢–çBÂ7FW¢F–7E·7G"Âç•Ò’Óâ7G# ¢7F–öâÒ7FWævWB‚&7F–öâ"¢–b7F–öâÓÒ'F# ¢FWF–ÂÒb.x+X{²‡·7FW²w‚u×ÒÂ·7FW²w’u×Ò’ ¢VÆ–b7F–öâÓÒ'v—B# ¢FWF–ÂÒb.zØ[èR·7FW²w6V6öæG2u×Òzy" ¢VÆ–b7F–öâÓÒ&&6²# ¢FWF–ÂÒ$æG&ö–B‹ùNY¹î™Jâ ¢VÇ6S ¢FWF–ÂÒb.ŠønY»â·7FWævWB‚wFV×ÆFRr—Ò+r‹h^i{b·7FWævWB‚wF–ÖV÷WBrÂR—Òzy" ¢&WGW&âb'¶–æFW‚²£&GÒ¶FWF–ÇÒ  ¢FVb÷&VæFW%÷7FW2‡6VÆb’ÓâæöæS ¢6VÆbç7FWöÆ—7Bæ6ÆV"‚¢6VÆbç7FWöÆ—7BæFD—FV×2…·6VÆbå÷7FW÷FW‡B†’Â7FW’f÷"’Â7FW–âVçVÖW&FR‡6VÆbæ7F—fU÷7FW2•Ò ¢FVböæWu÷F6²‡6VÆb’ÓâæöæS ¢æÖRÂö²Ò–çWDF–ÆörævWEFW‡B‡6VÆbÂôäÔRÂ.ikK»¾XªYŞz{ûÉ¢"¢–bö²æBæÖRç7G&—‚“ ¢6VÆbçF6·5¶æÖRç7G&—‚•ÒÒµĞ¢6VÆbå÷&Vg&W6…÷F6·2‚¢6VÆbçF6µö6öÖ&òç6WD7W'&VçEFW‡B†æÖRç7G&—‚’ ¢FVb÷F6µöFE÷ö–çB‡6VÆb’ÓâæöæS ¢–bæ÷B6VÆbç6VÆV7FVE÷ö–çB÷"æ÷B6VÆbç6VÆV7FVE÷6÷W&6U÷6—¦S ¢ÖW76vT&÷‚æ–æf÷&ÖF–öâ‡6VÆbÂôäÔRÂ.Šû~XXYÊŠëîZH~KŠŞ[ø>yK¾™Ú.Kˆ®˜hºKˆKŠ®YÙj~8""¢&WGW&à¢6VÆbæ7F—fU÷7FW2æVæB‡²&7F–öâ#¢'F"Â'‚#¢6VÆbç6VÆV7FVE÷ö–çE³ÒÂ'’#¢6VÆbç6VÆV7FVE÷ö–çE³ÒÂ'v–GF‚#¢6VÆbç6VÆV7FVE÷6÷W&6U÷6—¦U³ÒÂ&†V–v‡B#¢6VÆbç6VÆV7FVE÷6÷W&6U÷6—¦U³×Ò¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVb÷F6µöFE÷v—B‡6VÆb’ÓâæöæS ¢fÇVRÂö²Ò–çWDF–ÆörævWDF÷V&ÆR‡6VÆbÂôäÔRÂ.zØ[è^zy.i[ûÉ¢"Â"ãÂÂƒcCÂ¢–bö³ ¢6VÆbæ7F—fU÷7FW2æVæB‡²&7F–öâ#¢'v—B"Â'6V6öæG2#¢fÇVWÒ¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVb÷F6µöFEö&6²‡6VÆb’ÓâæöæS ¢6VÆbæ7F—fU÷7FW2æVæB‡²&7F–öâ#¢&&6²'Ò¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVb÷F6µöFE÷FV×ÆFR‡6VÆb’ÓâæöæS ¢æÖW2Ò·6VÆbçFV×ÆFUö6öÖ&òæ—FVÕFW‡B†’’f÷"’–â&ævR‡6VÆbçFV×ÆFUö6öÖ&òæ6÷VçB‚’•Ğ¢–bæ÷BæÖW3 ¢&WGW&à¢æÖRÂö²Ò–çWDF–ÆörævWD—FVÒ‡6VÆbÂôäÔRÂ.˜hºjŠiÛşûÉ¢"ÂæÖW2ÂÂfÇ6R¢–bö³ ¢F–ÖV÷WBÂ66WFVBÒ–çWDF–ÆörævWDF÷V&ÆR‡6VÆbÂôäÔRÂ.zØ[è^‹h^i{nûÈzy.ûÈûÉ¢"ÂRÂÂƒcCÂ¢–b66WFVC ¢6VÆbæ7F—fU÷7FW2æVæB‡²&7F–öâ#¢'FV×ÆFR"Â'FV×ÆFR#¢æÖRÂ'F–ÖV÷WB#¢F–ÖV÷WBÂ'F‡&W6†öÆB#¢6VÆbçF‡&W6†öÆE÷6Æ–FW"çfÇVR‚’òÒ¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVböFVÆWFU÷F6µ÷7FW‡6VÆb’ÓâæöæS ¢&÷rÒ6VÆbç7FWöÆ—7Bæ7W'&VçE&÷r‚¢–bÃÒ&÷rÂÆVâ‡6VÆbæ7F—fU÷7FW2“ ¢6VÆbæ7F—fU÷7FW2ç÷‡&÷r¢6VÆbå÷&VæFW%÷7FW2‚ ¢FVb÷6fU÷F6²‡6VÆb’ÓâæöæS ¢æÖRÒ6VÆbçF6µö6öÖ&òæ7W'&VçEFW‡B‚’ç7G&—‚¢–bæ÷BæÖS ¢&WGW&à¢6VÆbçF6·5¶æÖUÒÒ¶F–7B‡7FW’f÷"7FW–â6VÆbæ7F—fU÷7FW5Ğ¢D4µôd”ÄRçw&—FU÷FW‡B†§6öâæGV×2‡6VÆbçF6·2ÂVç7W&Uö66–“ÔfÇ6RÂ–æFVçCÓ"’ÂVæ6öF–æsÒ'WFbÓ‚"¢6VÆbæÆör†b.[{.KùŞZÙK»¾XªûÉ§¶æÖWÒ" ¢FVböFVÆWFU÷F6²‡6VÆb’ÓâæöæS ¢æÖRÒ6VÆbçF6µö6öÖ&òæ7W'&VçEFW‡B‚¢–bæÖRæBÖW76vT&÷‚çVW7F–öâ‡6VÆbÂôäÔRÂb.XŠ™šNK»¾Xª(	Ç¶æÖWŞ(	ŞûÉò"’ÓÒÖW76vT&÷‚å7FæF&D'WGFöâå–W3 ¢6VÆbçF6·2ç÷†æÖRÂæöæR¢D4µôd”ÄRçw&—FU÷FW‡B†§6öâæGV×2‡6VÆbçF6·2ÂVç7W&Uö66–“ÔfÇ6RÂ–æFVçCÓ"’ÂVæ6öF–æsÒ'WFbÓ‚"¢6VÆbå÷&Vg&W6…÷F6·2‚ ¢FVb÷'Vå÷F6²‡6VÆb’ÓâæöæS ¢–bæ÷B6VÆbæF"÷"æ÷B6VÆbæ7F—fU÷7FW3 ¢ÖW76vT&÷‚æ–æf÷&ÖF–öâ‡6VÆbÂôäÔRÂ.Šû~XX‹ùîhê^ZéîKè¾[›nXxnZH~K»¾XªjÚ^šªN8""¢&WGW&à¢F&vWBÒ6VÆbæF"æ6ÆöæUöf÷%öFWf–6R‚¢7FW2Ò¶F–7B‡7FW’f÷"7FW–â6VÆbæ7F—fU÷7FW5Ğ¢&WVBÂ&WVE÷v—BÒ6VÆbç&WVEö6†V6²æ—46†V6¶VB‚’Â6VÆbç&WVE÷v—BçfÇVR‚ ¢FVb¦ö"‚’ÓâæöæS ¢&÷VæEöçVÖ&W"Ò ¢6VÆbæÆör‚.[ÈZx¾hš~ŠÎK»¾Xª[¨şX‰~8""¢v†–ÆRæ÷B6VÆbç7F÷öWfVçBæ—5÷6WB‚“ ¢&÷VæEöçVÖ&W"³Ò¢f÷"–æFW‚Â7FW–âVçVÖW&FR‡7FW2“ ¢–b6VÆbç7F÷öWfVçBæ—5÷6WB‚“ ¢'&V°¢7F–öâÒ7FWævWB‚&7F–öâ"¢G'“ ¢–b7F–öâ–â²'F"Â&&6²"Â'FV×ÆFR'ÒæBæ÷BF&vWBæf÷&Vw&÷VæEö—5övÖR‚“ ¢6VÆbæÆör†b.jÚ^šªB¶–æFW‚²Òi¨.XÎûÉ®k‹hˆşKˆŞYÊX˜ŞXû8""¢v†–ÆRæ÷B6VÆbç7F÷öWfVçBçv—Bƒ"“ ¢–bF&vWBæf÷&Vw&÷VæEö—5övÖR‚“ ¢'&V°¢–b7F–öâÓÒ'F# ¢ö–çBÒ66ÆU÷&V6÷&FVE÷ö–çB‚†–çB‡7FW²'‚%Ò’Â–çB‡7FW²'’%Ò’’Â†–çB‡7FW²'v–GF‚%Ò’Â–çB‡7FW²&†V–v‡B%Ò’’ÂF&vWBç67&VVå÷6—¦R‚’¢F&vWBçF‚§ö–çB¢6VÆbæÆör†b.jÚ^šªB¶–æFW‚²ŞûÉ®x+X{²·ö–çGŞ8""¢VÆ–b7F–öâÓÒ'v—B# ¢–b6VÆbç7F÷öWfVçBçv—B†fÆöB‡7FW²'6V6öæG2%Ò’“ ¢'&V°¢VÆ–b7F–öâÓÒ&&6²# ¢F&vWBæ&6²‚¢VÆ–b7F–öâÓÒ'FV×ÆFR# ¢FVFÆ–æRÒF–ÖRæÖöæ÷Föæ–2‚’²fÆöB‡7FWævWB‚'F–ÖV÷WB"ÂR’¢v†–ÆRF–ÖRæÖöæ÷Föæ–2‚’ÂFVFÆ–æRæBæ÷B6VÆbç7F÷öWfVçBæ—5÷6WB‚“ ¢F‚ÒDTÕÄDUôD•"ò7G"‡7FW²'FV×ÆFR%Ò¢ö–çBÂ66÷&RÒÖF6…÷FV×ÆFR‡F&vWBç67&VVç6†÷B‚’ÂF‚ÂfÆöB‡7FWævWB‚'F‡&W6†öÆB"Âãƒ‚’’ÂFV×ÆFU÷&VfW&Væ6U÷6—¦R‡F‚’¢–bö–çC ¢F&vWBçF‚§ö–çB¢6VÆbæÆör†b.jÚ^šªB¶–æFW‚²ŞûÉ®ŠønY»îx+X{²·ö–çGŞûÈÎy»KËÎ[ªb·66÷&S¢ã6gŞ8""¢'&V°¢6VÆbç7F÷öWfVçBçv—Bƒ¢W†6WBW†6WF–öâ2W†3 ¢6VÆbæÆör†b.jÚ^šªB¶–æFW‚²ÒZK‹J^ûÉ§¶W†7Ò"¢6VÆbç7F÷öWfVçBç6WB‚¢'&V°¢–bæ÷B&WVB÷"6VÆbç7F÷öWfVçBæ—5÷6WB‚“ ¢'&V°¢–b6VÆbç7F÷öWfVçBçv—B‡&WVE÷v—B“ ¢'&V°¢6VÆbæÆör‚.K»¾Xª[¨şX‰~[{.{¹>iÙş8"" ¢6VÆbå÷7F'E÷v÷&¶W"‡F&vWBæFWf–6RÂ¦ö" ¢FVbö†÷F¶W•öÆö÷‡6VÆb’ÓâæöæS ¢–b÷2ææÖRÒ&çB# ¢&WGW&à¢W6W#3"Ò7G—W2çv–æFÆÂçW6W#3 ¢v†–ÆRæ÷B6VÆbæ6Æ÷6–æræ—5÷6WB‚“ ¢–bW6W#3"ävWD7–æ4¶W•7FFRƒƒsr’b ¢6VÆbç7F÷öWfVçBç6WB‚¢6VÆbæÆör‚.j8kX¾X‹XZ[cûÈÎjÚ>YÊXÎjÚ.8""¢F–ÖRç6ÆVWƒã‚ ¢FVb6Æ÷6TWfVçB‡6VÆbÂWfVçC¢ç’’ÓâæöæS ¢6VÆbæ6Æ÷6–ærç6WB‚¢6VÆbç7F÷öWfVçBç6WB‚¢WfVçBæ66WB‚  ¦FVbÖ–â‚’ÓâæöæS ¢'6W"Ò&w'6Rä&wVÖVçE'6W"†FW67&—F–öãÔôäÔR¢'6W"æFEö&wVÖVçB‚"ÒÖFWf–6R"¢'6W"æFEö&wVÖVçB‚"ÒÖWFòÖ†VÇ"Â7F–öãÒ'7F÷&U÷G'VR"¢'6W"æFEö&wVÖVçB‚"ÒÖÆÂÖWFòÖ†VÇ"Â7F–öãÒ'7F÷&U÷G'VR"¢'6W"æFEö&wVÖVçB‚"ÒÖWFò×&VB×6¶WB"Â7F–öãÒ'7F÷&U÷G'VR"¢'6W"æFEö&wVÖVçB‚"ÒÖÆÂÖWFò×&VB×6¶WB"Â7F–öãÒ'7F÷&U÷G'VR"¢'6W"æFEö&wVÖVçB‚"ÒÖ–çFW'fÂ"ÂG—SÖfÆöBÂ†VÇÒ.ˆz®XªZûÎˆŠ®[ŠîXªy¨Nx+X{²òŠønXŠ¾™{N™©NûÈzy.ûÈ’"¢&w2Ò'6W"ç'6Uö&w2‚¢–b†6GG"…BäÆ–6F–öäGG&–'WFRÂ$ôVæ&ÆT†–v„G•66Æ–ær"“ ¢Æ–6F–öâç6WDGG&–'WFR…BäÆ–6F–öäGG&–'WFRäôVæ&ÆT†–v„G•66Æ–ærÂG'VR¢ÒÆ–6F–öâ‡7—2æ&we³£Ò¢ç6WDÆ–6F–öäæÖR„ôäÔR¢ç6WDÆ–6F–öåfW'6–öâ„õdU%4”ôâ¢ç6WD÷&væ—¦F–öäæÖR‚%t¤E"FööÇ2"¢ç6WE7G–ÆR‚$gW6–öâ"¢v–æF÷rÒÖ–åv–æF÷r€¢&w2æFWf–6RÀ¢&w2æWFõö†VÇÀ¢&w2æÆÅöWFõö†VÇÀ¢&w2æWFõ÷&VE÷6¶WBÀ¢&w2æÆÅöWFõ÷&VE÷6¶WBÀ¢&w2æ–çFW'fÂÀ¢¢v–æF÷rç6†÷r‚¢÷vRÒ÷2æVçf—&öâævWB‚%t¤E%õõtR"¢–b÷vRæB÷vRæ—6F–v—B‚“ ¢v–æF÷rå÷6†÷u÷vR†Ö–â†–çB‡÷vR’Âv–æF÷rç7F6²æ6÷VçB‚’Ò’¢÷67&VVç6†÷BÒ÷2æVçf—&öâævWB‚%t¤E%õõ45$TTå4„õB"¢–b÷67&VVç6†÷C ¢FVb6fU÷÷67&VVç6†÷B‚’ÓâæöæS ¢6fVBÒv–æF÷ræw&"‚’ç6fR‡÷67&VVç6†÷BÂ%är"¢v–æF÷ræÆör†b%T’š¨ÎiKnhŠ®Y»ç²~[{.KùŞZÙ‚r–b6fVBVÇ6R~KùŞZÙZK‹JRwŞûÉ§·÷67&VVç6†÷GÒ" ¢F–ÖW"ç6–ævÆU6†÷Bƒ3SÂ6fU÷÷67&VVç6†÷B¢&—6R7—7FVÔW†—B†æW†V2‚’  ¦–bõöæÖUõòÓÒ%õöÖ–åõò# ¢Ö–â‚
+        self.point_label.setObjectName("muted")
+        preview_header.addWidget(preview_title)
+        preview_header.addStretch()
+        preview_header.addWidget(self.point_label)
+        preview_layout.addLayout(preview_header)
+        self.screenshot = ScreenshotView()
+        self.screenshot.point_selected.connect(self._point_selected)
+        self.screenshot.region_selected.connect(self._region_selected)
+        preview_layout.addWidget(self.screenshot, 1)
+        preview_footer = QHBoxLayout()
+        capture = QPushButton("â†»  åˆ·æ–°ç”»é¢")
+        capture.setObjectName("softButton")
+        capture.clicked.connect(lambda: self._run_async(self._capture_job))
+        save_template = QPushButton("ï¼‹  ä¿å­˜æ¡†é€‰ä¸ºæ¨¡æ¿")
+        save_template.setObjectName("softButton")
+        save_template.clicked.connect(self._save_template)
+        preview_footer.addWidget(capture)
+        preview_footer.addStretch()
+        preview_footer.addWidget(save_template)
+        preview_layout.addLayout(preview_footer)
+        content.addWidget(preview_card, 3)
+
+        right = QVBoxLayout()
+        right.setSpacing(16)
+        device_card = Card()
+        device_layout = QVBoxLayout(device_card)
+        device_layout.setContentsMargins(20, 18, 20, 18)
+        device_title = QLabel("å½“å‰å®ä¾‹")
+        device_title.setObjectName("cardTitle")
+        self.instance_name = QLabel("æ­£åœ¨æ‰«æ MuMuâ€¦")
+        self.instance_name.setObjectName("instanceName")
+        self.instance_meta = QLabel("ADB â€”  Â·  åˆ†è¾¨ç‡ â€”")
+        self.instance_meta.setObjectName("muted")
+        self.instance_state = QLabel("è¿æ¥ä¸­")
+        self.instance_state.setObjectName("greenPill")
+        device_layout.addWidget(device_title)
+        device_layout.addSpacing(5)
+        device_layout.addWidget(self.instance_name)
+        device_layout.addWidget(self.instance_meta)
+        device_layout.addWidget(self.instance_state, 0, Qt.AlignmentFlag.AlignLeft)
+        action_grid = QGridLayout()
+        launch = QPushButton("åˆ‡å›æ¸¸æˆ")
+        launch.setObjectName("softButton")
+        launch.clicked.connect(lambda: self._run_async(self._launch_game_job))
+        separate = QPushButton("ç‹¬ç«‹çª—å£")
+        separate.setObjectName("softButton")
+        separate.clicked.connect(self._open_selected_window)
+        all_instances = QPushButton("å…¨éƒ¨å®ä¾‹æŒ‚æœº")
+        all_instances.setObjectName("secondaryButton")
+        all_instances.clicked.connect(self._start_all_instances)
+        action_grid.addWidget(launch, 0, 0)
+        action_grid.addWidget(separate, 0, 1)
+        action_grid.addWidget(all_instances, 1, 0, 1, 2)
+        device_layout.addSpacing(10)
+        device_layout.addLayout(action_grid)
+        right.addWidget(device_card)
+
+        stats = Card()
+        stats_layout = QGridLayout(stats)
+        stats_layout.setContentsMargins(20, 18, 20, 18)
+        stats_title = QLabel("æœ¬æ¬¡è¿è¡Œ")
+        stats_title.setObjectName("cardTitle")
+        stats_layout.addWidget(stats_title, 0, 0, 1, 2)
+        self.click_count = QLabel("0")
+        self.click_count.setObjectName("statValue")
+        self.runtime_label = QLabel("00:00:00")
+        self.runtime_label.setObjectName("statValue")
+        stats_layout.addWidget(self.click_count, 1, 0)
+        stats_layout.addWidget(self.runtime_label, 1, 1)
+        label1, label2 = QLabel("ç´¯è®¡ç‚¹å‡»"), QLabel("è¿è¡Œæ—¶é—´")
+        label1.setObjectName("muted")
+        label2.setObjectName("muted")
+        stats_layout.addWidget(label1, 2, 0)
+        stats_layout.addWidget(label2, 2, 1)
+        right.addWidget(stats)
+
+        note = Card(name="noticeCard")
+        note_layout = QVBoxLayout(note)
+        note_layout.setContentsMargins(18, 15, 18, 15)
+        note_title = QLabel("å®‰å…¨æç¤º")
+        note_title.setObjectName("noticeTitle")
+        note_text = QLabel("F8 ä¼šåœæ­¢æ‰€æœ‰åŠ©æ‰‹çª—å£ã€‚å»ºè®®ä¿æŒçŸ­æ—¶ã€æœ‰äººè§‚å¯Ÿï¼Œä¸ç”¨äºæˆ˜æ–—æˆ–å……å€¼æ“ä½œã€‚")
+        note_text.setObjectName("noticeText")
+        note_text.setWordWrap(True)
+        note_layout.addWidget(note_title)
+        note_layout.addWidget(note_text)
+        right.addWidget(note)
+        right.addStretch()
+        content.addLayout(right, 2)
+        layout.addLayout(content, 1)
+
+        self.runtime_timer = QTimer(self)
+        self.runtime_timer.timeout.connect(self._update_runtime)
+        return page
+
+    def _build_automation(self) -> QWidget:
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        self._set_window_background(page.viewport())
+        self._set_window_background(body)
+        page.setWidget(body)
+        layout = QHBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(18)
+        recognition = Card()
+        form = QVBoxLayout(recognition)
+        form.setContentsMargins(24, 22, 24, 24)
+        title = QLabel("è¯†å›¾ç‚¹å‡»")
+        title.setObjectName("sectionTitle")
+        desc = QLabel("è‡ªåŠ¨æµç¨‹ä¼šè¯†åˆ«ä¸»åŸã€è”ç›Ÿä¸»é¡µå’Œè”ç›Ÿäº’åŠ©é¡µï¼›ä»…ç‚¹å‡»å·²ç¡®è®¤çš„ç»¿è‰²â€œå…¨éƒ¨å¸®åŠ©â€ã€‚")
+        desc.setObjectName("muted")
+        desc.setWordWrap(True)
+        form.addWidget(title)
+        form.addWidget(desc)
+        form.addSpacing(16)
+        form.addWidget(self._field_label("è¿è¡Œæ¨¡å¼"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["è¯†å›¾ç‚¹å‡»ï¼ˆæ¨èï¼‰", "å›ºå®šåæ ‡è¿ç‚¹"])
+        form.addWidget(self.mode_combo)
+        form.addSpacing(12)
+        form.addWidget(self._field_label("æŒ‰é’®æ¨¡æ¿"))
+        row = QHBoxLayout()
+        self.template_combo = QComboBox()
+        row.addWidget(self.template_combo, 1)
+        refresh = QPushButton("åˆ·æ–°")
+        refresh.setObjectName("softButton")
+        refresh.clicked.connect(self._refresh_templates)
+        row.addWidget(refresh)
+        form.addLayout(row)
+        form.addSpacing(12)
+        form.addWidget(self._field_label("ç›¸ä¼¼åº¦é˜ˆå€¼"))
+        threshold_row = QHBoxLayout()
+        self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.threshold_slider.setRange(70, 99)
+        self.threshold_slider.setValue(88)
+        self.threshold_value = QLabel("0.88")
+        self.threshold_value.setObjectName("valuePill")
+        self.threshold_slider.valueChanged.connect(lambda value: self.threshold_value.setText(f"{value / 100:.2f}"))
+        threshold_row.addWidget(self.threshold_slider, 1)
+        threshold_row.addWidget(self.threshold_value)
+        form.addLayout(threshold_row)
+        form.addSpacing(12)
+        fixed = QLabel("å›ºå®šåæ ‡ï¼ˆå¯é€‰ï¼‰")
+        fixed.setObjectName("fieldLabel")
+        form.addWidget(fixed)
+        self.fixed_label = QLabel("åœ¨è®¾å¤‡ä¸­å¿ƒçš„ç”»é¢ä¸Šå•å‡»ä¸€ä¸ªä½ç½®")
+        self.fixed_label.setObjectName("inputLike")
+        form.addWidget(self.fixed_label)
+        form.addStretch()
+        layout.addWidget(recognition, 1)
+
+        limits = Card()
+        limit_layout = QVBoxLayout(limits)
+        limit_layout.setContentsMargins(24, 22, 24, 24)
+        limit_title = QLabel("è¿è¡Œè®¾ç½®")
+        limit_title.setObjectName("sectionTitle")
+        limit_layout.addWidget(limit_title)
+        limit_layout.addSpacing(14)
+        self.interval_spin = QDoubleSpinBox()
+        self.interval_spin.setRange(0.5, 3600)
+        self.interval_spin.setValue(3.0)
+        self.interval_spin.setSuffix(" ç§’")
+        self.duration_spin = QSpinBox()
+        self.duration_spin.setRange(0, 100000)
+        self.duration_spin.setValue(60)
+        self.duration_spin.setSuffix(" åˆ†é’Ÿ")
+        self.max_clicks_spin = QSpinBox()
+        self.max_clicks_spin.setRange(0, 1000000)
+        self.max_clicks_spin.setValue(500)
+        self.guard_check = QCheckBox("ä»…å½“ã€Šæ— å°½å†¬æ—¥ã€‹ä½äºæ¨¡æ‹Ÿå™¨å‰å°æ—¶ç‚¹å‡»")
+        self.guard_check.setChecked(True)
+        for label, widget in (
+            ("å¾ªç¯ / ç‚¹å‡»é—´éš”", self.interval_spin),
+            ("è¿è¡Œæ—¶é•¿ï¼ˆ0 = ä¸é™ï¼‰", self.duration_spin),
+            ("æœ€å¤šç‚¹å‡»æ¬¡æ•°ï¼ˆ0 = ä¸é™ï¼‰", self.max_clicks_spin),
+        ):
+            limit_layout.addWidget(self._field_label(label))
+            limit_layout.addWidget(widget)
+            limit_layout.addSpacing(10)
+        limit_layout.addWidget(self.guard_check)
+        limit_layout.addStretch()
+        start_custom = QPushButton("å¼€å§‹è¯†å›¾è¿è¡Œ")
+        start_custom.setObjectName("primaryButton")
+        start_custom.clicked.connect(self._start_custom_clicker)
+        limit_layout.addWidget(start_custom)
+        layout.addWidget(limits, 1)
+        return page
+
+    def _build_red_packet_page(self) -> QWidget:
+        """Build the independent, guarded furnace-upgrade red-packet workflow."""
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        self._set_window_background(page.viewport())
+        self._set_window_background(body)
+        page.setWidget(body)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(18)
+
+        hero = Card(name="redPacketHero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(28, 24, 26, 24)
+        hero_text = QVBoxLayout()
+        kicker = QLabel("è”ç›Ÿé¢‘é“ Â· ç†”ç‚‰å‡çº§çº¢åŒ…")
+        kicker.setObjectName("redPacketKicker")
+        title = QLabel("å‘ç°çº¢åŒ…æµ®æ ‡åï¼Œè‡ªåŠ¨ç¡®è®¤å¹¶å¼€å¯ç›®æ ‡çº¢åŒ…")
+        title.setObjectName("redPacketTitle")
+        desc = QLabel("æµ®æ ‡ä»…ç”¨äºå”¤é†’æ£€æŸ¥ã€‚ç¨‹åºä¼šä¾æ¬¡ç¡®è®¤èŠå¤©ã€è”ç›Ÿé¢‘é“ã€ç†”ç‚‰å‡çº§çº¢åŒ…å’Œâ€œå¼€å¯â€æŒ‰é’®ï¼›ä»»ä¸€æ­¥ä¸æˆç«‹éƒ½ä¸è¾“å…¥ã€‚")
+        desc.setObjectName("redPacketText")
+        desc.setWordWrap(True)
+        hero_text.addWidget(kicker)
+        hero_text.addWidget(title)
+        hero_text.addWidget(desc)
+        hero_layout.addLayout(hero_text, 1)
+        actions = QVBoxLayout()
+        self.red_packet_start_button = QPushButton("âœ¦  å¼€å§‹è‡ªåŠ¨æŠ¢çº¢åŒ…")
+        self.red_packet_start_button.setObjectName("redPacketPrimaryButton")
+        self.red_packet_start_button.clicked.connect(self._start_red_packet_flow)
+        stop = QPushButton("â–   åœæ­¢")
+        stop.setObjectName("redPacketStopButton")
+        stop.clicked.connect(self.stop_all)
+        actions.addWidget(self.red_packet_start_button)
+        actions.addWidget(stop)
+        hero_layout.addLayout(actions)
+        layout.addWidget(hero)
+
+        status_card = Card(name="redPacketStatusCard")
+        status_layout = QHBoxLayout(status_card)
+        status_layout.setContentsMargins(22, 17, 22, 17)
+        state_text = QVBoxLayout()
+        state_title = QLabel("çº¢åŒ…ç›‘å¬çŠ¶æ€")
+        state_title.setObjectName("cardTitle")
+        self.red_packet_state_label = QLabel("å¾…å‘½ï¼šç­‰å¾…å³ä¸‹è§’çº¢åŒ…æµ®æ ‡")
+        self.red_packet_state_label.setObjectName("redPacketState")
+        state_hint = QLabel("é¢†å–æˆåŠŸåä¼šå…ˆç¡®è®¤ç»“æœé¡µï¼Œå†å®‰å…¨å…³é—­å¹¶å›åˆ°ä¸»åŸç»§ç»­ç›‘å¬ã€‚")
+        state_hint.setObjectName("muted")
+        state_text.addWidget(state_title)
+        state_text.addWidget(self.red_packet_state_label)
+        state_text.addWidget(state_hint)
+        status_layout.addLayout(state_text, 1)
+        all_instances = QPushButton("å…¨éƒ¨å®ä¾‹æŠ¢çº¢åŒ…")
+        all_instances.setObjectName("redPacketSecondaryButton")
+        all_instances.clicked.connect(lambda: self._start_all_instances("red_packet"))
+        status_layout.addWidget(all_instances)
+        layout.addWidget(status_card)
+
+        content = QHBoxLayout()
+        content.setSpacing(18)
+        safety = Card()
+        safety_layout = QVBoxLayout(safety)
+        safety_layout.setContentsMargins(24, 22, 24, 24)
+        safety_title = QLabel("ç¡®è®¤é“¾è·¯")
+        safety_title.setObjectName("sectionTitle")
+        safety_desc = QLabel(
+            "â‘  è¿ç»­ä¸¤å¸§æ£€æµ‹çº¢åŒ…æµ®æ ‡\n"
+            "â‘¡ ç¡®è®¤èŠå¤©é¡µï¼Œå†ç¡®è®¤â€œè”ç›Ÿâ€å·²é€‰ä¸­\n"
+            "â‘¢ è¯†åˆ«â€œç†”ç‚‰å‡çº§çº¢åŒ…â€å¡ç‰‡\n"
+            "â‘£ æ ‡é¢˜ä¸â€œå¼€å¯â€æŒ‰é’®åŒå±ä¸”å‡ ä½•å…³ç³»æ­£ç¡®\n"
+            "â‘¤ è¯†åˆ«å¥–åŠ±ç»“æœé¡µåæ‰å…³é—­ï¼Œéšåé‡æ–°ç›‘å¬"
+        )
+        safety_desc.setObjectName("redPacketRules")
+        safety_desc.setWordWrap(True)
+        safety_note = QLabel("ä¸ä¼šæ»šåŠ¨èŠå¤©è®°å½•ï¼›æœªçœ‹åˆ°ç›®æ ‡å¡ã€å·²é¢†å®Œã€é¡µé¢æœªçŸ¥æˆ–æ¸¸æˆä¸åœ¨å‰å°æ—¶ï¼Œå‡ä¸ç‚¹å‡»ã€‚")
+        safety_note.setObjectName("noticeText")
+        safety_note.setWordWrap(True)
+        safety_layout.addWidget(safety_title)
+        safety_layout.addSpacing(12)
+        safety_layout.addWidget(safety_desc)
+        safety_layout.addSpacing(14)
+        safety_layout.addWidget(safety_note)
+        safety_layout.addStretch()
+        content.addWidget(safety, 3)
+
+        limits = Card()
+        limit_layout = QVBoxLayout(limits)
+        limit_layout.setContentsMargins(24, 22, 24, 24)
+        limit_title = QLabel("çº¢åŒ…è¿è¡Œè®¾ç½®")
+        limit_title.setObjectName("sectionTitle")
+        limit_layout.addWidget(limit_title)
+        limit_layout.addSpacing(14)
+        self.red_packet_interval_spin = QDoubleSpinBox()
+        self.red_packet_interval_spin.setRange(0.8, 3600)
+        self.red_packet_interval_spin.setValue(2.0)
+        self.red_packet_interval_spin.setSuffix(" ç§’ / æ£€æŸ¥")
+        self.red_packet_duration_spin = QSpinBox()
+        self.red_packet_duration_spin.setRange(0, 100000)
+        self.red_packet_duration_spin.setValue(120)
+        self.red_packet_duration_spin.setSuffix(" åˆ†é’Ÿ")
+        self.red_packet_max_claims_spin = QSpinBox()
+        self.red_packet_max_claims_spin.setRange(0, 1000000)
+        self.red_packet_max_claims_spin.setValue(100)
+        self.red_packet_guard_check = QCheckBox("ä»…å½“ã€Šæ— å°½å†¬æ—¥ã€‹ä½äºæ¨¡æ‹Ÿå™¨å‰å°æ—¶ç‚¹å‡»")
+        self.red_packet_guard_check.setChecked(True)
+        for label, widget in (
+            ("æˆªå›¾ / æ£€æŸ¥é—´éš”", self.red_packet_interval_spin),
+            ("è¿è¡Œæ—¶é•¿ï¼ˆ0 = ä¸é™ï¼‰", self.red_packet_duration_spin),
+            ("æœ€å¤šé¢†å–æ¬¡æ•°ï¼ˆ0 = ä¸é™ï¼‰", self.red_packet_max_claims_spin),
+        ):
+            limit_layout.addWidget(self._field_label(label))
+            limit_layout.addWidget(widget)
+            limit_layout.addSpacing(10)
+        limit_layout.addWidget(self.red_packet_guard_check)
+        limit_layout.addStretch()
+        content.addWidget(limits, 2)
+        layout.addLayout(content)
+        layout.addStretch()
+        return page
+
+    def _build_tasks_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+        editor = Card()
+        edit = QVBoxLayout(editor)
+        edit.setContentsMargins(22, 20, 22, 22)
+        title = QLabel("ä»»åŠ¡æ­¥éª¤")
+        title.setObjectName("sectionTitle")
+        self.task_combo = QComboBox()
+        self.task_combo.currentIndexChanged.connect(self._load_selected_task)
+        self.step_list = QListWidget()
+        row = QHBoxLayout()
+        for text, callback in (
+            ("ï¼‹ é€‰ç‚¹", self._task_add_point),
+            ("ï¼‹ ç­‰å¾…", self._task_add_wait),
+            ("ï¼‹ è¿”å›", self._task_add_back),
+            ("ï¼‹ è¯†å›¾", self._task_add_template),
+        ):
+            button = QPushButton(text)
+            button.setObjectName("softButton")
+            button.clicked.connect(callback)
+            row.addWidget(button)
+        edit.addWidget(title)
+        edit.addWidget(self.task_combo)
+        edit.addWidget(self.step_list, 1)
+        edit.addLayout(row)
+        layout.addWidget(editor, 3)
+        actions = Card()
+        action_layout = QVBoxLayout(actions)
+        action_layout.setContentsMargins(22, 20, 22, 22)
+        action_title = QLabel("ä»»åŠ¡æ“ä½œ")
+        action_title.setObjectName("sectionTitle")
+        action_layout.addWidget(action_title)
+        for text, object_name, callback in (
+            ("æ–°å»ºä»»åŠ¡", "softButton", self._new_task),
+            ("åˆ é™¤é€‰ä¸­æ­¥éª¤", "softButton", self._delete_task_step),
+            ("ä¿å­˜ä»»åŠ¡", "secondaryButton", self._save_task),
+            ("åˆ é™¤ä»»åŠ¡", "dangerButton", self._delete_task),
+        ):
+            button = QPushButton(text)
+            button.setObjectName(object_name)
+            button.clicked.connect(callback)
+            action_layout.addWidget(button)
+        action_layout.addSpacing(12)
+        self.repeat_check = QCheckBox("å¾ªç¯æ‰§è¡Œ")
+        self.repeat_wait = QSpinBox()
+        self.repeat_wait.setRange(0, 86400)
+        self.repeat_wait.setValue(30)
+        self.repeat_wait.setSuffix(" ç§’ / è½®")
+        action_layout.addWidget(self.repeat_check)
+        action_layout.addWidget(self.repeat_wait)
+        action_layout.addStretch()
+        run = QPushButton("â–¶  è¿è¡Œå½“å‰ä»»åŠ¡")
+        run.setObjectName("primaryButton")
+        run.clicked.connect(self._run_task)
+        action_layout.addWidget(run)
+        layout.addWidget(actions, 1)
+        return page
+
+    def _build_log_page(self) -> QWidget:
+        page = Card()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(22, 20, 22, 22)
+        header = QHBoxLayout()
+        title = QLabel("è¿è¡Œæ—¥å¿—")
+        title.setObjectName("sectionTitle")
+        open_folder = QPushButton("æ‰“å¼€æ—¥å¿—ç›®å½•")
+        open_folder.setObjectName("softButton")
+        open_folder.clicked.connect(lambda: os.startfile(CONFIG_DIR))
+        clear = QPushButton("æ¸…ç©ºæ˜¾ç¤º")
+        clear.setObjectName("softButton")
+        clear.clicked.connect(lambda: self.log_edit.clear())
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(open_folder)
+        header.addWidget(clear)
+        layout.addLayout(header)
+        self.log_edit = QTextEdit()
+        self.log_edit.setObjectName("logEdit")
+        self.log_edit.setReadOnly(True)
+        layout.addWidget(self.log_edit, 1)
+        return page
+
+    def _build_about_page(self) -> QWidget:
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        self._set_window_background(page.viewport())
+        self._set_window_background(body)
+        page.setWidget(body)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 0)
+        about = Card()
+        about_layout = QVBoxLayout(about)
+        about_layout.setContentsMargins(28, 26, 28, 28)
+        title = QLabel(f"{APP_NAME}  {APP_VERSION}")
+        title.setObjectName("heroTitle")
+        text = QLabel(
+            "è¿™æ˜¯ä¸€ä¸ªåªé€šè¿‡ MuMu è‡ªå¸¦ ADB æˆªå›¾ã€è¯†å›¾å’Œæ¨¡æ‹Ÿç‚¹å‡»å·¥ä½œçš„æœ¬åœ°å·¥å…·ã€‚\n\n"
+            "â€¢ ä¸è¯»å–æ¸¸æˆå†…å­˜ï¼Œä¸ä¿®æ”¹ APKï¼Œä¸è¯»å–è´¦å·å¯†ç ã€‚\n"
+            "â€¢ æ¯ä¸ªçª—å£ç»‘å®šä¸€ä¸ªç‹¬ç«‹ ADB ç«¯å£ï¼ŒåŒä¸€å®ä¾‹å¸¦è·¨è¿›ç¨‹å ç”¨é”ã€‚\n"
+            "â€¢ å†…ç½®æ¨¡æ¿æ”¯æŒ 720Ã—1280 è‡³ 1600Ã—2560 çš„å·²æµ‹åˆ†è¾¨ç‡èŒƒå›´ã€‚\n"
+            "â€¢ F8 æ˜¯å…¨å±€æ€¥åœï¼›æ™®é€šåœæ­¢æŒ‰é’®åªåœæ­¢å½“å‰çª—å£ã€‚\n\n"
+            "æ¸¸æˆæœåŠ¡æ¡æ¬¾å¯èƒ½ç¦æ­¢ auto / macro / botã€‚æ— äººå€¼å®ˆè‡ªåŠ¨åŒ–å¯èƒ½å¯¼è‡´è´¦å·å¤„ç½šï¼Œ"
+            "è¯·ä¿æŒçŸ­æ—¶ã€æœ‰äººè§‚å¯Ÿï¼Œä¸è¦ç”¨äºæˆ˜æ–—ã€æŠ¢å ã€å……å€¼æˆ–æ‰¹é‡è´¦å·ã€‚"
+        )
+        text.setObjectName("aboutText")
+        text.setWordWrap(True)
+        about_layout.addWidget(title)
+        about_layout.addSpacing(10)
+        about_layout.addWidget(text)
+        layout.addWidget(about)
+        layout.addStretch()
+        return page
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    @staticmethod
+    def _set_window_background(widget: QWidget) -> None:
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(COLORS["window"]))
+        widget.setPalette(palette)
+        widget.setAutoFillBackground(True)
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet(
+            f"""
+            * {{ font-family: 'Microsoft YaHei UI'; font-size: 14px; color: {COLORS['text']}; }}
+            QMainWindow, QWidget#root, QWidget#main {{ background: {COLORS['window']}; }}
+            QFrame#sidebar {{ background: {COLORS['navy']}; }}
+            QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 13px; min-width: 42px; min-height: 42px; font-size: 24px; font-weight: 700; }}
+            QLabel#brand {{ color: white; font-size: 17px; font-weight: 700; }}
+            QLabel#brandSub {{ color: #8294B3; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
+            QPushButton#navButton {{ text-align: left; color: #93A4C0; background: transparent; border: none; border-radius: 9px; padding: 12px 14px; font-weight: 600; }}
+            QPushButton#navButton:hover {{ color: white; background: #172947; }}
+            QPushButton#navButton:checked {{ color: white; background: #245FD0; }}
+            QFrame#sidebarCard {{ background: #172947; border: 1px solid #233A60; border-radius: 12px; }}
+            QLabel#sideCardTitle {{ color: #DCE8FB; font-weight: 700; }}
+            QLabel#sideCardText {{ color: #8294B3; font-size: 11px; line-height: 1.4; }}
+            QLabel#pageTitle {{ font-size: 26px; font-weight: 750; }}
+            QLabel#pageSubtitle, QLabel#muted {{ color: {COLORS['muted']}; font-size: 12px; }}
+            QLabel#statusPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
+            QFrame#card, QFrame#noticeCard {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 14px; }}
+            QFrame#hero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #183A73, stop:1 #2358B3); border-radius: 16px; }}
+            QLabel#heroKicker {{ color: #91B6FF; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
+            QLabel#heroTitle {{ color: white; font-size: 23px; font-weight: 750; }}
+            QLabel#heroText {{ color: #C2D3EF; font-size: 12px; }}
+            QFrame#redPacketHero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #8C2631, stop:.56 #C94734, stop:1 #E88338); border-radius: 16px; }}
+            QLabel#redPacketKicker {{ color: #FFE3A4; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
+            QLabel#redPacketTitle {{ color: white; font-size: 23px; font-weight: 750; }}
+            QLabel#redPacketText {{ color: #FFF0D3; font-size: 12px; }}
+            QFrame#redPacketStatusCard {{ background: #FFF8F0; border: 1px solid #F1D4B1; border-radius: 14px; }}
+            QLabel#redPacketState {{ color: #B45624; font-size: 15px; font-weight: 750; }}
+            QLabel#redPacketRules {{ color: #52627A; font-size: 14px; line-height: 1.8; }}
+            QLabel#cardTitle, QLabel#sectionTitle {{ font-size: 17px; font-weight: 750; }}
+            QLabel#instanceName {{ font-size: 19px; font-weight: 750; }}
+            QLabel#greenPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 12px; padding: 5px 9px; font-size: 11px; font-weight: 700; }}
+            QLabel#statValue {{ color: {COLORS['blue']}; font-size: 25px; font-weight: 800; }}
+            QLabel#noticeTitle {{ color: #945A0C; font-weight: 750; }}
+            QLabel#noticeText {{ color: #8B6A39; font-size: 11px; }}
+            QLabel#fieldLabel {{ font-weight: 700; margin-top: 2px; }}
+            QLabel#inputLike {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 11px; color: {COLORS['muted']}; }}
+            QLabel#valuePill {{ background: #EAF1FF; color: #255EC5; border-radius: 10px; padding: 5px 9px; font-weight: 700; }}
+            QLabel#aboutText {{ color: #52627A; font-size: 14px; line-height: 1.6; }}
+            QPushButton {{ min-height: 38px; border-radius: 9px; padding: 0 16px; font-weight: 650; }}
+            QPushButton#primaryButton {{ background: {COLORS['blue']}; color: white; border: none; min-height: 44px; }}
+            QPushButton#primaryButton:hover {{ background: {COLORS['blue_dark']}; }}
+            QPushButton#redPacketPrimaryButton {{ background: #FFF5DF; color: #A63B20; border: none; min-height: 44px; }}
+            QPushButton#redPacketPrimaryButton:hover {{ background: #FFFFFF; color: #8E2D1B; }}
+            QPushButton#redPacketSecondaryButton {{ background: #FFF0DE; color: #AF5427; border: 1px solid #F0C594; }}
+            QPushButton#redPacketSecondaryButton:hover {{ background: #FFE6C7; }}
+            QPushButton#redPacketStopButton {{ background: rgba(77, 17, 21, .32); color: white; border: 1px solid rgba(255,255,255,.34); }}
+            QPushButton#redPacketStopButton:hover {{ background: rgba(77, 17, 21, .48); }}
+            QPushButton#secondaryButton {{ background: #E9F0FE; color: #275FBF; border: 1px solid #CDDCF8; }}
+            QPushButton#softButton, QPushButton#ghostButton {{ background: white; color: #3D4C63; border: 1px solid {COLORS['border']}; }}
+            QPushButton#softButton:hover, QPushButton#ghostButton:hover {{ border-color: #AFC3E3; background: #F8FAFE; }}
+            QPushButton#dangerButton {{ background: {COLORS['red']}; color: white; border: none; }}
+            QComboBox, QSpinBox, QDoubleSpinBox {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
+            QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: #AFC3E3; }}
+            QComboBox QAbstractItemView {{ background: white; border: 1px solid {COLORS['border']}; selection-background-color: #E9F0FE; selection-color: {COLORS['text']}; padding: 6px; }}
+            QCheckBox {{ spacing: 8px; }}
+            QListWidget {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 10px; padding: 6px; }}
+            QListWidget::item {{ padding: 10px; border-radius: 7px; }}
+            QListWidget::item:selected {{ background: #E4EDFE; color: #255EC5; }}
+            QTextEdit#logEdit {{ background: #0D1627; color: #D7E3F6; border: none; border-radius: 11px; padding: 12px; font-family: 'Cascadia Mono'; font-size: 12px; }}
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{ width: 10px; background: transparent; margin: 4px 0; }}
+            QScrollBar::handle:vertical {{ background: #CAD4E4; border-radius: 5px; min-height: 30px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QSlider::groove:horizontal {{ height: 5px; background: #DDE5F2; border-radius: 2px; }}
+            QSlider::sub-page:horizontal {{ background: {COLORS['blue']}; border-radius: 2px; }}
+            QSlider::handle:horizontal {{ background: white; border: 2px solid {COLORS['blue']}; width: 16px; margin: -6px 0; border-radius: 8px; }}
+            """
+        )
+
+    def _show_page(self, index: int) -> None:
+        titles = [
+            ("è®¾å¤‡ä¸­å¿ƒ", "é€‰æ‹©å®ä¾‹ã€ç¡®è®¤ç”»é¢å¹¶å¿«é€Ÿå¯åŠ¨"),
+            ("è”ç›Ÿå¸®åŠ©", "è¯†å›¾é˜ˆå€¼ä¸è¿è¡Œé™åˆ¶"),
+            ("è”ç›Ÿçº¢åŒ…", "åªå¼€å¯å·²ç¡®è®¤çš„ç†”ç‚‰å‡çº§çº¢åŒ…"),
+            ("ä»»åŠ¡ç¼–æ’", "ç»„åˆç‚¹å‡»ã€ç­‰å¾…ã€è¿”å›å’Œè¯†å›¾æ­¥éª¤"),
+            ("è¿è¡Œæ—¥å¿—", "æ¯æ¡è®°å½•éƒ½æ ‡æ³¨ç»‘å®šçš„ ADB ç«¯å£"),
+            ("å…³äºä¸å®‰å…¨", "ç‰ˆæœ¬ã€å…¼å®¹èŒƒå›´ä¸è´¦å·é£é™©"),
+        ]
+        self.stack.setCurrentIndex(index)
+        self.page_title.setText(titles[index][0])
+        self.page_subtitle.setText(titles[index][1])
+        for number, button in enumerate(self.nav_buttons):
+            button.setChecked(number == index)
+
+    def _run_async(self, callback: Callable[[], None]) -> None:
+        threading.Thread(target=callback, daemon=True).start()
+
+    def log(self, message: str) -> None:
+        device = self.adb.device if self.adb and self.adb.device else "æœªç»‘å®š"
+        self._log_for_device(device, message)
+
+    def _log_for_device(self, device: str, message: str) -> None:
+        stamp = time.strftime("%H:%M:%S")
+        self.signals.log.emit(f"[{stamp}] [{device}] {message}")
+
+    @staticmethod
+    def _page_label(page: AlliancePage) -> str:
+        return {
+            AlliancePage.ALL_HELP_READY: "è”ç›Ÿäº’åŠ© Â· å¯å…¨éƒ¨å¸®åŠ©",
+            AlliancePage.MUTUAL_HELP: "è”ç›Ÿäº’åŠ© Â· ç©ºé¡µ",
+            AlliancePage.ALLIANCE_HOME: "è”ç›Ÿä¸»é¡µ",
+            AlliancePage.CITY: "ä¸»åŸ / ä¸–ç•Œåœ°å›¾",
+            AlliancePage.UNKNOWN: "æœªçŸ¥é¡µé¢",
+        }[page]
+
+    @staticmethod
+    def _red_packet_page_label(state: RedPacketState) -> str:
+        return {
+            RedPacketState.MARKER: "çº¢åŒ…æµ®æ ‡",
+            RedPacketState.CHAT_ENTRY: "ä¸»åŸèŠå¤©å…¥å£",
+            RedPacketState.CHAT_PANEL: "èŠå¤©é¢æ¿",
+            RedPacketState.ALLIANCE_CHAT: "è”ç›Ÿé¢‘é“",
+            RedPacketState.FURNACE_PACKET: "ç†”ç‚‰å‡çº§çº¢åŒ…å¡",
+            RedPacketState.FURNACE_DETAIL: "ç†”ç‚‰çº¢åŒ…è¯¦æƒ…",
+            RedPacketState.DETAIL_OPEN_READY: "ç†”ç‚‰çº¢åŒ…å¯å¼€å¯",
+            RedPacketState.CLAIM_RESULT_READY: "çº¢åŒ…é¢†å–ç»“æœ",
+            RedPacketState.UNKNOWN: "æœªçŸ¥é¡µé¢",
+        }[state]
+
+    def _append_log(self, line: str) -> None:
+        self.log_edit.append(line)
+        try:
+            with LOG_FILE.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        except OSError:
+            pass
+
+    def _load_log_tail(self) -> None:
+        try:
+            lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-100:]
+            self.log_edit.setPlainText("\n".join(lines))
+        except OSError:
+            pass
+
+    def _set_status(self, text: str, kind: str) -> None:
+        self.status_pill.setText(text)
+        colors = {
+            "ready": ("#E7F8F1", "#11865B"),
+            "busy": ("#EAF1FF", "#275FBF"),
+            "error": ("#FDECEE", "#B63B4A"),
+            "idle": ("#F1F4F8", "#65738A"),
+        }
+        bg, fg = colors.get(kind, colors["idle"])
+        self.status_pill.setStyleSheet(f"background:{bg};color:{fg};border-radius:15px;padding:8px 12px;font-weight:700;")
+
+    def _set_running(self, running: bool, text: str) -> None:
+        self.start_button.setEnabled(not running)
+        self.red_packet_start_button.setEnabled(not running)
+        self.signals.status.emit(f"â—  {text}", "busy" if running else "ready")
+        if running:
+            self.started_at = time.monotonic()
+            self.runtime_timer.start(1000)
+        else:
+            self.runtime_timer.stop()
+
+    def _show_alert(self, title: str, message: str) -> None:
+        QMessageBox.warning(self, title, message)
+
+    def _connect_job(self) -> None:
+        try:
+            self.signals.status.emit("â—  æ­£åœ¨æ‰«æ", "busy")
+            adb = MuMuADB()
+            preferred = self.adb.device if self.adb and self.adb.device else self.preferred_device
+            devices = adb.connect(preferred)
+            summaries = [adb.device_summary(device) for device in devices]
+            self.adb = adb
+            self.signals.devices.emit(summaries, adb.device)
+            self.log(f"MuMu è¿æ¥æˆåŠŸï¼Œå…±å‘ç° {len(devices)} ä¸ªè¿è¡Œä¸­å®ä¾‹ã€‚")
+            self._capture_job()
+        except Exception as exc:
+            self.signals.status.emit("â—  è¿æ¥å¤±è´¥", "error")
+            self.log(str(exc))
+            self.signals.alert.emit(APP_NAME, str(exc))
+
+    def _apply_devices(self, summaries: list[dict[str, Any]], selected: str) -> None:
+        self.devices = [item["device"] for item in summaries]
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        selected_index = 0
+        for index, item in enumerate(summaries):
+            label = f"#{item['index']}  {item['name']}   Â·   {item['device']}"
+            self.device_combo.addItem(label, item)
+            if item["device"] == selected:
+                selected_index = index
+        self.device_combo.setCurrentIndex(selected_index)
+        self.device_combo.blockSignals(False)
+        self._show_device_info(self.device_combo.currentData())
+        self.signals.status.emit("â—  å·²å°±ç»ª", "ready")
+        if self.all_auto_red_packet_requested:
+            self.all_auto_red_packet_requested = False
+            QTimer.singleShot(250, lambda: self._start_all_instances("red_packet"))
+        elif self.all_auto_help_requested:
+            self.all_auto_help_requested = False
+            QTimer.singleShot(250, self._start_all_instances)
+        elif self.auto_red_packet_requested:
+            self.auto_red_packet_requested = False
+            QTimer.singleShot(250, self._start_red_packet_flow)
+        elif self.auto_help_requested:
+            self.auto_help_requested = False
+            QTimer.singleShot(250, self._start_help_preset)
+
+    def _show_device_info(self, item: dict[str, Any] | None) -> None:
+        if not item:
+            return
+        self.instance_name.setText(f"#{item['index']}  {item['name']}")
+        self.instance_meta.setText(f"ADB {item['device']}   Â·   {item['resolution']}")
+        self.instance_state.setText(item["state"])
+
+    def _device_changed(self, index: int) -> None:
+        if index < 0 or not self.adb:
+            return
+        if self.worker and self.worker.is_alive():
+            current = next((i for i in range(self.device_combo.count()) if self.device_combo.itemData(i)["device"] == self.adb.device), 0)
+            self.device_combo.blockSignals(True)
+            self.device_combo.setCurrentIndex(current)
+            self.device_combo.blockSignals(False)
+            QMessageBox.information(self, APP_NAME, "å½“å‰ä»»åŠ¡æ­£åœ¨è¿è¡Œã€‚è¯·ç”¨â€œç‹¬ç«‹çª—å£â€æ§åˆ¶å¦ä¸€å®ä¾‹ã€‚")
+            return
+        item = self.device_combo.itemData(index)
+        self.adb.set_device(item["device"])
+        self.preferred_device = item["device"]
+        self._show_device_info(item)
+        self.log(f"å½“å‰çª—å£å·²ç»‘å®š {item['device']}ã€‚")
+        self._run_async(self._capture_job)
+
+    def _capture_job(self) -> None:
+        try:
+            if not self.adb:
+                return
+            image = self.adb.screenshot()
+            self.current_image = image
+            self.signals.image.emit(image)
+        except Exception as exc:
+            self.log(f"æˆªå›¾å¤±è´¥ï¼š{exc}")
+
+    def _apply_image(self, image: Image.Image) -> None:
+        self.screenshot.set_pil_image(image)
+
+    def _launch_game_job(self) -> None:
+        try:
+            if not self.adb:
+                raise RuntimeError("å°šæœªè¿æ¥ MuMuã€‚")
+            self.adb.launch_game()
+            self.log("å·²å¯åŠ¨æˆ–åˆ‡å›ã€Šæ— å°½å†¬æ—¥ã€‹ã€‚")
+            time.sleep(1.2)
+            self._capture_job()
+        except Exception as exc:
+            self.log(str(exc))
+
+    def _point_selected(self, x: int, y: int) -> None:
+        if not self.current_image:
+            return
+        self.selected_point = (x, y)
+        self.selected_source_size = self.current_image.size
+        self.selected_region = None
+        self.point_label.setText(f"å·²é€‰åæ ‡  {x}, {y}")
+        self.fixed_label.setText(f"å½“å‰åæ ‡ï¼š({x}, {y})  Â·  {self.current_image.width}Ã—{self.current_image.height}")
+
+    def _region_selected(self, region: tuple[int, int, int, int]) -> None:
+        if not self.current_image:
+            return
+        self.selected_region = region
+        self.selected_point = ((region[0] + region[2]) // 2, (region[1] + region[3]) // 2)
+        self.selected_source_size = self.current_image.size
+        self.point_label.setText(f"å·²æ¡†é€‰  {region[2] - region[0]}Ã—{region[3] - region[1]}")
+
+    def _save_template(self) -> None:
+        if not self.current_image or not self.selected_region:
+            QMessageBox.information(self, APP_NAME, "è¯·å…ˆåœ¨å®æ—¶ç”»é¢ä¸Šæ‹–åŠ¨æ¡†é€‰ä¸€ä¸ªæŒ‰é’®ã€‚")
+            return
+        name, ok = QInputDialog.getText(self, APP_NAME, "æ¨¡æ¿åç§°ï¼š")
+        if not ok or not name.strip():
+            return
+        path = TEMPLATE_DIR / f"{clean_name(name)}.png"
+        self.current_image.crop(self.selected_region).save(path, "PNG")
+        path.with_suffix(".json").write_text(
+            json.dumps({"screen_width": self.current_image.width, "screen_height": self.current_image.height}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._refresh_templates()
+        self.template_combo.setCurrentText(path.name)
+        self.log(f"å·²ä¿å­˜æ¨¡æ¿ï¼š{path.name}")
+
+    def _refresh_templates(self) -> None:
+        names = sorted(path.name for path in TEMPLATE_DIR.glob("*.png"))
+        current = self.template_combo.currentText() if hasattr(self, "template_combo") else ""
+        if hasattr(self, "template_combo"):
+            self.template_combo.clear()
+            self.template_combo.addItems(names)
+            if current in names:
+                self.template_combo.setCurrentText(current)
+            elif BUILTIN_ALL_HELP_TEMPLATE_NAME in names:
+                self.template_combo.setCurrentText(BUILTIN_ALL_HELP_TEMPLATE_NAME)
+            elif BUILTIN_HELP_TEMPLATE_NAME in names:
+                self.template_combo.setCurrentText(BUILTIN_HELP_TEMPLATE_NAME)
+
+    def _start_help_preset(self) -> None:
+        self.mode_combo.setCurrentIndex(0)
+        self.template_combo.setCurrentText(BUILTIN_ALL_HELP_TEMPLATE_NAME)
+        self.threshold_slider.setValue(max(88, self.threshold_slider.value()))
+        self.guard_check.setChecked(True)
+        self._start_alliance_help_flow()
+
+    def _start_alliance_help_flow(self) -> None:
+        """Start the guarded page-flow used by the one-click alliance preset."""
+        if not self.adb:
+            QMessageBox.warning(self, APP_NAME, "å°šæœªè¿æ¥ MuMuã€‚")
+            return
+        required = [
+            TEMPLATE_DIR / BUILTIN_ALL_HELP_TEMPLATE_NAME,
+            resource_path(BUILTIN_MUTUAL_PAGE_TEMPLATE_ASSET),
+            resource_path(BUILTIN_MUTUAL_ENTRY_TEMPLATE_ASSET),
+            resource_path(BUILTIN_CITY_ALLIANCE_TEMPLATE_ASSET),
+        ]
+        if any(not path.is_file() for path in required):
+            QMessageBox.warning(self, APP_NAME, "è‡ªåŠ¨å¯¼èˆªæ¨¡æ¿ç¼ºå¤±ï¼Œè¯·é‡æ–°è§£å‹æˆ–é‡æ–°ä¸‹è½½å®Œæ•´ç¨‹åºåŒ…ã€‚")
+            return
+        target = self.adb.clone_for_device()
+        interval = self.interval_spin.value()
+        duration = self.duration_spin.value()
+        max_clicks = self.max_clicks_spin.value()
+        threshold = max(0.88, self.threshold_slider.value() / 100)
+        guard = self.guard_check.isChecked()
+
+        def job() -> None:
+            clicks, failures = 0, 0
+            started = time.monotonic()
+            last_tap_at = float("-inf")
+            cached_point: tuple[int, int] | None = None
+            cached_size: tuple[int, int] | None = None
+            last_page: AlliancePage | None = None
+            last_notice_key = ""
+            last_notice_at = -30.0
+            navigation_page: AlliancePage | None = None
+            navigation_attempts = 0
+            next_navigation_at = 0.0
+
+            def notice(key: str, message: str, minimum_gap: float = 30.0) -> None:
+                nonlocal last_notice_key, last_notice_at
+                now = time.monotonic()
+                if key != last_notice_key or now - last_notice_at >= minimum_gap:
+                    self._log_for_device(target.device, message)
+                    last_notice_key, last_notice_at = key, now
+
+            self._log_for_device(
+                target.device,
+                f"å¼€å§‹è‡ªåŠ¨å¯¼èˆª + å…¨éƒ¨å¸®åŠ©ï¼šç‚¹å‡»é—´éš” {interval:.1f} ç§’ï¼›F8 å¯å…¨å±€åœæ­¢ã€‚",
+            )
+            while not self.stop_event.is_set():
+                now = time.monotonic()
+                if duration and now - started >= duration * 60:
+                    self._log_for_device(target.device, "å·²è¾¾åˆ°è¿è¡Œæ—¶é•¿ã€‚")
+                    break
+                if max_clicks and clicks >= max_clicks:
+                    self._log_for_device(target.device, "å·²è¾¾åˆ°æœ€å¤šç‚¹å‡»æ¬¡æ•°ã€‚")
+                    break
+                try:
+                    if guard and not target.foreground_is_game():
+                        cached_point = cached_size = None
+                        notice("not-foreground", "æ¸¸æˆä¸åœ¨å‰å°ï¼Œæœ¬è½®æš‚åœã€‚")
+                    else:
+                        image = target.screenshot()
+                        page = detect_alliance_page(image, threshold)
+                        if page.page != last_page:
+                            self._log_for_device(target.device, f"é¡µé¢è¯†åˆ«ï¼š{self._page_label(page.page)}ï¼ˆåˆ†æ•° {page.score:.3f}ï¼‰ã€‚")
+                            last_page = page.page
+                            navigation_page = None
+                            navigation_attempts = 0
+                        if page.page is AlliancePage.ALL_HELP_READY:
+                            assert page.point is not None
+                            if (
+                                cached_point is None
+                                or cached_size != image.size
+                                or abs(cached_point[0] - page.point[0]) > 18
+                                or abs(cached_point[1] - page.point[1]) > 18
+                            ):
+                                cached_point, cached_size = page.point, image.size
+                                self._log_for_device(target.device, f"å·²è®°å½•å…¨éƒ¨å¸®åŠ©åæ ‡ {cached_point}ï¼Œåˆ†æ•° {page.score:.3f}ã€‚")
+                            # The current screenshot has re-verified both the page title and
+                            # the green button. Never tap a stale cache after either disappears.
+                            if now - last_tap_at >= interval:
+                                target.tap(*cached_point)
+                                last_tap_at = time.monotonic()
+                                clicks += 1
+                                self.signals.clicks.emit(clicks)
+                                if clicks == 1 or clicks % 20 == 0:
+                                    self._log_for_device(target.device, f"å·²ç‚¹å‡»å…¨éƒ¨å¸®åŠ© {cached_point}ï¼Œç´¯è®¡ {clicks} æ¬¡ã€‚")
+                        elif page.page is AlliancePage.MUTUAL_HELP:
+                            cached_point = cached_size = None
+                            notice("mutual-empty", "å·²åœ¨è”ç›Ÿäº’åŠ©é¡µï¼›å½“å‰æ²¡æœ‰â€œå…¨éƒ¨å¸®åŠ©â€ï¼ŒåŸåœ°ç­‰å¾…ã€‚")
+                        elif page.page in (AlliancePage.ALLIANCE_HOME, AlliancePage.CITY):
+                            cached_point = cached_size = None
+                            assert page.point is not None
+                            if navigation_page is not page.page:
+                                navigation_page, navigation_attempts, next_navigation_at = page.page, 0, 0.0
+                            if now >= next_navigation_at:
+                                if navigation_attempts < 3:
+                                    destination = "è”ç›Ÿäº’åŠ©" if page.page is AlliancePage.ALLIANCE_HOME else "è”ç›Ÿ"
+                                    target.tap(*page.point)
+                                    navigation_attempts += 1
+                                    next_navigation_at = now + max(2.0, interval)
+                                    self._log_for_device(
+                                        target.device,
+                                        f"å¯¼èˆªï¼šç‚¹å‡»{destination}å…¥å£ {page.point}ï¼ˆç¬¬ {navigation_attempts}/3 æ¬¡ï¼‰ã€‚",
+                                    )
+                                else:
+                                    next_navigation_at = now + 30.0
+                                    notice(
+                                        f"navigation-stalled-{page.page.value}",
+                                        "å¯¼èˆªé¡µé¢æ²¡æœ‰æŒ‰é¢„æœŸåˆ‡æ¢ï¼Œå·²æš‚åœè¾“å…¥ 30 ç§’ï¼›è¯·æ£€æŸ¥æ¸¸æˆæ˜¯å¦æœ‰å¼¹çª—æˆ–æœªåŠ å…¥è”ç›Ÿã€‚",
+                                        30.0,
+                                    )
+                        else:
+                            cached_point = cached_size = None
+                            notice("unknown", f"æœªè¯†åˆ«ä¸ºä¸»åŸã€è”ç›Ÿæˆ–è”ç›Ÿäº’åŠ©é¡µï¼ˆæœ€é«˜åˆ† {page.score:.3f}ï¼‰ï¼Œä¸æ‰§è¡Œç‚¹å‡»ã€‚")
+                    failures = 0
+                except Exception as exc:
+                    failures += 1
+                    backoff = min(30.0, max(interval, 1.0) * (2 ** min(failures, 4)))
+                    self._log_for_device(target.device, f"æœ¬è½®è¯†åˆ«å¤±è´¥ï¼ˆ{failures}ï¼‰ï¼š{exc}ï¼›{backoff:.1f} ç§’åå®‰å…¨é‡è¯•ã€‚")
+                    if self.stop_event.wait(backoff):
+                        break
+                    continue
+                if self.stop_event.wait(interval):
+                    break
+            self._log_for_device(target.device, f"è‡ªåŠ¨å¯¼èˆªå¸®åŠ©å·²åœæ­¢ï¼Œå…±ç‚¹å‡» {clicks} æ¬¡ã€‚")
+
+        self._start_worker(target.device, job)
+
+    def _start_red_packet_flow(self) -> None:
+        """Start the visual, one-claim-at-a-time alliance red-packet workflow.
+
+        The small envelope marker never authorizes a claim by itself.  It only
+        arms a bounded page-flow; every subsequent tap uses a fresh screenshot
+        and a more specific visual state from :func:`detect_red_packet_state`.
+        """
+        if not self.adb:
+            QMessageBox.warning(self, APP_NAME, "å°šæœªè¿æ¥ MuMuã€‚")
+            return
+        required = [resource_path(asset) for asset, _name in RED_PACKET_BUILTIN_TEMPLATES]
+        missing = [path for path in required if not path.is_file()]
+        if missing:
+            names = "ã€".join(path.name for path in missing)
+            QMessageBox.warning(self, APP_NAME, f"çº¢åŒ…è¯†åˆ«ç´ æç¼ºå¤±ï¼š{names}\nè¯·é‡æ–°è§£å‹å®Œæ•´ç¨‹åºåŒ…ã€‚")
+            return
+
+        target = self.adb.clone_for_device()
+        interval = self.red_packet_interval_spin.value()
+        duration = self.red_packet_duration_spin.value()
+        max_claims = self.red_packet_max_claims_spin.value()
+        guard = self.red_packet_guard_check.isChecked()
+        threshold = 0.90
+
+        def job() -> None:
+            claims, failures = 0, 0
+            started = time.monotonic()
+            armed = False
+            marker_streak = 0
+            marker_clear_streak = 0
+            waiting_for_clear = False
+            opened_at: float | None = None
+            result_closed_at: float | None = None
+            back_sent = False
+            last_state: RedPacketState | None = None
+            state_streak = 0
+            action_attempts: dict[str, int] = {}
+            next_input_at = 0.0
+            hold_until = 0.0
+            last_notice_key = ""
+            last_notice_at = -30.0
+            last_ui_state = ""
+
+            def set_state(text: str) -> None:
+                nonlocal last_ui_state
+                if text != last_ui_state:
+                    last_ui_state = text
+                    self.signals.red_packet_state.emit(text)
+
+            def notice(key: str, message: str, minimum_gap: float = 20.0) -> None:
+                nonlocal last_notice_key, last_notice_at
+                now = time.monotonic()
+                if key != last_notice_key or now - last_notice_at >= minimum_gap:
+                    self._log_for_device(target.device, message)
+                    last_notice_key, last_notice_at = key, now
+
+            def tap_for_state(
+                action: str,
+                point: tuple[int, int],
+                description: str,
+                limit: int = 3,
+            ) -> bool:
+                nonlocal next_input_at, hold_until
+                now = time.monotonic()
+                if now < next_input_at or now < hold_until:
+                    return False
+                count = action_attempts.get(action, 0)
+                if count >= limit:
+                    hold_until = now + 30.0
+                    notice(
+                        f"stalled-{action}",
+                        f"{description}è¿ç»­ {limit} æ¬¡æœªå‘ç”Ÿé¢„æœŸé¡µé¢åˆ‡æ¢ï¼Œæš‚åœè¾“å…¥ 30 ç§’ã€‚",
+                        30.0,
+                    )
+                    return False
+                target.tap(*point)
+                action_attempts[action] = count + 1
+                next_input_at = now + max(0.8, min(2.5, interval))
+                self._log_for_device(target.device, f"{description} {point}ï¼ˆç¬¬ {count + 1}/{limit} æ¬¡ï¼‰ã€‚")
+                return True
+
+            self._log_for_device(
+                target.device,
+                f"å¼€å§‹è‡ªåŠ¨æŠ¢ç†”ç‚‰å‡çº§çº¢åŒ…ï¼šæ£€æŸ¥é—´éš” {interval:.1f} ç§’ï¼›F8 å¯å…¨å±€åœæ­¢ã€‚",
+            )
+            set_state("ç›‘å¬ä¸­ï¼šç­‰å¾…å³ä¸‹è§’çº¢åŒ…æµ®æ ‡")
+            while not self.stop_event.is_set():
+                now = time.monotonic()
+                if duration and now - started >= duration * 60:
+                    self._log_for_device(target.device, "å·²è¾¾åˆ°çº¢åŒ…è¿è¡Œæ—¶é•¿ã€‚")
+                    break
+                if max_claims and claims >= max_claims:
+                    self._log_for_device(target.device, "å·²è¾¾åˆ°æœ€å¤šé¢†å–æ¬¡æ•°ã€‚")
+                    break
+                try:
+                    if guard and not target.foreground_is_game():
+                        marker_streak = 0
+                        set_state("å·²æš‚åœï¼šæ¸¸æˆä¸åœ¨æ¨¡æ‹Ÿå™¨å‰å°")
+                        notice("not-foreground", "æ¸¸æˆä¸åœ¨å‰å°ï¼Œæœ¬è½®ä¸æˆªå›¾ã€ä¸ç‚¹å‡»ã€‚")
+                    else:
+                        image = target.screenshot()
+
+                        # At rest, the notification marker is the only thing
+                        # examined.  A city chat launcher by itself can never
+                        # cause navigation.
+                        if not armed:
+                            marker, marker_score = match_red_packet_marker(image, 0.84)
+                            if marker:
+                                marker_streak += 1
+                                set_state(f"å‘ç°çº¢åŒ…æµ®æ ‡ï¼Œæ­£åœ¨å¤æ ¸ï¼ˆ{marker_streak}/2ï¼‰")
+                                if marker_streak >= 2:
+                                    armed = True
+                                    marker_streak = 0
+                                    action_attempts.clear()
+                                    last_state = None
+                                    self._log_for_device(
+                                        target.device,
+                                        f"çº¢åŒ…æµ®æ ‡å·²è¿ç»­ç¡®è®¤ï¼Œåˆ†æ•° {marker_score:.3f}ï¼›å¼€å§‹æ£€æŸ¥è”ç›Ÿé¢‘é“ã€‚",
+                                    )
+                                    set_state("å·²ç¡®è®¤æµ®æ ‡ï¼šæ­£åœ¨æ‰“å¼€èŠå¤©")
+                            else:
+                                marker_streak = 0
+                                set_state("ç›‘å¬ä¸­ï¼šç­‰å¾…å³ä¸‹è§’çº¢åŒ…æµ®æ ‡")
+                        else:
+                            page = detect_red_packet_state(image, threshold)
+                            if page.state is last_state:
+                                state_streak += 1
+                            else:
+                                last_state = page.state
+                                state_streak = 1
+                                action_attempts.clear()
+                                self._log_for_device(
+                                    target.device,
+                                    f"çº¢åŒ…é¡µé¢è¯†åˆ«ï¼š{self._red_packet_page_label(page.state)}ï¼ˆåˆ†æ•° {page.score:.3f}ï¼‰ã€‚",
+                                )
+
+                            # After a verified result has been closed, the
+                            # only permitted inputs are a guarded back from a
+                            # confirmed chat and then passive marker-clear
+                            # observation in the city.  This prevents a second
+                            # tap on the same card.
+                            if waiting_for_clear:
+                                if page.state in (RedPacketState.ALLIANCE_CHAT, RedPacketState.FURNACE_PACKET):
+                                    set_state("é¢†å–å·²ç¡®è®¤ï¼šæ­£åœ¨è¿”å›ä¸»åŸç»§ç»­ç›‘å¬")
+                                    if result_closed_at and not back_sent and now - result_closed_at >= 0.7:
+                                        target.back()
+                                        back_sent = True
+                                        next_input_at = now + max(0.8, min(2.5, interval))
+                                        self._log_for_device(target.device, "å·²ç¡®è®¤è”ç›ŸèŠå¤©é¡µï¼Œå®‰å…¨è¿”å›ä¸»åŸã€‚")
+                                elif page.state is RedPacketState.CHAT_ENTRY:
+                                    marker, _score = match_red_packet_marker(image, 0.84)
+                                    if marker:
+                                        marker_clear_streak = 0
+                                        set_state("é¢†å–å·²ç¡®è®¤ï¼šç­‰å¾…çº¢åŒ…æµ®æ ‡æ¶ˆå¤±")
+                                    else:
+                                        marker_clear_streak += 1
+                                        set_state(f"é¢†å–å·²ç¡®è®¤ï¼šå¤æ ¸æµ®æ ‡å·²æ¶ˆå¤±ï¼ˆ{marker_clear_streak}/2ï¼‰")
+                                        if marker_clear_streak >= 2:
+                                            armed = False
+                                            waiting_for_clear = False
+                                            opened_at = result_closed_at = None
+                                            back_sent = False
+                                            marker_clear_streak = 0
+                                            last_state = None
+                                            action_attempts.clear()
+                                            self._log_for_device(target.device, "çº¢åŒ…æµ®æ ‡å·²æ¶ˆå¤±ï¼Œæ¢å¤ç›‘å¬ä¸‹ä¸€æ¬¡çº¢åŒ…ã€‚")
+                                            set_state("ç›‘å¬ä¸­ï¼šç­‰å¾…å³ä¸‹è§’çº¢åŒ…æµ®æ ‡")
+                                elif page.state is RedPacketState.CLAIM_RESULT_READY:
+                                    set_state("é¢†å–å·²ç¡®è®¤ï¼šæ­£åœ¨å…³é—­ç»“æœé¡µ")
+                                    if result_closed_at and now - result_closed_at >= 12.0:
+                                        notice("result-close-stalled", "ç»“æœé¡µå…³é—­åä»æœªåˆ‡å›èŠå¤©ï¼Œå·²åœæ­¢åç»­è¾“å…¥ï¼Œè¯·æ‰‹åŠ¨æ£€æŸ¥ã€‚", 30.0)
+                                else:
+                                    set_state("é¢†å–å·²ç¡®è®¤ï¼šç­‰å¾…é¡µé¢å›åˆ°ä¸»åŸ")
+                            elif page.state is RedPacketState.CLAIM_RESULT_READY:
+                                # A reward result is counted only when it
+                                # immediately follows this worker's own
+                                # exactly-once â€œå¼€å¯â€ tap.
+                                if opened_at and now - opened_at <= 12.0 and page.point:
+                                    claims += 1
+                                    self.signals.clicks.emit(claims)
+                                    waiting_for_clear = True
+                                    result_closed_at = now
+                                    set_state("å·²ç¡®è®¤é¢†å–ç»“æœï¼šæ­£åœ¨å®‰å…¨å…³é—­")
+                                    target.tap(*page.point)
+                                    next_input_at = now + max(0.8, min(2.5, interval))
+                                    self._log_for_device(
+                                        target.device,
+                                        f"å·²ç¡®è®¤çº¢åŒ…é¢†å–ç»“æœï¼Œç´¯è®¡é¢†å– {claims} æ¬¡ï¼›å…³é—­ç»“æœé¡µ {page.point}ã€‚",
+                                    )
+                                else:
+                                    set_state("å‘ç°ç»“æœé¡µï¼Œä½†æœªå…³è”æœ¬æ¬¡å¼€å¯ï¼šä¸ç‚¹å‡»")
+                                    notice("unlinked-result", "ç»“æœé¡µæœªä¸æœ¬çª—å£åˆšåˆšçš„å¼€å¯æ“ä½œå…³è”ï¼Œä¸å…³é—­ã€ä¸è®¡æ•°ã€‚")
+                            elif opened_at:
+                                # Never press â€œå¼€å¯â€ twice.  If the result is
+                                # not positively observed soon afterwards,
+                                # leave the page untouched for the user.
+                                if now - opened_at >= 12.0:
+                                    set_state("å¼€å¯åæœªç¡®è®¤ç»“æœï¼šå·²åœæ­¢è¾“å…¥ï¼Œè¯·æ‰‹åŠ¨æ£€æŸ¥")
+                                    notice("open-result-timeout", "å¼€å¯å 12 ç§’æœªè¯†åˆ«åˆ°çº¢åŒ…ç»“æœé¡µï¼Œå·²åœæ­¢åç»­è¾“å…¥ã€‚", 30.0)
+                                    hold_until = max(hold_until, now + 30.0)
+                            elif page.state is RedPacketState.CHAT_ENTRY:
+                                set_state("å·²ç¡®è®¤æµ®æ ‡ï¼šæ­£åœ¨æ‰“å¼€èŠå¤©")
+                                if state_streak >= 2 and page.point:
+                                    tap_for_state("chat-entry", page.point, "ç‚¹å‡»ä¸»åŸèŠå¤©å…¥å£")
+                            elif page.state is RedPacketState.CHAT_PANEL:
+                                set_state("èŠå¤©å·²æ‰“å¼€ï¼šæ­£åœ¨åˆ‡æ¢è”ç›Ÿé¢‘é“")
+                                if state_streak >= 2:
+                                    alliance_tab = scale_recorded_point((720, 228), (1440, 2560), image.size)
+                                    tap_for_state("alliance-tab", alliance_tab, "ç‚¹å‡»è”ç›Ÿé¢‘é“", limit=3)
+                            elif page.state is RedPacketState.ALLIANCE_CHAT:
+                                set_state("å·²åœ¨è”ç›Ÿé¢‘é“ï¼šç­‰å¾…ç†”ç‚‰å‡çº§çº¢åŒ…")
+                                notice("alliance-wait", "å·²ç¡®è®¤è”ç›Ÿé¢‘é“ï¼Œå½“å‰æœªè§â€œç†”ç‚‰å‡çº§çº¢åŒ…â€å¡ç‰‡ï¼ŒåŸåœ°ç­‰å¾…ã€‚")
+                            elif page.state is RedPacketState.FURNACE_PACKET:
+                                set_state("å·²ç¡®è®¤ç†”ç‚‰å‡çº§çº¢åŒ…ï¼šæ­£åœ¨æ‰“å¼€")
+                                if state_streak >= 2 and page.point:
+                                    tap_for_state("furnace-card", page.point, "ç‚¹å‡»ç†”ç‚‰å‡çº§çº¢åŒ…å¡", limit=2)
+                            elif page.state is RedPacketState.DETAIL_OPEN_READY:
+                                set_state("å·²ç¡®è®¤çº¢åŒ…è¯¦æƒ…ä¸å¼€å¯æŒ‰é’®ï¼šæ­£åœ¨å¼€å¯")
+                                if state_streak >= 2 and page.point:
+                                    if tap_for_state("open", page.point, "ç‚¹å‡»çº¢åŒ…å¼€å¯æŒ‰é’®", limit=1):
+                                        opened_at = time.monotonic()
+                            elif page.state is RedPacketState.FURNACE_DETAIL:
+                                set_state("å·²æ‰“å¼€ç†”ç‚‰çº¢åŒ…è¯¦æƒ…ï¼šæœªè§å¯ç”¨å¼€å¯æŒ‰é’®")
+                                notice("detail-not-ready", "å·²æ‰“å¼€ç†”ç‚‰å‡çº§çº¢åŒ…è¯¦æƒ…ï¼Œä½†æœªåŒæ—¶è¯†åˆ«åˆ°å¯ç”¨â€œå¼€å¯â€æŒ‰é’®ï¼Œä¸ç‚¹å‡»ã€‚")
+                            elif page.state is RedPacketState.MARKER:
+                                set_state("å·²ç¡®è®¤æµ®æ ‡ï¼šæœªè¯†åˆ«ä¸»åŸèŠå¤©å…¥å£")
+                                notice("no-chat-entry", "å·²çœ‹åˆ°çº¢åŒ…æµ®æ ‡ï¼Œä½†æœªç¡®è®¤ä¸»åŸèŠå¤©å…¥å£ï¼Œä¸æ‰§è¡Œåæ ‡ç‚¹å‡»ã€‚")
+                            else:
+                                set_state("å·²ç¡®è®¤æµ®æ ‡ï¼šæœªçŸ¥é¡µé¢ï¼Œç­‰å¾…å®‰å…¨è¯†åˆ«")
+                                notice("unknown-page", f"çº¢åŒ…æµç¨‹æœªè¯†åˆ«å½“å‰é¡µé¢ï¼ˆæœ€é«˜åˆ† {page.score:.3f}ï¼‰ï¼Œä¸æ‰§è¡Œç‚¹å‡»ã€‚")
+                    failures = 0
+                except Exception as exc:
+                    failures += 1
+                    backoff = min(30.0, max(interval, 1.0) * (2 ** min(failures, 4)))
+                    self._log_for_device(target.device, f"çº¢åŒ…è¯†åˆ«å¤±è´¥ï¼ˆ{failures}ï¼‰ï¼š{exc}ï¼›{backoff:.1f} ç§’åå®‰å…¨é‡è¯•ã€‚")
+                    set_state("è¯†åˆ«å¼‚å¸¸ï¼šæ­£åœ¨å®‰å…¨é‡è¯•")
+                    if self.stop_event.wait(backoff):
+                        break
+                    continue
+                if self.stop_event.wait(interval):
+                    break
+            set_state("å·²åœæ­¢")
+            self._log_for_device(target.device, f"è‡ªåŠ¨æŠ¢ç†”ç‚‰å‡çº§çº¢åŒ…å·²åœæ­¢ï¼Œç´¯è®¡é¢†å– {claims} æ¬¡ã€‚")
+
+        self._start_worker(target.device, job)
+
+    def _start_custom_clicker(self) -> None:
+        self._start_clicker("template" if self.mode_combo.currentIndex() == 0 else "fixed")
+
+    def _start_clicker(self, mode: str) -> None:
+        if not self.adb:
+            QMessageBox.warning(self, APP_NAME, "å°šæœªè¿æ¥ MuMuã€‚")
+            return
+        template = TEMPLATE_DIR / self.template_combo.currentText()
+        if mode == "template" and not template.is_file():
+            QMessageBox.warning(self, APP_NAME, "è¯·é€‰æ‹©æœ‰æ•ˆçš„æŒ‰é’®æ¨¡æ¿ã€‚")
+            return
+        if mode == "fixed" and (not self.selected_point or not self.selected_source_size):
+            QMessageBox.warning(self, APP_NAME, "è¯·å…ˆåœ¨è®¾å¤‡ä¸­å¿ƒçš„å®æ—¶ç”»é¢ä¸Šå•å‡»è¦è¿ç‚¹çš„ä½ç½®ã€‚")
+            return
+        fixed_point = self.selected_point
+        fixed_source_size = self.selected_source_size
+        target = self.adb.clone_for_device()
+        interval = self.interval_spin.value()
+        duration = self.duration_spin.value()
+        max_clicks = self.max_clicks_spin.value()
+        threshold = self.threshold_slider.value() / 100
+        guard = self.guard_check.isChecked()
+
+        def job() -> None:
+            clicks, failures = 0, 0
+            started, last_idle = time.monotonic(), -30.0
+            label = "è¯†å›¾è¿è¡Œ" if mode == "template" else "å›ºå®šåæ ‡è¿ç‚¹"
+            self.log(f"å¼€å§‹{label}ï¼ŒF8 å¯å…¨å±€åœæ­¢ã€‚")
+            while not self.stop_event.is_set():
+                if duration and time.monotonic() - started >= duration * 60:
+                    self.log("å·²è¾¾åˆ°è¿è¡Œæ—¶é•¿ã€‚")
+                    break
+                if max_clicks and clicks >= max_clicks:
+                    self.log("å·²è¾¾åˆ°æœ€å¤šç‚¹å‡»æ¬¡æ•°ã€‚")
+                    break
+                try:
+                    if guard and not target.foreground_is_game():
+                        elapsed = time.monotonic() - started
+                        if elapsed - last_idle >= 30:
+                            self.log("æ¸¸æˆä¸åœ¨å‰å°ï¼Œæœ¬è½®æš‚åœã€‚")
+                            last_idle = elapsed
+                    elif mode == "fixed":
+                        assert fixed_point is not None and fixed_source_size is not None
+                        point = scale_recorded_point(fixed_point, fixed_source_size, target.screen_size())
+                        target.tap(*point)
+                        clicks += 1
+                        self.signals.clicks.emit(clicks)
+                        if clicks == 1 or clicks % 20 == 0:
+                            self.log(f"å·²ç‚¹å‡» {clicks} æ¬¡ï¼Œåæ ‡ {point}ã€‚")
+                    else:
+                        image = target.screenshot()
+                        point, score = match_template(image, template, threshold, template_reference_size(template))
+                        matched_name = template.stem
+                        if point:
+                            target.tap(*point)
+                            clicks += 1
+                            self.signals.clicks.emit(clicks)
+                            self.log(f"è¯†åˆ«æˆåŠŸå¹¶ç‚¹å‡» {matched_name} {point}ï¼Œç›¸ä¼¼åº¦ {score:.3f}ï¼Œç´¯è®¡ {clicks} æ¬¡ã€‚")
+                        else:
+                            elapsed = time.monotonic() - started
+                            if elapsed - last_idle >= 30:
+                                self.log(f"ç­‰å¾…æŒ‰é’®å‡ºç°ï¼Œå½“å‰æœ€é«˜ç›¸ä¼¼åº¦ {score:.3f}ã€‚")
+                                last_idle = elapsed
+                    failures = 0
+                except Exception as exc:
+                    failures += 1
+                    self.log(f"æœ¬è½®å¤±è´¥ï¼ˆ{failures}/3ï¼‰ï¼š{exc}")
+                    if failures >= 3:
+                        break
+                if self.stop_event.wait(interval):
+                    break
+            self.log(f"è¿è¡Œç»“æŸï¼Œå…±ç‚¹å‡» {clicks} æ¬¡ã€‚")
+
+        self._start_worker(target.device, job)
+
+    def _start_worker(self, device: str, callback: Callable[[], None]) -> None:
+        if self.worker and self.worker.is_alive():
+            QMessageBox.information(self, APP_NAME, "å½“å‰çª—å£å·²æœ‰ä»»åŠ¡æ­£åœ¨è¿è¡Œã€‚")
+            return
+        self.stop_event.clear()
+        self.signals.clicks.emit(0)
+
+        def protected() -> None:
+            lease = DeviceLease(device)
+            if not lease.acquire():
+                self.log(f"å®ä¾‹ {device} å·²è¢«å¦ä¸€ä¸ªçª—å£å ç”¨ï¼Œæœ¬çª—å£æœªå¯åŠ¨ä»»åŠ¡ã€‚")
+                self.signals.alert.emit(APP_NAME, f"{device} å·²åœ¨å¦ä¸€ä¸ªåŠ©æ‰‹çª—å£è¿è¡Œã€‚\nä¸ºé˜²æ­¢é‡å¤ç‚¹å‡»ï¼Œæœ¬çª—å£æœªå¯åŠ¨ä»»åŠ¡ã€‚")
+                return
+            self.signals.running.emit(True, "è¿è¡Œä¸­")
+            try:
+                callback()
+            finally:
+                lease.release()
+                self.stop_event.set()
+                self.signals.running.emit(False, "å·²åœæ­¢")
+
+        self.worker = threading.Thread(target=protected, daemon=True)
+        self.worker.start()
+
+    def stop_all(self) -> None:
+        self.stop_event.set()
+        self.log("å·²å‘å‡ºåœæ­¢æŒ‡ä»¤ã€‚")
+
+    def _update_runtime(self) -> None:
+        seconds = max(0, int(time.monotonic() - self.started_at))
+        self.runtime_label.setText(f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}")
+
+    def _assistant_command(self, device: str, startup_mode: str | None = None) -> list[str]:
+        if getattr(sys, "frozen", False):
+            command = [sys.executable]
+        else:
+            command = [sys.executable, str(Path(__file__).resolve())]
+        command += ["--device", device]
+        if startup_mode == "help":
+            command += ["--auto-help", "--interval", str(self.interval_spin.value())]
+        elif startup_mode == "red_packet":
+            command += ["--auto-red-packet", "--interval", str(self.red_packet_interval_spin.value())]
+        return command
+
+    def _spawn_instance(self, device: str, startup_mode: str | None = None) -> None:
+        try:
+            subprocess.Popen(
+                self._assistant_command(device, startup_mode),
+                cwd=str(Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent),
+                creationflags=CREATE_NO_WINDOW,
+            )
+            mode_text = {"help": "å¹¶å¼€å§‹è”ç›Ÿå¸®åŠ©", "red_packet": "å¹¶å¼€å§‹æŠ¢çº¢åŒ…"}.get(startup_mode, "")
+            self.log(f"å·²ä¸º {device} æ‰“å¼€ç‹¬ç«‹çª—å£{mode_text}ã€‚")
+        except OSError as exc:
+            QMessageBox.warning(self, APP_NAME, f"æ— æ³•æ‰“å¼€ç‹¬ç«‹çª—å£ï¼š{exc}")
+
+    def _open_selected_window(self) -> None:
+        if self.adb:
+            self._spawn_instance(self.adb.device)
+
+    def _start_all_instances(self, startup_mode: str = "help") -> None:
+        if not self.devices:
+            QMessageBox.warning(self, APP_NAME, "æ²¡æœ‰å‘ç°è¿è¡Œä¸­çš„ MuMu å®ä¾‹ã€‚")
+            return
+        for device in self.devices:
+            self._spawn_instance(device, startup_mode)
+        mode_text = "è”ç›Ÿå¸®åŠ©" if startup_mode == "help" else "è”ç›Ÿçº¢åŒ…"
+        self.log(f"å·²ä¸º {len(self.devices)} ä¸ªå®ä¾‹åˆ†åˆ«å¯åŠ¨{mode_text}çª—å£ã€‚")
+
+    def _load_tasks(self) -> dict[str, list[dict[str, Any]]]:
+        try:
+            data = json.loads(TASK_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {str(key): list(value) for key, value in data.items() if isinstance(value, list)}
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+        return {name: [dict(step) for step in steps] for name, steps in DEFAULT_TASKS.items()}
+
+    def _refresh_tasks(self) -> None:
+        current = self.task_combo.currentText() if hasattr(self, "task_combo") else ""
+        self.task_combo.blockSignals(True)
+        self.task_combo.clear()
+        self.task_combo.addItems(sorted(self.tasks))
+        if current in self.tasks:
+            self.task_combo.setCurrentText(current)
+        self.task_combo.blockSignals(False)
+        self._load_selected_task()
+
+    def _load_selected_task(self) -> None:
+        self.active_steps = [dict(step) for step in self.tasks.get(self.task_combo.currentText(), [])]
+        self._render_steps()
+
+    def _step_text(self, index: int, step: dict[str, Any]) -> str:
+        action = step.get("action")
+        if action == "tap":
+            detail = f"ç‚¹å‡» ({step['x']}, {step['y']})"
+        elif action == "wait":
+            detail = f"ç­‰å¾… {step['seconds']} ç§’"
+        elif action == "back":
+            detail = "Android è¿”å›é”®"
+        else:
+            detail = f"è¯†å›¾ {step.get('template')} Â· è¶…æ—¶ {step.get('timeout', 15)} ç§’"
+        return f"{index + 1:02d}    {detail}"
+
+    def _render_steps(self) -> None:
+        self.step_list.clear()
+        self.step_list.addItems([self._step_text(i, step) for i, step in enumerate(self.active_steps)])
+
+    def _new_task(self) -> None:
+        name, ok = QInputDialog.getText(self, APP_NAME, "æ–°ä»»åŠ¡åç§°ï¼š")
+        if ok and name.strip():
+            self.tasks[name.strip()] = []
+            self._refresh_tasks()
+            self.task_combo.setCurrentText(name.strip())
+
+    def _task_add_point(self) -> None:
+        if not self.selected_point or not self.selected_source_size:
+            QMessageBox.information(self, APP_NAME, "è¯·å…ˆåœ¨è®¾å¤‡ä¸­å¿ƒç”»é¢ä¸Šé€‰æ‹©ä¸€ä¸ªåæ ‡ã€‚")
+            return
+        self.active_steps.append({"action": "tap", "x": self.selected_point[0], "y": self.selected_point[1], "width": self.selected_source_size[0], "height": self.selected_source_size[1]})
+        self._render_steps()
+
+    def _task_add_wait(self) -> None:
+        value, ok = QInputDialog.getDouble(self, APP_NAME, "ç­‰å¾…ç§’æ•°ï¼š", 2.0, 0, 86400, 1)
+        if ok:
+            self.active_steps.append({"action": "wait", "seconds": value})
+            self._render_steps()
+
+    def _task_add_back(self) -> None:
+        self.active_steps.append({"action": "back"})
+        self._render_steps()
+
+    def _task_add_template(self) -> None:
+        names = [self.template_combo.itemText(i) for i in range(self.template_combo.count())]
+        if not names:
+            return
+        name, ok = QInputDialog.getItem(self, APP_NAME, "é€‰æ‹©æ¨¡æ¿ï¼š", names, 0, False)
+        if ok:
+            timeout, accepted = QInputDialog.getDouble(self, APP_NAME, "ç­‰å¾…è¶…æ—¶ï¼ˆç§’ï¼‰ï¼š", 15, 1, 86400, 1)
+            if accepted:
+                self.active_steps.append({"action": "template", "template": name, "timeout": timeout, "threshold": self.threshold_slider.value() / 100})
+                self._render_steps()
+
+    def _delete_task_step(self) -> None:
+        row = self.step_list.currentRow()
+        if 0 <= row < len(self.active_steps):
+            self.active_steps.pop(row)
+            self._render_steps()
+
+    def _save_task(self) -> None:
+        name = self.task_combo.currentText().strip()
+        if not name:
+            return
+        self.tasks[name] = [dict(step) for step in self.active_steps]
+        TASK_FILE.write_text(json.dumps(self.tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.log(f"å·²ä¿å­˜ä»»åŠ¡ï¼š{name}")
+
+    def _delete_task(self) -> None:
+        name = self.task_combo.currentText()
+        if name and QMessageBox.question(self, APP_NAME, f"åˆ é™¤ä»»åŠ¡â€œ{name}â€ï¼Ÿ") == QMessageBox.StandardButton.Yes:
+            self.tasks.pop(name, None)
+            TASK_FILE.write_text(json.dumps(self.tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._refresh_tasks()
+
+    def _run_task(self) -> None:
+        if not self.adb or not self.active_steps:
+            QMessageBox.information(self, APP_NAME, "è¯·å…ˆè¿æ¥å®ä¾‹å¹¶å‡†å¤‡ä»»åŠ¡æ­¥éª¤ã€‚")
+            return
+        target = self.adb.clone_for_device()
+        steps = [dict(step) for step in self.active_steps]
+        repeat, repeat_wait = self.repeat_check.isChecked(), self.repeat_wait.value()
+
+        def job() -> None:
+            round_number = 0
+            self.log("å¼€å§‹æ‰§è¡Œä»»åŠ¡åºåˆ—ã€‚")
+            while not self.stop_event.is_set():
+                round_number += 1
+                for index, step in enumerate(steps):
+                    if self.stop_event.is_set():
+                        break
+                    action = step.get("action")
+                    try:
+                        if action in {"tap", "back", "template"} and not target.foreground_is_game():
+                            self.log(f"æ­¥éª¤ {index + 1} æš‚åœï¼šæ¸¸æˆä¸åœ¨å‰å°ã€‚")
+                            while not self.stop_event.wait(2):
+                                if target.foreground_is_game():
+                                    break
+                        if action == "tap":
+                            point = scale_recorded_point((int(step["x"]), int(step["y"])), (int(step["width"]), int(step["height"])), target.screen_size())
+                            target.tap(*point)
+                            self.log(f"æ­¥éª¤ {index + 1}ï¼šç‚¹å‡» {point}ã€‚")
+                        elif action == "wait":
+                            if self.stop_event.wait(float(step["seconds"])):
+                                break
+                        elif action == "back":
+                            target.back()
+                        elif action == "template":
+                            deadline = time.monotonic() + float(step.get("timeout", 15))
+                            while time.monotonic() < deadline and not self.stop_event.is_set():
+                                path = TEMPLATE_DIR / str(step["template"])
+                                point, score = match_template(target.screenshot(), path, float(step.get("threshold", 0.88)), template_reference_size(path))
+                                if point:
+                                    target.tap(*point)
+                                    self.log(f"æ­¥éª¤ {index + 1}ï¼šè¯†å›¾ç‚¹å‡» {point}ï¼Œç›¸ä¼¼åº¦ {score:.3f}ã€‚")
+                                    break
+                                self.stop_event.wait(1)
+                    except Exception as exc:
+                        self.log(f"æ­¥éª¤ {index + 1} å¤±è´¥ï¼š{exc}")
+                        self.stop_event.set()
+                        break
+                if not repeat or self.stop_event.is_set():
+                    break
+                if self.stop_event.wait(repeat_wait):
+                    break
+            self.log("ä»»åŠ¡åºåˆ—å·²ç»“æŸã€‚")
+
+        self._start_worker(target.device, job)
+
+    def _hotkey_loop(self) -> None:
+        if os.name != "nt":
+            return
+        user32 = ctypes.windll.user32
+        while not self.closing.is_set():
+            if user32.GetAsyncKeyState(0x77) & 1:
+                self.stop_event.set()
+                self.log("æ£€æµ‹åˆ°å…¨å±€ F8ï¼Œæ­£åœ¨åœæ­¢ã€‚")
+            time.sleep(0.08)
+
+    def closeEvent(self, event: Any) -> None:
+        self.closing.set()
+        self.stop_event.set()
+        event.accept()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=APP_NAME)
+    parser.add_argument("--device")
+    parser.add_argument("--auto-help", action="store_true")
+    parser.add_argument("--all-auto-help", action="store_true")
+    parser.add_argument("--auto-red-packet", action="store_true")
+    parser.add_argument("--all-auto-red-packet", action="store_true")
+    parser.add_argument("--interval", type=float, help="è‡ªåŠ¨å¯¼èˆªå¸®åŠ©çš„ç‚¹å‡» / è¯†åˆ«é—´éš”ï¼ˆç§’ï¼‰")
+    args = parser.parse_args()
+    if hasattr(Qt.ApplicationAttribute, "AA_EnableHighDpiScaling"):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    app = QApplication(sys.argv[:1])
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName("WJDR Tools")
+    app.setStyle("Fusion")
+    window = MainWindow(
+        args.device,
+        args.auto_help,
+        args.all_auto_help,
+        args.auto_red_packet,
+        args.all_auto_red_packet,
+        args.interval,
+    )
+    window.show()
+    qa_page = os.environ.get("WJDR_QA_PAGE")
+    if qa_page and qa_page.isdigit():
+        window._show_page(min(int(qa_page), window.stack.count() - 1))
+    qa_screenshot = os.environ.get("WJDR_QA_SCREENSHOT")
+    if qa_screenshot:
+        def save_qa_screenshot() -> None:
+            saved = window.grab().save(qa_screenshot, "PNG")
+            window.log(f"UI éªŒæ”¶æˆªå›¾{'å·²ä¿å­˜' if saved else 'ä¿å­˜å¤±è´¥'}ï¼š{qa_screenshot}")
+
+        QTimer.singleShot(3500, save_qa_screenshot)
+    raise SystemExit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
