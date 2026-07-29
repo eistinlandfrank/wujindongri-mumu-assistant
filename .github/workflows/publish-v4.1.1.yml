@@ -1,4 +1,4 @@
-# Re-run after restoring the Qt source as UTF-8.
+# Build rerun after complete UTF-8 source restoration.
 name: Build and publish v4.1.1
 
 on:
