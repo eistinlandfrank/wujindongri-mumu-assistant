@@ -51,6 +51,7 @@ jobs:
           $ciIss = [regex]::Replace($ciIss, '(?m)^#define BuildDir.*$', '#define BuildDir "work\\dist\\WJDRMuMuAssistant"')
           $ciIss = [regex]::Replace($ciIss, '(?m)^OutputDir=.*$', 'OutputDir=.')
           $ciIss = [regex]::Replace($ciIss, '(?m)^SetupIconFile=.*\r?\n', '')
+          $ciIss = [regex]::Replace($ciIss, '(?ms)^\[Languages\]\r?\nName:.*?\r?\n\r?\n', '')
           Set-Content -LiteralPath installer-ci.iss -Value $ciIss -Encoding utf8
           $iscc = Get-ChildItem -Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           & $iscc.FullName installer-ci.iss
