@@ -1,4 +1,4 @@
-# Build rerun after complete UTF-8 source restoration.
+# Build without the legacy ICO resource on hosted Windows.
 name: Build and publish v4.1.1
 
 on:
@@ -30,7 +30,11 @@ jobs:
 
       - name: Build portable package
         shell: pwsh
-        run: ./build_release.ps1 -OutputRoot work
+        run: |
+          $ciBuild = Get-Content -LiteralPath build_release.ps1 -Raw
+          $ciBuild = $ciBuild -replace '(?m)^\s*"--icon", \(Join-Path \$PSScriptRoot "app_icon\.ico"\),\r?\n', ''
+          Set-Content -LiteralPath build_release_ci.ps1 -Value $ciBuild -Encoding utf8
+          ./build_release_ci.ps1 -OutputRoot work
 
       - name: Install Inno Setup
         shell: pwsh
@@ -46,7 +50,36 @@ jobs:
           $ErrorActionPreference = "Stop"
           $ciIss = Get-Content -LiteralPath installer.iss -Raw
           $ciIss = $ciIss -replace '(?m)^#define BuildDir.*$', '#define BuildDir "work\\dist\\WJDRMuMuAssistant"'
-          $ciIss = $ciIss -replace '(?m)^OutputDir=.*$', 'OutputDir=.'
+          $ciIss = $ciIss -replace '(?m)^OutputDir=.*
+          Set-Content -LiteralPath installer-ci.iss -Value $ciIss -Encoding utf8
+          $iscc = Get-ChildItem -Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          & $iscc.FullName installer-ci.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+          Compress-Archive -Path "work\dist\WJDRMuMuAssistant\*" -DestinationPath "WJDRMuMuAssistant_v4.1.1_Portable.zip" -CompressionLevel Optimal
+          $releaseFiles = @(
+            "WJDRMuMuAssistant_v4.1.1_Setup.exe",
+            "WJDRMuMuAssistant_v4.1.1_Portable.zip"
+          )
+          Get-FileHash -Algorithm SHA256 -LiteralPath $releaseFiles | ForEach-Object {
+            "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))"
+          } | Set-Content -LiteralPath "WJDRMuMuAssistant_v4.1.1_SHA256.txt" -Encoding ascii
+
+      - name: Upload and publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repo = $env:GITHUB_REPOSITORY
+          gh release view v4.1.1 --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create v4.1.1 --repo $repo --title "MuMu Assistant 4.1.1" --notes "Windows release build." --draft
+          }
+          gh release upload v4.1.1 "WJDRMuMuAssistant_v4.1.1_Setup.exe" "WJDRMuMuAssistant_v4.1.1_Portable.zip" "WJDRMuMuAssistant_v4.1.1_SHA256.txt" --clobber --repo $repo
+          if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed with exit code $LASTEXITCODE" }
+          gh release edit v4.1.1 --repo $repo --draft=false --latest
+, 'OutputDir=.'
+          $ciIss = $ciIss -replace '(?m)^SetupIconFile=.*\r?\n', ''
           Set-Content -LiteralPath installer-ci.iss -Value $ciIss -Encoding utf8
           $iscc = Get-ChildItem -Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           & $iscc.FullName installer-ci.iss
