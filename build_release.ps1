@@ -1,5 +1,6 @@
 param(
-    [string]$OutputRoot = (Join-Path $PSScriptRoot "release")
+    [string]$OutputRoot = (Join-Path $PSScriptRoot "release"),
+    [switch]$Incremental
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +15,7 @@ $assets = @(
 )
 
 $arguments = @(
-    "--noconfirm", "--clean", "--windowed",
+    "--noconfirm", "--windowed",
     "--name", $appName,
     "--icon", (Join-Path $PSScriptRoot "app_icon.ico"),
     "--version-file", (Join-Path $PSScriptRoot "version_info.txt"),
@@ -23,6 +24,10 @@ $arguments = @(
     "--specpath", (Join-Path $OutputRoot "spec"),
     (Join-Path $PSScriptRoot "wjdr_mumu_assistant_qt.py")
 )
+
+if (-not $Incremental) {
+    $arguments = @("--clean") + $arguments
+}
 
 foreach ($asset in $assets) {
     $arguments += "--add-data"
@@ -43,5 +48,18 @@ foreach ($document in (Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Ob
 })) {
     Copy-Item -LiteralPath $document.FullName -Destination $packageRoot -Force
 }
+
+# Keep the read-only batch recogniser usable beside the portable GUI.  It is
+# intentionally a source-mode diagnostic (the host needs Python plus the
+# small requirements file) and has no input commands; copying both modules
+# fixes the old package where 快速识图.cmd was present but its target script
+# was missing.
+foreach ($toolFile in @("wjdr_fast_vision.py", "wjdr_backend.py", "requirements.txt")) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $toolFile) -Destination $packageRoot -Force
+}
+foreach ($asset in $assets) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $asset) -Destination $packageRoot -Force
+}
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "assets") -Destination $packageRoot -Recurse -Force
 
 Write-Host "Portable release staged at: $packageRoot"

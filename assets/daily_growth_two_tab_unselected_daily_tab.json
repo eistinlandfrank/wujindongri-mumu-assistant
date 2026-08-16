@@ -1,0 +1,7 @@
+{
+  "source": "live ADB 127.0.0.1:16448 after one-key claim settlement",
+  "captured_at": "2026-08-06T12:11:13+08:00",
+  "source_box": [662, 2180, 1192, 2400],
+  "purpose": "exact unselected Daily Tasks tab on the high-level two-tab Growth Tasks page",
+  "safety": "input authority requires the separately matched exact Growth Tasks page title and two fresh identical frames"
+}

@@ -1,0 +1,7 @@
+{
+  "screen_width": 1440,
+  "screen_height": 2560,
+  "source": "evidence/milestone-22-docx-mining-review/overview-private-2.png",
+  "crop": [100, 230, 380, 470],
+  "meaning": "overview Threat/Resource labels and divider without checkbox pixels"
+}
