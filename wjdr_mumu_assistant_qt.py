@@ -723,16 +723,6 @@ class MainWindow(QMainWindow):
         self.device_combo.setMinimumWidth(360)
         self.device_combo.currentIndexChanged.connect(self._device_changed)
         top.addWidget(self.device_combo)
-        self.mining_level_button = QPushButton("采矿：未选择账号")
-        self.mining_level_button.setObjectName("ghostButton")
-        self.mining_level_button.setEnabled(False)
-        self.mining_level_button.clicked.connect(self._open_mining_level_settings)
-        top.addWidget(self.mining_level_button)
-        self.beast_rally_settings_button = QPushButton("巨兽：未选择账号")
-        self.beast_rally_settings_button.setObjectName("ghostButton")
-        self.beast_rally_settings_button.setEnabled(False)
-        self.beast_rally_settings_button.clicked.connect(self._open_beast_rally_settings)
-        top.addWidget(self.beast_rally_settings_button)
         scan = QPushButton("↻  扫描")
         scan.setObjectName("ghostButton")
         scan.clicked.connect(lambda: self._run_async(self._connect_job))
@@ -1192,13 +1182,31 @@ class MainWindow(QMainWindow):
         rules_layout.addStretch()
         content.addWidget(rules, 3)
 
-        limits = Card()
+        limits = Card(name="dailyAccountSettingsCard")
         limit_layout = QVBoxLayout(limits)
         limit_layout.setContentsMargins(24, 22, 24, 24)
-        limit_title = QLabel("运行设置")
+        settings_header = QHBoxLayout()
+        settings_header.setSpacing(14)
+        settings_copy = QVBoxLayout()
+        settings_copy.setSpacing(4)
+        limit_title = QLabel("当前账号设置")
         limit_title.setObjectName("sectionTitle")
-        limit_layout.addWidget(limit_title)
+        self.mining_profile_context = QLabel("选择在线 MuMu 账号后可配置")
+        self.mining_profile_context.setObjectName("muted")
+        settings_copy.addWidget(limit_title)
+        settings_copy.addWidget(self.mining_profile_context)
+        settings_header.addLayout(settings_copy, 1)
+        self.mining_level_button = QPushButton("设置采矿策略")
+        self.mining_level_button.setObjectName("settingsButton")
+        self.mining_level_button.setAccessibleName("当前账号采矿设置")
+        self.mining_level_button.setEnabled(False)
+        self.mining_level_button.clicked.connect(self._open_mining_level_settings)
+        settings_header.addWidget(self.mining_level_button)
+        limit_layout.addLayout(settings_header)
         limit_layout.addSpacing(14)
+        runtime_title = QLabel("运行参数")
+        runtime_title.setObjectName("fieldLabel")
+        limit_layout.addWidget(runtime_title)
         self.daily_interval_spin = QDoubleSpinBox()
         self.daily_interval_spin.setRange(0.0, MAX_SINGLE_WAIT_SECONDS)
         self.daily_interval_spin.setValue(0.0)
@@ -1290,10 +1298,30 @@ class MainWindow(QMainWindow):
         state_text.addWidget(state_title)
         state_text.addWidget(self.beast_rally_state_label)
         status_layout.addLayout(state_text, 1)
+        layout.addWidget(status)
+
+        account = Card(name="beastAccountSettingsCard")
+        account_layout = QHBoxLayout(account)
+        account_layout.setContentsMargins(22, 18, 22, 18)
+        account_copy = QVBoxLayout()
+        account_copy.setSpacing(4)
+        account_title = QLabel("当前账号配置")
+        account_title.setObjectName("cardTitle")
+        self.beast_rally_profile_context = QLabel("选择在线 MuMu 账号后可配置")
+        self.beast_rally_profile_context.setObjectName("muted")
+        account_copy.addWidget(account_title)
+        account_copy.addWidget(self.beast_rally_profile_context)
+        account_layout.addLayout(account_copy, 1)
         self.beast_rally_profile_summary = QLabel("等级 8 · 体力不限 · 今日 0")
         self.beast_rally_profile_summary.setObjectName("valuePill")
-        status_layout.addWidget(self.beast_rally_profile_summary)
-        layout.addWidget(status)
+        account_layout.addWidget(self.beast_rally_profile_summary)
+        self.beast_rally_settings_button = QPushButton("设置巨兽参数")
+        self.beast_rally_settings_button.setObjectName("settingsButton")
+        self.beast_rally_settings_button.setAccessibleName("当前账号巨兽设置")
+        self.beast_rally_settings_button.setEnabled(False)
+        self.beast_rally_settings_button.clicked.connect(self._open_beast_rally_settings)
+        account_layout.addWidget(self.beast_rally_settings_button)
+        layout.addWidget(account)
 
         bounds = Card()
         bounds_layout = QVBoxLayout(bounds)
@@ -1462,8 +1490,9 @@ class MainWindow(QMainWindow):
             QLabel#pageTitle {{ font-size: 26px; font-weight: 750; }}
             QLabel#pageSubtitle, QLabel#muted {{ color: {COLORS['muted']}; font-size: 12px; }}
             QLabel#statusPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
-            QFrame#card, QFrame#noticeCard {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 14px; }}
-            QFrame#hero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #183A73, stop:1 #2358B3); border-radius: 16px; }}
+            QFrame#card, QFrame#noticeCard, QFrame#dailyTaskStatusCard {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 14px; }}
+            QFrame#hero, QFrame#dailyTaskHero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #183A73, stop:1 #2358B3); border-radius: 16px; }}
+            QFrame#dailyAccountSettingsCard, QFrame#beastAccountSettingsCard {{ background: #F8FAFE; border: 1px solid #D8E3F5; border-radius: 14px; }}
             QLabel#heroKicker {{ color: #91B6FF; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
             QLabel#heroTitle {{ color: white; font-size: 23px; font-weight: 750; }}
             QLabel#heroText {{ color: #C2D3EF; font-size: 12px; }}
@@ -1494,6 +1523,9 @@ class MainWindow(QMainWindow):
             QPushButton#redPacketStopButton {{ background: rgba(77, 17, 21, .32); color: white; border: 1px solid rgba(255,255,255,.34); }}
             QPushButton#redPacketStopButton:hover {{ background: rgba(77, 17, 21, .48); }}
             QPushButton#secondaryButton {{ background: #E9F0FE; color: #275FBF; border: 1px solid #CDDCF8; }}
+            QPushButton#settingsButton {{ background: white; color: #255EC5; border: 1px solid #BFD1EF; min-width: 168px; }}
+            QPushButton#settingsButton:hover {{ background: #EDF3FF; border-color: #8FB0E3; }}
+            QPushButton#settingsButton:disabled {{ background: #F1F4F8; color: #98A5B8; border-color: #DCE3EC; }}
             QPushButton#softButton, QPushButton#ghostButton {{ background: white; color: #3D4C63; border: 1px solid {COLORS['border']}; }}
             QPushButton#softButton:hover, QPushButton#ghostButton:hover {{ border-color: #AFC3E3; background: #F8FAFE; }}
             QPushButton#dangerButton {{ background: {COLORS['red']}; color: white; border: none; }}
@@ -1714,16 +1746,20 @@ class MainWindow(QMainWindow):
     def _update_mining_level_button(self, item: dict[str, Any] | None) -> None:
         identity = self._mining_identity_for_item(item)
         if not identity:
-            self.mining_level_button.setText("采矿：未选择账号")
+            self.mining_level_button.setText("设置采矿策略")
             self.mining_level_button.setToolTip("")
             self.mining_level_button.setEnabled(False)
+            self.mining_profile_context.setText("选择在线 MuMu 账号后可配置")
             return
         profile = load_mining_level_profile(identity)
         if profile.mode == "manual":
-            summary = f"采矿：手动 Lv.{profile.manual_level}"
+            summary = f"手动采矿 Lv.{profile.manual_level}"
         else:
-            summary = "采矿：自动识别"
+            summary = "自动识别采矿等级"
         self.mining_level_button.setText(summary)
+        self.mining_profile_context.setText(
+            f"{self._masked_account_label(identity)} · 设置仅作用于当前账号"
+        )
         self.mining_level_button.setToolTip(
             f"{self._masked_account_label(identity)}；点击修改该账号的独立采矿设置"
         )
@@ -1760,17 +1796,19 @@ class MainWindow(QMainWindow):
     def _update_beast_rally_settings(self, item: dict[str, Any] | None) -> None:
         identity = self._mining_identity_for_item(item)
         if not identity:
-            self.beast_rally_settings_button.setText("巨兽：未选择账号")
+            self.beast_rally_settings_button.setText("设置巨兽参数")
             self.beast_rally_settings_button.setToolTip("")
             self.beast_rally_settings_button.setEnabled(False)
+            self.beast_rally_profile_context.setText("选择在线 MuMu 账号后可配置")
             if hasattr(self, "beast_rally_profile_summary"):
                 self.beast_rally_profile_summary.setText("等级 8 · 体力不限 · 今日 0")
             return
         profile = load_beast_rally_profile(identity)
         spent = load_beast_rally_stamina_spent(identity)
         limit = "不限" if profile.stamina_limit == 0 else str(profile.stamina_limit)
-        self.beast_rally_settings_button.setText(
-            f"巨兽：Lv.{profile.beast_level} / 体力{limit}"
+        self.beast_rally_settings_button.setText("修改巨兽参数")
+        self.beast_rally_profile_context.setText(
+            f"{self._masked_account_label(identity)} · 设置仅作用于当前账号"
         )
         self.beast_rally_settings_button.setToolTip(
             f"{self._masked_account_label(identity)}；点击修改该账号的巨兽等级和体力上限"

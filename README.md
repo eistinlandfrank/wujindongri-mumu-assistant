@@ -1,8 +1,8 @@
-# 无尽冬日 MuMu 助手 5.61.0
+# 无尽冬日 MuMu 助手 5.62.0
 
-当前完整便携包位于 `release_v5_61\\dist\\WJDRMuMuAssistant`，单文件安装程序位于 `release_v5_61\\WJDRMuMuAssistant_v5.61.0_Setup.exe`。v5.57 与 v5.59 的中断构建目录仍不是发布版，禁止启动或分发。
+当前完整便携包位于 `release_v5_62\\dist\\WJDRMuMuAssistant`，单文件安装程序位于 `release_v5_62\\WJDRMuMuAssistant_v5.62.0_Setup.exe`。v5.57 与 v5.59 的中断构建目录仍不是发布版，禁止启动或分发。
 
-5.61 源码已实机连续证明冰原巨兽 Lv.8、3分钟、第一编组路线的本号行军容量 `0/6 → 1/6 → 0/6 → 下一轮1/6`，蓝色盟军集结行不计入。每日任务的失败、让行、抑制和空闲重试锁统一不超过30秒；仓库3分钟、绿色免费招募5分钟、自然训练/采集倒计时只作为业务提醒，不能阻塞其他独立任务扫描。
+5.62 将账号配置入口放回对应业务页面：采矿策略只出现在每日任务页，巨兽等级/体力只出现在巨兽集结页；公共顶栏只保留设备、扫描和连接状态。配置仍按稳定账号身份独立保存。5.61 已实机证明的巨兽连续周期、蓝色盟军行排除、每日任务30秒重试上限与业务倒计时规则保持不变。
 
 一个面向 MuMu Player 12 的 Windows 桌面工具。它通过 ADB 截图和模拟点击执行页面识别与联盟互助流程，不读取游戏内存、不修改 APK，也不读取账号密码。
 
@@ -43,7 +43,7 @@ py wjdr_mumu_assistant_qt.py --device 127.0.0.1:16448 --auto-beast-rally
 .\build_release.ps1
 ```
 
-默认生成目录为 `release\\dist\\WJDRMuMuAssistant`；本次 5.61.0 已验证发布目录为 `release_v5_61\\dist\\WJDRMuMuAssistant`。
+默认生成目录为 `release\\dist\\WJDRMuMuAssistant`；本次 5.62.0 已验证发布目录为 `release_v5_62\\dist\\WJDRMuMuAssistant`。
 
 ## 项目文件
 

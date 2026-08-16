@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QPushButton
 
 from wjdr_backend import MiningLevelProfile
 from wjdr_mumu_assistant_qt import MainWindow, MiningLevelSettingsDialog
@@ -47,6 +47,7 @@ class MiningLevelSettingsDialogTests(unittest.TestCase):
         QMainWindow.__init__(window)
         window.adb = None
         window.mining_level_button = QPushButton()
+        window.mining_profile_context = QLabel()
         profiles = {
             "android:low": MiningLevelProfile("manual", 6),
             "android:high": MiningLevelProfile("auto", 9),
@@ -56,9 +57,11 @@ class MiningLevelSettingsDialogTests(unittest.TestCase):
             side_effect=lambda identity: profiles[identity],
         ):
             window._update_mining_level_button({"identity": "android:low"})
-            self.assertEqual(window.mining_level_button.text(), "采矿：手动 Lv.6")
+            self.assertEqual(window.mining_level_button.text(), "手动采矿 Lv.6")
+            self.assertIn("账号 …low", window.mining_profile_context.text())
             window._update_mining_level_button({"identity": "android:high"})
-            self.assertEqual(window.mining_level_button.text(), "采矿：自动识别")
+            self.assertEqual(window.mining_level_button.text(), "自动识别采矿等级")
+            self.assertIn("账号 …high", window.mining_profile_context.text())
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@
 
 ## Current release
 
-- Current source and packaged release: v5.61. Portable EXE: `release_v5_61\dist\WJDRMuMuAssistant\WJDRMuMuAssistant.exe`, SHA256 `0F478B80167F4F4AC0F5411394E5064AAACE0B9BC98FFD1473406C32FDD66A09`. The package contains 234 byte-verified runtime assets and passed the no-input `--help` smoke check.
+- Current source and packaged release: v5.62. Portable EXE: `release_v5_62\dist\WJDRMuMuAssistant\WJDRMuMuAssistant.exe`, SHA256 `0A77F5F3F47A51035A2AA2E95051DAB9B2CCCE9EBD84F4D7336165B3CF3EA844`. The package contains 234 byte-verified runtime assets and passed `--help` plus GUI-boot smoke. Mining settings are Daily-page-local and Beast settings are Beast-page-local; both remain account-scoped.
 - v5.58 at `release_v5_58\dist\WJDRMuMuAssistant\WJDRMuMuAssistant.exe`, SHA256 `64712D1C95ED9B74F1B06486EF5FBC683CC81F58BD081187F53A999FFFB4FCAE`, remains the fallback baseline.
 - The v5.57 and v5.59 build directories were interrupted at the hard 30-second boundary and are not releases; never launch or publish them.
 - Current source live-proved the instance-2 Lv.8 Beast lifecycle `0/6 -> 1/6 -> 0/6 -> next-cycle 1/6` while excluding the blue allied-rally row. Evidence: `evidence\milestone-159-beast-continuous-cycle-live`.

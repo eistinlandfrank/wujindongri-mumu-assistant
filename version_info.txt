@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'WJDR Tools'),
           StringStruct('FileDescription', '无尽冬日 MuMu 多实例助手'),
-          StringStruct('FileVersion', '5.61.0.0'),
+          StringStruct('FileVersion', '5.62.0.0'),
           StringStruct('InternalName', 'WJDRMuMuAssistant'),
           StringStruct('LegalCopyright', 'Copyright © 2026 WJDR Tools'),
           StringStruct('OriginalFilename', 'WJDRMuMuAssistant.exe'),
           StringStruct('ProductName', '无尽冬日 MuMu 助手'),
-          StringStruct('ProductVersion', '5.61.0')
+          StringStruct('ProductVersion', '5.62.0')
         ]
       )
     ]),

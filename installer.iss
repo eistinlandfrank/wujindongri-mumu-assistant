@@ -1,7 +1,7 @@
 #define MyAppName "无尽冬日 MuMu 助手"
-#define MyAppVersion "5.61.0"
+#define MyAppVersion "5.62.0"
 #define MyAppExeName "WJDRMuMuAssistant.exe"
-#define BuildDir "release_v5_61\dist\WJDRMuMuAssistant"
+#define BuildDir "release_v5_62\dist\WJDRMuMuAssistant"
 
 [Setup]
 AppId={{6F53579C-9E6F-4C67-98B7-46D65AB38AA4}
@@ -12,8 +12,8 @@ AppPublisher=WJDR Tools
 DefaultDirName={localappdata}\Programs\WJDRMuMuAssistant
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=release_v5_61
-OutputBaseFilename=WJDRMuMuAssistant_v5.61.0_Setup
+OutputDir=release_v5_62
+OutputBaseFilename=WJDRMuMuAssistant_v5.62.0_Setup
 SetupIconFile=app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/fast
@@ -25,7 +25,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
 InfoBeforeFile=发行说明.txt
-VersionInfoVersion=5.61.0.0
+VersionInfoVersion=5.62.0.0
 VersionInfoCompany=WJDR Tools
 VersionInfoDescription=无尽冬日 MuMu 助手安装程序
 VersionInfoProductName={#MyAppName}
