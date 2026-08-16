@@ -1,0 +1,7 @@
+{
+  "screen_width": 1440,
+  "screen_height": 2560,
+  "source": "evidence/milestone-23-bounded-steps/worker-now-private.png",
+  "crop": [1180, 2250, 1440, 2560],
+  "meaning": "exact city-side 野外 control"
+}

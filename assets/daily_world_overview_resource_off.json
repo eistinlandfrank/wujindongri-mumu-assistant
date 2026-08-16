@@ -1,0 +1,7 @@
+{
+  "screen_width": 1440,
+  "screen_height": 2560,
+  "source": "evidence/milestone-22-docx-mining-review/overview-private-2.png",
+  "crop": [0, 230, 380, 470],
+  "meaning": "Threat checked plus Resource unchecked; authorises only Resource square"
+}

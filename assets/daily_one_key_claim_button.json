@@ -1,0 +1,7 @@
+{
+  "screen_width": 1440,
+  "screen_height": 2560,
+  "source": "live 127.0.0.1:16448 Daily page, 2026-08-06",
+  "crop": [576, 2010, 864, 2107],
+  "meaning": "exact green 一键领取 label; actionable only with Daily header and selected Daily tab"
+}
