@@ -6,6 +6,11 @@ venv/
 build/
 dist/
 release/
+release_*/
+evidence/
+*.log
+*.pid
+audit-*.json
 *.spec
 
 # Local release artefacts

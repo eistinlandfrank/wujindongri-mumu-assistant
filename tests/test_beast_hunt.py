@@ -1,0 +1,111 @@
+import unittest
+from pathlib import Path
+from PIL import Image, ImageDraw
+from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_sidebar_countdown
+from wjdr_backend import BeastRallyState
+from wjdr_beast_hunt import read_compact_rally_rows
+import numpy as np
+
+
+class HuntTests(unittest.TestCase):
+    def frame(self, x=1115, selected=False):
+        frame = Image.new('RGB', (1440, 2560), (20, 65, 109))
+        for name, xy in [('beast_rally_formation_anchor.png', (105, 26)),
+                         ('beast_rally_dispatch_label.png', (925, 2360))]:
+            with Image.open(Path('assets') / name) as asset:
+                frame.paste(asset, xy)
+        if selected:
+            ImageDraw.Draw(frame).rectangle((x-20, 180, x+100, 285), fill=(240, 195, 45))
+        with Image.open('assets/beast_rally_hunt_name.png') as asset:
+            frame.paste(asset, (x, 248))
+        return frame
+
+    def test_named_team_any_position(self):
+        for x in (60, 630, 1115):
+            match = match_hunt_formation(self.frame(x))
+            self.assertIs(match.state, BeastRallyState.FORMATION)
+            self.assertEqual(dict(match.anchors)['hunt'][0], x + 40)
+
+    def test_selected_required_before_dispatch(self):
+        self.assertIs(match_hunt_formation(self.frame(), selected=True).state, BeastRallyState.UNKNOWN)
+        self.assertIs(match_hunt_formation(self.frame(selected=True), selected=True).state, BeastRallyState.FORMATION)
+
+    def test_missing_header_and_duplicate_name_fail(self):
+        frame = self.frame()
+        frame.paste((20,65,109), (0,0,700,140))
+        self.assertIs(match_hunt_formation(frame).state, BeastRallyState.UNKNOWN)
+        frame = self.frame()
+        with Image.open('assets/beast_rally_hunt_name.png') as asset:
+            frame.paste(asset, (450,248))
+        self.assertIs(match_hunt_formation(frame).state, BeastRallyState.UNKNOWN)
+
+    def test_one_team_until_busy_then_return(self):
+        c = SingleBeastCycle(6)
+        self.assertEqual(c.observe(0,6), 'ready')
+        c.dispatch()
+        self.assertEqual(c.observe(0,6), 'awaiting_dispatch_proof')
+        with self.assertRaises(ValueError): c.dispatch()
+        self.assertEqual(c.observe(1,6), 'busy')
+        self.assertEqual(c.observe(1,6), 'busy')
+        self.assertEqual(c.observe(0,6), 'returned')
+        self.assertEqual(c.observe(2,6), 'occupied_multiple')
+        with self.assertRaises(ValueError): c.observe(0,5)
+
+    def test_sidebar_timer_live_and_allied_exclusion(self):
+        frame = Image.new('RGB', (1440,2560), (50,70,110))
+        with Image.open('tests/fixtures/beast_hunt_timer.png') as crop:
+            frame.paste(crop, (150,745))
+            self.assertEqual(read_sidebar_countdown(frame), 123)
+            frame = Image.new('RGB', (1440,2560), (50,70,110))
+            frame.paste(crop, (150,480))
+            self.assertIsNone(read_sidebar_countdown(frame))
+            frame.paste(crop, (150,745))
+            frame.paste(crop, (150,900))
+            self.assertIsNone(read_sidebar_countdown(frame))
+
+    def test_extra_queue_does_not_release_beast(self):
+        cycle = SingleBeastCycle(6)
+        cycle.dispatch()
+        self.assertEqual(cycle.observe(1,6), 'busy')
+        self.assertEqual(cycle.observe(2,6), 'occupied_multiple')
+        self.assertEqual(cycle.observe(1,6), 'busy')
+        self.assertFalse(cycle.returned)
+        self.assertEqual(cycle.observe(0,6), 'returned')
+
+    def compact_frame(self, joined=False, returning=False):
+        frame = Image.new('RGB',(1440,2560),(30,50,90))
+        name = 'beast_owner_return_row.png' if returning else 'beast_owner_green_row.png'
+        with Image.open(Path('tests/fixtures')/name) as im:
+            row=np.array(im.convert('RGB'))
+        if joined:
+            icon=row[:,:65]
+            green=(icon[:,:,1]>100)&(icon[:,:,0]<100)&(icon[:,:,2]<100)
+            icon[green]=(45,128,210)
+        frame.paste(Image.fromarray(row).resize((356,85)),(35,620))
+        return frame
+
+    def test_green_icon_is_own(self):
+        rows=read_compact_rally_rows(self.compact_frame())
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0].owner,'own')
+        self.assertEqual(rows[0].seconds,89)
+
+    def test_blue_icon_with_green_bar_is_joined(self):
+        rows=read_compact_rally_rows(self.compact_frame(joined=True))
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0].owner,'joined')
+
+    def test_returning_blue_is_not_joined_rally(self):
+        self.assertEqual(read_compact_rally_rows(self.compact_frame(returning=True)),())
+
+    def test_capacity_does_not_prove_ownership(self):
+        cycle=SingleBeastCycle(6,require_owner=True)
+        cycle.dispatch()
+        self.assertEqual(cycle.observe(1,6),'awaiting_dispatch_proof')
+        self.assertEqual(cycle.observe(0,6),'awaiting_dispatch_proof')
+        cycle.confirm_owned_rally()
+        self.assertEqual(cycle.observe(1,6),'busy')
+        self.assertEqual(cycle.observe(0,6),'returned')
+
+
+if __name__ == '__main__': unittest.main()

@@ -15,6 +15,8 @@ from wjdr_backend import (
     reserve_beast_rally_stamina,
     confirm_beast_rally_stamina_reservation,
     save_beast_rally_profile,
+    reconcile_beast_rally_idle_reservation,
+    load_beast_rally_stamina_uncertain,
 )
 
 
@@ -61,6 +63,37 @@ class BeastRallyProfileTests(unittest.TestCase):
         self.assertEqual(confirm_beast_rally_stamina_reservation(identity, day="2026-08-12", path=self.ledger), 20)
         self.assertEqual(confirm_beast_rally_stamina_reservation(identity, day="2026-08-12", path=self.ledger), 20)
         self.assertEqual(load_beast_rally_stamina_reserved(identity, day="2026-08-12", path=self.ledger), 0)
+
+    def test_idle_recovery_is_idempotent_and_keeps_uncertain_budget(self):
+        key = "mumu:0:android:test"
+        opts = {"day": "2026-09-06", "path": self.ledger}
+        idle = (True,) * 6
+        record_beast_rally_stamina_spent(key, 60, **opts)
+        reserve_beast_rally_stamina(key, 20, **opts)
+        self.assertEqual(reconcile_beast_rally_idle_reservation(key, idle, idle, **opts), 20)
+        self.assertEqual(reconcile_beast_rally_idle_reservation(key, idle, idle, **opts), 0)
+        self.assertEqual(load_beast_rally_stamina_spent(key, **opts), 60)
+        self.assertEqual(load_beast_rally_stamina_reserved(key, **opts), 0)
+        self.assertEqual(load_beast_rally_stamina_uncertain(key, **opts), 20)
+        self.assertFalse(beast_rally_stamina_limit_allows(60 + 20, 25, 100))
+        reserve_beast_rally_stamina(key, 20, **opts)
+        confirm_beast_rally_stamina_reservation(key, **opts)
+        self.assertEqual(load_beast_rally_stamina_uncertain(key, **opts), 20)
+        self.assertEqual(load_beast_rally_stamina_spent(key, **opts), 80)
+        self.assertEqual(load_beast_rally_stamina_uncertain("mumu:1:android:test", **opts), 0)
+
+    def test_recovery_rejects_busy_unknown_mismatch_and_truncated_rows(self):
+        key = "mumu:0:android:test"
+        opts = {"day": "2026-09-06", "path": self.ledger}
+        reserve_beast_rally_stamina(key, 20, **opts)
+        idle = (True,) * 6
+        for first, second in [(None, None), (idle, (True,) * 5),
+                              ((False,) + idle[1:], (False,) + idle[1:]),
+                              ((True,) * 5, (True,) * 5)]:
+            with self.assertRaises(ValueError):
+                reconcile_beast_rally_idle_reservation(key, first, second, **opts)
+        self.assertEqual(load_beast_rally_stamina_reserved(key, **opts), 20)
+        self.assertEqual(load_beast_rally_stamina_uncertain(key, **opts), 0)
 
 
 if __name__ == "__main__":

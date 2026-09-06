@@ -28,7 +28,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.62.0"
+APP_VERSION = "5.63.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -157,6 +157,8 @@ BUILTIN_BEAST_RALLY_PROGRESS_IDLE_ASSET = (
 )
 BUILTIN_BEAST_RALLY_STATE_RALLYING_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_state_rallying.png"
 BEAST_RALLY_BUILTIN_ASSETS: tuple[str, ...] = (
+    "assets/beast_rally_compact_rallying_title.png",
+    "assets/beast_rally_hunt_name.png",
     BUILTIN_BEAST_RALLY_WORLD_SEARCH_ASSET,
     BUILTIN_BEAST_RALLY_WORLD_SEARCH_DENSE_ASSET,
     BUILTIN_BEAST_RALLY_WORLD_SEARCH_ROUND_ASSET,
@@ -1679,6 +1681,46 @@ def load_beast_rally_stamina_reserved(
         return 0
 
 
+def load_beast_rally_stamina_uncertain(
+    identity: str, *, day: str | None = None,
+    path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
+) -> int:
+    """Conservative budget debit, not a claim that a battle/spend succeeded."""
+    payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    account = payload.get("accounts", {}).get(identity, {})
+    if account.get("day") != (day or _beast_rally_ledger_day()):
+        return 0
+    return max(0, int(account.get("uncertain", 0)))
+
+
+def reconcile_beast_rally_idle_reservation(
+    identity: str, first: tuple[bool, ...] | None, second: tuple[bool, ...] | None,
+    *, day: str | None = None, path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
+) -> int:
+    """Release a stale queue hold only with two complete six-idle-row proofs.
+
+    Preserve an uncertain budget debit: idle now cannot prove the old cost.
+    Caller owns the account DeviceLease and must use fresh same-account frames.
+    """
+    if not first or first != second or len(first) != 6 or not all(x is True for x in first):
+        raise ValueError("two complete six-idle-row proofs are required")
+    if not identity.strip():
+        raise ValueError("device identity is required")
+    payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version": 2, "accounts": {}}
+    account = payload.get("accounts", {}).get(identity, {})
+    if account.get("day") != (day or _beast_rally_ledger_day()):
+        return 0
+    reserved = max(0, int(account.get("reserved", 0)))
+    if not reserved:
+        return 0
+    account["uncertain"] = max(0, int(account.get("uncertain", 0))) + reserved
+    account["reserved"] = 0
+    account["last_recovery"] = {"reason": "fresh_double_six_idle", "amount": reserved,
+                                "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    _atomic_json_write(path, payload)
+    return reserved
+
+
 def reserve_beast_rally_stamina(
     identity: str,
     cost: int,
@@ -1709,7 +1751,7 @@ def reserve_beast_rally_stamina(
     reserved = max(0, int(previous.get("reserved", 0))) if same_day else 0
     if reserved:
         raise ValueError("an unresolved beast-rally stamina reservation already exists")
-    accounts[key] = {"day": active_day, "spent": spent, "reserved": debit}
+    accounts[key] = {**(previous if same_day else {}), "day": active_day, "spent": spent, "reserved": debit}
     _atomic_json_write(path, {"version": 2, "accounts": accounts})
     return debit
 
@@ -1741,7 +1783,7 @@ def confirm_beast_rally_stamina_reservation(
     if not reserved:
         return spent
     spent += reserved
-    accounts[key] = {"day": active_day, "spent": spent, "reserved": 0}
+    accounts[key] = {**previous, "day": active_day, "spent": spent, "reserved": 0}
     _atomic_json_write(path, {"version": 2, "accounts": accounts})
     return spent
 
@@ -1781,7 +1823,8 @@ def record_beast_rally_stamina_spent(
         if isinstance(previous, dict) and str(previous.get("day", "")) == active_day
         else 0
     )
-    accounts[key] = {"day": active_day, "spent": new_spent, "reserved": reserved}
+    same_day = isinstance(previous, dict) and str(previous.get("day", "")) == active_day
+    accounts[key] = {**(previous if same_day else {}), "day": active_day, "spent": new_spent, "reserved": reserved}
     _atomic_json_write(path, {"version": 2, "accounts": accounts})
     return new_spent
 
@@ -6736,9 +6779,9 @@ def match_beast_rally_formation_controls(
     return BeastRallyMatch(BeastRallyState.UNKNOWN, None, max(anchor_score, dispatch_score))
 
 
-def read_beast_rally_dispatch_stamina(screenshot: Image.Image) -> int | None:
+def read_beast_rally_dispatch_stamina(screenshot: Image.Image, *, formation_proven: bool = False) -> int | None:
     """Read the final white stamina debit; preview cost is never counted."""
-    if match_beast_rally_formation(screenshot).state is not BeastRallyState.FORMATION:
+    if not formation_proven and match_beast_rally_formation(screenshot).state is not BeastRallyState.FORMATION:
         return None
     crop = _daily_reference_crop(screenshot, (875, 2360, 1310, 2535))
     components = _daily_white_numeric_components(crop)
@@ -6760,9 +6803,9 @@ def read_beast_rally_dispatch_stamina(screenshot: Image.Image) -> int | None:
     return value if 1 <= value <= 999 else None
 
 
-def read_beast_rally_dispatch_stamina_shortfall(screenshot: Image.Image) -> int | None:
+def read_beast_rally_dispatch_stamina_shortfall(screenshot: Image.Image, *, formation_proven: bool = False) -> int | None:
     """Return the reviewed red 20 debit; never authorize a purchase control."""
-    if match_beast_rally_formation(screenshot).state is not BeastRallyState.FORMATION:
+    if not formation_proven and match_beast_rally_formation(screenshot).state is not BeastRallyState.FORMATION:
         return None
     point, score = _match_beast_rally_template(
         screenshot,
@@ -6915,6 +6958,16 @@ def match_beast_rally_progress_sidebar_collapsed(
         best_score = max(best_score, variant_score)
         if variant and max(abs(variant[0] - expected[0]), abs(variant[1] - expected[1])) <= 12:
             return variant, min(variant_score, world_score)
+    # The translucent background changes with the world terrain.  Requiring
+    # the independent Search/Town proof and fixed arrow geometry permits this
+    # reviewed 0.94 variant without weakening any battle or purchase control.
+    variant, variant_score = _match_beast_rally_template(
+        screenshot, BUILTIN_BEAST_RALLY_PROGRESS_SIDEBAR_COLLAPSED_ASSET,
+        max(0.94, float(threshold)),
+        _relative_region(screenshot, 0.00, 0.30, 0.09, 0.57),
+    )
+    if variant and max(abs(variant[0] - expected[0]), abs(variant[1] - expected[1])) <= 20:
+        return variant, min(variant_score, world_score)
     return None, best_score
 
 

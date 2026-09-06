@@ -96,6 +96,8 @@ from wjdr_backend import (
     load_beast_rally_profile,
     load_beast_rally_stamina_spent,
     load_beast_rally_stamina_reserved,
+    load_beast_rally_stamina_uncertain,
+    reconcile_beast_rally_idle_reservation,
     load_mining_level_profile,
     initial_mining_resource_level,
     prune_runtime_evidence,
@@ -441,7 +443,48 @@ class ScreenshotView(QWidget):
         self.update()
 
 
-class MiningLevelSettingsDialog(QDialog):
+class LightSettingsDialog(QDialog):
+    """Readable account settings even when Windows supplies a dark palette."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        palette = QPalette()
+        for role, color in {
+            QPalette.ColorRole.Window: "#F5F8FD",
+            QPalette.ColorRole.WindowText: "#233247",
+            QPalette.ColorRole.Base: "#FFFFFF",
+            QPalette.ColorRole.AlternateBase: "#EDF2FA",
+            QPalette.ColorRole.Text: "#233247",
+            QPalette.ColorRole.Button: "#FFFFFF",
+            QPalette.ColorRole.ButtonText: "#233247",
+            QPalette.ColorRole.Highlight: "#245FD0",
+            QPalette.ColorRole.HighlightedText: "#FFFFFF",
+            QPalette.ColorRole.ToolTipBase: "#FFFFFF",
+            QPalette.ColorRole.ToolTipText: "#233247",
+        }.items():
+            palette.setColor(role, QColor(color))
+        for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText,
+                     QPalette.ColorRole.ButtonText):
+            palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#65748A"))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+        self.setStyleSheet("""
+            QDialog { background: #F5F8FD; color: #233247; }
+            QLabel, QRadioButton { color: #233247; background: transparent; }
+            QLabel#muted, QLabel#mutedLabel { color: #52627A; }
+            QLabel#noticeText { color: #705022; }
+            QSpinBox { background: #FFFFFF; color: #233247;
+                       border: 1px solid #B8C7DC; border-radius: 6px; padding: 8px; }
+            QSpinBox:disabled { background: #EDF2FA; color: #65748A; }
+            QPushButton { background: #FFFFFF; color: #233247;
+                          border: 1px solid #B8C7DC; border-radius: 6px;
+                          min-height: 34px; padding: 0 18px; }
+            QPushButton:hover { background: #E6EEFC; border-color: #245FD0; }
+            QPushButton:default { background: #245FD0; color: #FFFFFF; }
+        """)
+
+
+class MiningLevelSettingsDialog(LightSettingsDialog):
     """Edit exactly one stable Android account's mining level mode."""
 
     def __init__(
@@ -507,7 +550,7 @@ class MiningLevelSettingsDialog(QDialog):
         return MiningLevelProfile(mode, self.manual_level_spin.value())
 
 
-class BeastRallySettingsDialog(QDialog):
+class BeastRallySettingsDialog(LightSettingsDialog):
     """Edit one account's Icefield Beast level and daily stamina cap."""
 
     def __init__(
@@ -517,6 +560,7 @@ class BeastRallySettingsDialog(QDialog):
         profile: BeastRallyProfile,
         spent_today: int,
         parent: QWidget | None = None,
+        *, uncertain_today: int = 0,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("自动集结巨兽设置")
@@ -532,8 +576,8 @@ class BeastRallySettingsDialog(QDialog):
         layout.addSpacing(12)
 
         self.level_spin = QSpinBox()
-        self.level_spin.setRange(1, 30)
-        self.level_spin.setValue(int(profile.beast_level))
+        self.level_spin.setRange(8, 8)
+        self.level_spin.setValue(8)
         self.level_spin.setSuffix(" 级")
         self.stamina_limit_spin = QSpinBox()
         self.stamina_limit_spin.setRange(0, 1_000_000)
@@ -546,9 +590,11 @@ class BeastRallySettingsDialog(QDialog):
         form.addWidget(self.stamina_limit_spin, 1, 1)
         form.addWidget(QLabel("今日已确认消耗"), 2, 0)
         form.addWidget(QLabel(str(max(0, int(spent_today)))), 2, 1)
+        form.addWidget(QLabel("待核实消耗（计入上限）"), 3, 0)
+        form.addWidget(QLabel(str(max(0, int(uncertain_today)))), 3, 1)
         layout.addLayout(form)
         warning = QLabel(
-            "只会发起冰原巨兽、3分钟、第一编组；不会点自动加入、购买体力、加速或其他战斗。"
+            "固定8级、3分钟，只用名称为“打野”的编组；一队实际回兵后再出下一队。不会自动加入、购买体力或加速。"
         )
         warning.setObjectName("noticeText")
         warning.setWordWrap(True)
@@ -1258,7 +1304,7 @@ class MainWindow(QMainWindow):
         title = QLabel("自动发起 3 分钟集结并监控出征状态")
         title.setObjectName("heroTitle")
         desc = QLabel(
-            "确认野外后依次执行搜索、冰原巨兽、指定等级、3分钟、第一编组、出征。"
+            "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环；侧栏确认实际回兵后继续。"
             "体力按最终出征页实际数值记账；0 上限表示不限制。"
         )
         desc.setObjectName("heroText")
@@ -1553,7 +1599,7 @@ class MainWindow(QMainWindow):
             ("联盟帮助", "识图阈值与运行限制"),
             ("联盟红包", "只开启已确认的熔炉升级红包"),
             ("每日任务", "仅领取已验证的每日登录 (1/1) 奖励"),
-            ("巨兽集结", "冰原巨兽 · 指定等级 · 3分钟 · 第一编组 · 体力上限"),
+            ("巨兽集结", "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环 · 体力上限"),
             ("任务编排", "组合点击、等待、返回和识图步骤"),
             ("运行日志", "每条记录都标注绑定的 ADB 端口"),
             ("关于与安全", "版本、兼容范围与账号风险"),
@@ -1811,12 +1857,12 @@ class MainWindow(QMainWindow):
             f"{self._masked_account_label(identity)} · 设置仅作用于当前账号"
         )
         self.beast_rally_settings_button.setToolTip(
-            f"{self._masked_account_label(identity)}；点击修改该账号的巨兽等级和体力上限"
+            f"{self._masked_account_label(identity)}；固定8级、打野编组，点击修改该账号的体力上限"
         )
         self.beast_rally_settings_button.setEnabled(True)
         if hasattr(self, "beast_rally_profile_summary"):
             self.beast_rally_profile_summary.setText(
-                f"等级 {profile.beast_level} · 上限 {limit} · 今日 {spent}"
+                f"8级 · 打野 · 单队 · 上限 {limit} · 今日 {spent}"
             )
 
     def _open_beast_rally_settings(self) -> None:
@@ -1831,6 +1877,7 @@ class MainWindow(QMainWindow):
             load_beast_rally_profile(identity),
             load_beast_rally_stamina_spent(identity),
             self,
+            uncertain_today=load_beast_rally_stamina_uncertain(identity),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -2064,7 +2111,8 @@ class MainWindow(QMainWindow):
         self._start_worker(target.device, job)
 
     def _start_beast_rally_flow(self) -> None:
-        """Run the exact Icefield-Beast / three-minute / first-group route."""
+        """Run Lv.8 / three minutes / named 打野, with one account team at a time."""
+        from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_sidebar_countdown, read_compact_rally_rows
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
@@ -2077,6 +2125,7 @@ class MainWindow(QMainWindow):
         target = self.adb.clone_for_device()
         identity = target.device_identity()
         profile = load_beast_rally_profile(identity)
+        profile = BeastRallyProfile(beast_level=8, stamina_limit=profile.stamina_limit)
         threshold = 0.90
 
         def job() -> None:
@@ -2224,11 +2273,11 @@ class MainWindow(QMainWindow):
                 return match.point, match
 
             def formation_controls_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
-                match = match_beast_rally_formation_controls(image, threshold)
+                match = match_hunt_formation(image)
                 return match.point, match
 
             def exact_formation_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
-                match = match_beast_rally_formation(image, threshold)
+                match = match_hunt_formation(image, selected=True)
                 return match.point, match
 
             def stamina_more_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
@@ -2551,6 +2600,162 @@ class MainWindow(QMainWindow):
                     return False
                 return collapse_wilderness_queue_panel()
 
+            def recover_pending_reservation() -> bool:
+                """Monitor the old army; recover on fresh idle proof, never guess a debit."""
+                reserved = load_beast_rally_stamina_reserved(identity)
+                if not reserved:
+                    return True
+                set_state(f"自动恢复旧记录 {reserved}：核对实际回兵，不新增出征")
+                if open_wilderness_queue_panel("恢复旧记录：核对野外队伍") is None:
+                    return False
+                unknown_since = time.monotonic()
+                heartbeat_at = 0.0
+                while not self.stop_event.is_set():
+                    first, second = capture(), capture()
+                    states1 = read_beast_rally_wilderness_queue_states(first, threshold)
+                    states2 = read_beast_rally_wilderness_queue_states(second, threshold)
+                    cap1 = read_beast_rally_expanded_march_capacity(first, threshold)
+                    cap2 = read_beast_rally_expanded_march_capacity(second, threshold)
+                    now = time.monotonic()
+                    stable_rows = states1 == states2 and states1 and len(states1) == 6
+                    if stable_rows and all(states1) and all(c is None or (c.used, c.total) == (0, 6) for c in (cap1, cap2)):
+                        amount = reconcile_beast_rally_idle_reservation(identity, states1, states2)
+                        self._log_for_device(target.device, f"双帧确认六队全部空闲：自动解除旧预留 {amount}，转为待核实消耗并计入体力上限；继续下一轮，不冒充战斗成功。")
+                        save_evidence(second, (450, 770), "reservation_recovered_idle", f"六队双帧空闲；旧预留 {amount} 转待核实记账，自动恢复。")
+                        return collapse_wilderness_queue_panel()
+                    if stable_rows or (cap1 and cap2 and (cap1.used, cap1.total) == (cap2.used, cap2.total) and cap1.total == 6):
+                        unknown_since = now
+                    elif now - unknown_since >= 24.0:
+                        self._log_for_device(target.device, "恢复期间连续24秒无法识别队伍；保留记录，未新增出征。")
+                        return False
+                    set_state("旧记录恢复中：仍有队伍在外，自动复查，不重复出征")
+                    if now >= heartbeat_at:
+                        self._log_for_device(target.device, "旧预留不再直接结束流程；正在监测实际回兵，确认全部空闲后自动继续。")
+                        heartbeat_at = now + 25.0
+                    if pause():
+                        return False
+                return False
+
+            def single_team_baseline() -> bool:
+                nonlocal baseline_march_capacity
+                first_owners, second_owners = read_compact_rally_rows(capture()), read_compact_rally_rows(capture())
+                if any(r.owner == 'own' for r in first_owners) or any(r.owner == 'own' for r in second_owners):
+                    self._log_for_device(target.device, "上方列表检测到绿色图标的自建集结；不重复发起。蓝色加入集结不算自建。")
+                    return False
+                states = open_wilderness_queue_panel("单队模式：确认本号野外全部空闲")
+                if not states:
+                    return False
+                first, second = capture(), capture()
+                fresh_states = read_beast_rally_wilderness_queue_states(first, threshold)
+                if fresh_states != states or read_beast_rally_wilderness_queue_states(second, threshold) != states:
+                    return False
+                baseline = beast_rally_expanded_capacity_baseline(
+                    states, read_beast_rally_expanded_march_capacity(first, threshold),
+                    read_beast_rally_expanded_march_capacity(second, threshold),
+                )
+                # This reviewed account has six visible rows.  Five idle
+                # labels with an unreadable busy header must not become 0/5.
+                if baseline and baseline[1] != 6:
+                    self._log_for_device(target.device, "打野单队模式尚未完整证明本号六行队列；未新增出征。")
+                    return False
+                if baseline is None or baseline[0] != 0:
+                    self._log_for_device(target.device, "单队模式：既有行军尚未确认全部回兵，本次不新增巨兽队伍。")
+                    return False
+                baseline_march_capacity = baseline
+                return collapse_wilderness_queue_panel()
+
+            def monitor_single_team() -> bool:
+                if baseline_march_capacity is None:
+                    return False
+                total = baseline_march_capacity[1]
+                cycle = SingleBeastCycle(total, require_owner=True)
+                cycle.dispatch()
+                proof_deadline = time.monotonic() + 24.0
+                unknown_since = time.monotonic()
+                heartbeat_at = 0.0
+                accounted = False
+                panel_opened = False
+                while not self.stop_event.is_set():
+                    first, second = capture(), capture()
+                    owners1 = [r for r in read_compact_rally_rows(first) if r.owner == 'own']
+                    owners2 = [r for r in read_compact_rally_rows(second) if r.owner == 'own']
+                    if len(owners1) == len(owners2) == 1 and stable(owners1[0].point, owners2[0].point):
+                        cycle.confirm_owned_rally()
+                        if not accounted:
+                            spent = confirm_beast_rally_stamina_reservation(identity)
+                            accounted = True
+                            self._log_for_device(target.device, f"出征后双帧确认绿色图标＋集结中：这是本轮自建集结，今日体力 {spent}；蓝色行不计入自建证明。")
+                            save_evidence(second, owners2[0].point, "own_green_rally", "绿色图标与同一行集结中文字确认自建归属；不是绿色进度条。")
+                        t1, t2 = owners1[0].seconds, owners2[0].seconds
+                        timer_text = "时间识别中"
+                        if t1 is not None and t2 is not None and 0 <= t1-t2 <= 3:
+                            timer_text = f"{t2//3600:02}:{t2//60%60:02}:{t2%60:02}"
+                        set_state(f"我的自建集结 · 打野 · {timer_text} · 不新增队伍")
+                        now = time.monotonic()
+                        unknown_since = now
+                        if now >= heartbeat_at:
+                            self._log_for_device(target.device, f"绿色自建集结仍在等待：{timer_text}；直接读取上方列表，无需展开野外面板。")
+                            heartbeat_at = now + 25.0
+                        if pause():
+                            return False
+                        continue
+                    if not cycle.seen_busy:
+                        if time.monotonic() >= proof_deadline:
+                            self._log_for_device(target.device, "出征后未及时证明绿色自建集结；转入回兵恢复监测，不把蓝色行认作自建、不新增出征。")
+                            return recover_pending_reservation()
+                        if pause():
+                            return False
+                        continue
+                    if not panel_opened:
+                        # Green disappearance means phase change/occlusion,
+                        # NOT return. Blue returning rows may still be ours.
+                        self._log_for_device(target.device, "绿色集结行已变化：保留本轮关联，转查实际回兵；不把蓝色返回行直接当盟军忽略。")
+                        if open_wilderness_queue_panel("自建集结变更阶段后核对回兵") is None:
+                            return False
+                        panel_opened = True
+                        unknown_since = time.monotonic()
+                        continue
+                    states1 = read_beast_rally_wilderness_queue_states(first, threshold)
+                    states2 = read_beast_rally_wilderness_queue_states(second, threshold)
+                    cap1 = read_beast_rally_expanded_march_capacity(first, threshold)
+                    cap2 = read_beast_rally_expanded_march_capacity(second, threshold)
+                    used = None
+                    if states1 == states2 and states1 and len(states1) == total and all(states1):
+                        if (cap1 is None or cap1.used == 0) and (cap2 is None or cap2.used == 0):
+                            used = 0
+                    elif cap1 and cap2 and (cap1.used, cap1.total) == (cap2.used, cap2.total) and cap1.total == total:
+                        used = cap1.used
+                    now = time.monotonic()
+                    if used is None:
+                        if now - unknown_since >= 24.0:
+                            self._log_for_device(target.device, "侧栏状态连续24秒无法验证，保留单队占用并停止。")
+                            return False
+                        continue
+                    unknown_since = now
+                    try:
+                        state = cycle.observe(used, total)
+                    except ValueError:
+                        self._log_for_device(target.device, "侧栏容量变化或数字无效，单队模式停止新增出征。")
+                        return False
+                    if state == "returned":
+                        self._log_for_device(target.device, f"本号侧栏 1/{total}→0/{total}，全部空闲已双帧确认，允许下一队。")
+                        save_evidence(second, (450, 770), "hunt_returned", "队伍实际回兵，下一轮可开始。")
+                        return collapse_wilderness_queue_panel()
+                    if not cycle.seen_busy and now >= proof_deadline:
+                        self._log_for_device(target.device, "出征后24秒未证明单队占用，保留体力预留并停止。")
+                        return False
+                    seconds1, seconds2 = read_sidebar_countdown(first), read_sidebar_countdown(second)
+                    timer_text = "时间识别中"
+                    if seconds1 is not None and seconds2 is not None and 0 <= seconds1-seconds2 <= 3:
+                        timer_text = f"{seconds2//3600:02}:{seconds2//60%60:02}:{seconds2%60:02}"
+                    set_state(f"Lv.8 · 打野 · 本号队伍 {used}/{total} · {timer_text}")
+                    if now >= heartbeat_at:
+                        self._log_for_device(target.device, f"巨兽侧栏监控：本号 {used}/{total}，{timer_text}，等待集结/行军/回兵，未发第二队。")
+                        heartbeat_at = now + 25.0
+                    if pause():
+                        return False
+                return False
+
             def run_one_cycle() -> bool:
                 nonlocal action_count
                 first_context = capture()
@@ -2588,14 +2793,9 @@ class MainWindow(QMainWindow):
                     world = ensure_wilderness()
                     if not world:
                         return False
-                if not wait_existing_progress():
+                if not recover_pending_reservation():
                     return False
-                # A pre-crash reservation cannot be silently discarded. If
-                # no live green progress exists to confirm it, stop safely.
-                reserved = load_beast_rally_stamina_reserved(identity)
-                if reserved:
-                    set_state(f"存在未决体力 {reserved}：为防重复消耗已停止")
-                    self._log_for_device(target.device, f"发现未决体力预留 {reserved}；未发起新集结，请核对上一队结果。")
+                if not single_team_baseline():
                     return False
                 # Re-capture Search after the queue panel has been collapsed.
                 world = ensure_wilderness()
@@ -2658,25 +2858,25 @@ class MainWindow(QMainWindow):
                 if not formation_controls:
                     return False
                 image, _, controls = formation_controls
-                first = next((p for n, p in controls.anchors if n == "first"), None)
+                first = next((p for n, p in controls.anchors if n == "hunt"), None)
                 if not first:
                     return False
                 target.tap(*first)
-                self._log_for_device(target.device, f"点击第一编组 {first}。")
+                self._log_for_device(target.device, f"点击名称已验证的打野编组 {first}。")
 
                 formation = wait_for_double(
-                    "复核第一编组与普通出征",
+                    "复核打野编组选中高亮与普通出征",
                     exact_formation_match,
                 )
                 if not formation:
                     return False
                 image, dispatch, _ = formation
-                cost = read_beast_rally_dispatch_stamina(image)
+                cost = read_beast_rally_dispatch_stamina(image, formation_proven=True)
                 second = capture()
-                second_match = match_beast_rally_formation(second, threshold)
-                second_cost = read_beast_rally_dispatch_stamina(second)
-                red_cost = read_beast_rally_dispatch_stamina_shortfall(image)
-                second_red_cost = read_beast_rally_dispatch_stamina_shortfall(second)
+                second_match = match_hunt_formation(second, selected=True)
+                second_cost = read_beast_rally_dispatch_stamina(second, formation_proven=True)
+                red_cost = read_beast_rally_dispatch_stamina_shortfall(image, formation_proven=True)
+                second_red_cost = read_beast_rally_dispatch_stamina_shortfall(second, formation_proven=True)
                 if (
                     second_match.state is BeastRallyState.FORMATION
                     and stable(dispatch, second_match.point)
@@ -2685,7 +2885,8 @@ class MainWindow(QMainWindow):
                 ):
                     spent = load_beast_rally_stamina_spent(identity)
                     reserved = load_beast_rally_stamina_reserved(identity)
-                    if not beast_rally_stamina_limit_allows(spent + reserved, 20, profile.stamina_limit):
+                    uncertain = load_beast_rally_stamina_uncertain(identity)
+                    if not beast_rally_stamina_limit_allows(spent + reserved + uncertain, 20, profile.stamina_limit):
                         self._log_for_device(target.device, "体力上限不允许下一次20点消耗；未打开体力道具页。")
                         return False
                     target.tap(*dispatch)
@@ -2706,36 +2907,33 @@ class MainWindow(QMainWindow):
                     if not stamina_page:
                         return False
                     target.back()
-                    formation = wait_for_double("恢复体力后复核第一编组", exact_formation_match)
+                    formation = wait_for_double("恢复体力后复核打野编组", exact_formation_match)
                     if not formation:
                         return False
                     image, dispatch, _ = formation
-                    cost = read_beast_rally_dispatch_stamina(image)
-                    if cost is None:
-                        # The red asset can remain for a few animation frames;
-                        # the exact route restored 20 and its debit is fixed.
-                        cost = 20
+                    cost = read_beast_rally_dispatch_stamina(image, formation_proven=True)
                     second = capture()
-                    second_match = match_beast_rally_formation(second, threshold)
+                    second_match = match_hunt_formation(second, selected=True)
                     if second_match.state is not BeastRallyState.FORMATION or not stable(dispatch, second_match.point):
                         return False
-                    second_cost = cost
+                    second_cost = read_beast_rally_dispatch_stamina(second, formation_proven=True)
                 if second_match.state is not BeastRallyState.FORMATION or not stable(dispatch, second_match.point) or cost is None or cost != second_cost:
                     self._log_for_device(target.device, "最终出征体力未在两张新帧中读取为相同数值；未点击出征。")
                     return False
                 spent = load_beast_rally_stamina_spent(identity)
                 reserved = load_beast_rally_stamina_reserved(identity)
-                if not beast_rally_stamina_limit_allows(spent + reserved, cost, profile.stamina_limit):
+                uncertain = load_beast_rally_stamina_uncertain(identity)
+                if not beast_rally_stamina_limit_allows(spent + reserved + uncertain, cost, profile.stamina_limit):
                     set_state(f"体力上限已到：今日 {spent}，下一次 {cost}")
-                    self._log_for_device(target.device, f"今日已消耗 {spent}，下一次需 {cost}，上限 {profile.stamina_limit}；未点击出征。")
+                    self._log_for_device(target.device, f"今日确认消耗 {spent}，待核实 {uncertain}，下一次需 {cost}，上限 {profile.stamina_limit}；未点击出征。")
                     return False
                 reserve_beast_rally_stamina(identity, cost)
                 target.tap(*dispatch)
                 action_count += 1
                 self.signals.clicks.emit(action_count)
-                self._log_for_device(target.device, f"点击第一编组普通出征 {dispatch}；已预留体力 {cost}，等待活跃集结双帧确认。")
+                self._log_for_device(target.device, f"点击打野编组普通出征 {dispatch}；已预留体力 {cost}，本轮仅一队，等待侧栏双帧确认。")
 
-                completed = monitor_dispatched_queue()
+                completed = monitor_single_team()
                 if not completed:
                     set_state("出征后未完成唯一队列占用→回兵证明：安全停止")
                     return False
@@ -2749,12 +2947,19 @@ class MainWindow(QMainWindow):
                 "每个动作需两张新帧，单步不超过24秒。",
             )
             set_state("启动：确认野外与既有队列")
+            completed_cycles = 0
+            # Optional bounded live acceptance; normal UI runs remain continuous.
+            max_cycles = max(0, int(os.environ.get("WJDR_BEAST_MAX_CYCLES", "0")))
             while not self.stop_event.is_set():
                 if not target.foreground_is_game():
                     set_state("游戏不在前台：零输入停止")
                     self._log_for_device(target.device, "游戏不在前台；巨兽集结未输入并停止。")
                     break
                 if not run_one_cycle():
+                    break
+                completed_cycles += 1
+                if max_cycles and completed_cycles >= max_cycles:
+                    set_state(f"已完成 {completed_cycles} 轮，队伍全部回兵")
                     break
             if self.stop_event.is_set():
                 set_state("已停止")
@@ -7774,38 +7979,89 @@ class MainWindow(QMainWindow):
                 nonlocal alliance_donation_window_clicks
 
                 # From the reviewed node tap through donation-page proof,
-                # the short segment, its two post frames, and the reviewed
+                # the exact ten-second hold, its two post frames, and the reviewed
                 # return, this correlated route shares one <=30-second wall.
                 donation_route_deadline = time.monotonic() + min(
                     AUTOMATION_STEP_TIMEOUT_SECONDS,
                     DAILY_RETRY_LOCK_MAX_SECONDS,
                 )
-                stage = wait_for_gather_step(
-                    "联盟普通肉类捐献页面",
-                    lambda image: match_daily_alliance_food_donation(image, threshold),
-                    max(0.1, donation_route_deadline - time.monotonic()),
+                # Classify the two reviewed donation states concurrently.
+                # Waiting the whole route only for the blue control starved a
+                # page that was already stably grey, then left no deadline
+                # headroom for the reviewed Back route.  Two immediate frames
+                # now prove either blue+yellow (one hold allowed) or the exact
+                # grey exhausted page (no donation input, return at once).
+                stage: tuple[Image.Image, tuple[int, int]] | None = None
+                image: Image.Image | None = None
+                food_streak = 0
+                grey_streak = 0
+                previous_food: tuple[int, int] | None = None
+                availability_deadline = min(
+                    donation_route_deadline,
+                    time.monotonic() + 3.0,
                 )
-                if not stage:
-                    image = target.screenshot()
-                    if not daily_alliance_donation_page_is_visible(image, threshold):
-                        self._log_for_device(target.device, "联盟捐献任务未确认蓝色普通肉类捐献页；未继续输入。")
-                        return False
-                    alliance_donation_unavailable = True
-                    defer_daily_donation(DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS)
+                while (
+                    not self.stop_event.is_set()
+                    and time.monotonic() < availability_deadline
+                ):
+                    candidate = capture_daily_image()
+                    candidate_food, _ = match_daily_alliance_food_donation(
+                        candidate, threshold
+                    )
+                    candidate_page = daily_alliance_donation_page_is_visible(
+                        candidate, threshold
+                    )
+                    if candidate_food:
+                        food_streak = (
+                            food_streak + 1
+                            if previous_food and stable(previous_food, candidate_food)
+                            else 1
+                        )
+                        previous_food = candidate_food
+                        grey_streak = 0
+                        if food_streak >= 2:
+                            stage = (candidate, candidate_food)
+                            image = candidate
+                            break
+                    elif candidate_page:
+                        grey_streak += 1
+                        food_streak = 0
+                        previous_food = None
+                        if grey_streak >= 2:
+                            image = candidate
+                            alliance_donation_unavailable = True
+                            defer_daily_donation(
+                                DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS
+                            )
+                            self._log_for_device(
+                                target.device,
+                                "联盟捐献任务：连续两帧确认普通粮食按钮已灰；"
+                                "未等待蓝色按钮、未再次长按，立即返回并继续后续任务；"
+                                "黄色钻石捐献未触碰。",
+                            )
+                            break
+                    else:
+                        food_streak = 0
+                        grey_streak = 0
+                        previous_food = None
+
+                if stage is None and image is None:
                     self._log_for_device(
                         target.device,
-                        "联盟捐献任务：已确认普通粮食捐献不可用；"
-                            "已记录 30 秒后仅复查可用性，立即继续后续任务；黄色钻石捐献未触碰。",
+                        "联盟捐献任务在3秒内未双帧确认蓝色普通按钮或灰色耗尽页；未继续输入。",
                     )
+                    return False
 
                 if stage:
                     _before, food_point = stage
                     image = _before
                     # ``stage`` is already a two-fresh-frame proof of this
-                    # exact blue control and its yellow sibling.  Send only
-                    # one <=1.2-second segment to the blue centre.  The source
-                    # has no numeric Alliance-Coin reader; therefore a blue
-                    # post-state can never authorise a second segment.
+                    # exact blue control and its yellow sibling.  The game
+                    # consumes the available ordinary donations while this
+                    # button is held and automatically greys it at the cap,
+                    # so one exact ten-second hold is both the fastest and
+                    # safest reviewed action.  A blue post-state still cannot
+                    # authorise a second hold without fresh task-page proof.
                     target.shell(
                         [
                             "input",
@@ -7814,13 +8070,13 @@ class MainWindow(QMainWindow):
                             str(food_point[1]),
                             str(food_point[0]),
                             str(food_point[1]),
-                            "1200",
+                            "10000",
                         ],
-                        timeout=3,
+                        timeout=12,
                     )
                     self._log_for_device(
                         target.device,
-                        "联盟捐献任务：已对双帧确认的蓝色普通肉类捐献按钮执行一段 1200ms 长按；"
+                        "联盟捐献任务：已对双帧确认的蓝色普通肉类捐献按钮执行一次完整 10000ms 长按；"
                         "立即连续取两帧，不点击黄色钻石。",
                     )
                     post_blue_streak = 0
@@ -7828,7 +8084,7 @@ class MainWindow(QMainWindow):
                     post_image: Image.Image | None = None
                     # Consecutive recognition starts immediately: processing
                     # time is not padded by an intentional delay.  Exactly two
-                    # frames are enough for this one-segment fallback.
+                    # frames are enough for this single reviewed hold.
                     for _post_index in range(2):
                         if (
                             self.stop_event.is_set()
@@ -7852,7 +8108,7 @@ class MainWindow(QMainWindow):
                         defer_daily_donation(DAILY_DONATION_WINDOW_RETRY_SECONDS)
                         self._log_for_device(
                             target.device,
-                            "联盟捐献任务：1200ms 分段后连续两帧确认普通捐献按钮变灰，"
+                            "联盟捐献任务：10000ms 长按后连续两帧确认普通捐献按钮变灰，"
                             "当前可用窗口耗尽；不按时长推断次数，具体增长由每日任务页复核，"
                             "30 秒后仅复查下一窗口。",
                         )
@@ -7861,24 +8117,22 @@ class MainWindow(QMainWindow):
                         defer_daily_donation(DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS)
                         self._log_for_device(
                             target.device,
-                            "联盟捐献任务：1200ms 分段后按钮仍连续两帧为蓝色；"
-                            "当前没有可靠联盟币数值读取器，无法证明币值变化，"
-                            "因此本轮不允许第二段，30 秒后仅复查可用性。",
+                            "联盟捐献任务：10000ms 长按后按钮仍连续两帧为蓝色；"
+                            "本轮不允许第二次长按，30 秒后返回每日任务页重新验证进度。",
                         )
                     else:
                         alliance_donation_unavailable = True
                         defer_daily_donation(DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS)
                         self._log_for_device(
                             target.device,
-                            "联盟捐献任务：1200ms 分段后的两帧状态不一致或总路线达到30秒上限；"
+                            "联盟捐献任务：10000ms 长按后的两帧状态不一致或总路线达到30秒上限；"
                             "未再次长按或点击，30 秒后仅复查可用性。",
                         )
 
                     if post_image is not None:
                         image = post_image
 
-                if not stage:
-                    image = target.screenshot()
+                assert image is not None
                 if time.monotonic() >= donation_route_deadline:
                     self._log_for_device(
                         target.device,
@@ -9888,8 +10142,8 @@ class MainWindow(QMainWindow):
                                     self._log_for_device(
                                         target.device,
                                         f"点击已双帧确认的联盟捐献任务前往 {verified_donation.go_point}；"
-                                        "后续只允许对双帧蓝色普通肉类捐献按钮执行一段1200ms长按，"
-                                        "段后两帧仍蓝且无法证明联盟币变化时绝不连按"
+                                        "后续只允许对双帧蓝色普通肉类捐献按钮执行一次10000ms长按，"
+                                        "长按后立即双帧确认灰色状态且绝不连按"
                                         f"（持久化今日 "
                                         f"{alliance_donation_confirmed_clicks}/{DAILY_DONATION_TASK_TARGET}）。",
                                     )

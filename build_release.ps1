@@ -43,6 +43,15 @@ $arguments += "$(Join-Path $PSScriptRoot 'assets');assets"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
 
 $packageRoot = Join-Path (Join-Path $OutputRoot "dist") $appName
+# Qt 6.11 imports Windows' unversioned ICU exports. PyInstaller can pick a
+# PATH application's renamed ICU (e.g. ucnv_open_78), which breaks QtCore on
+# startup. Do not ship that shadowing copy; supported Windows supplies ICU.
+$internalRoot = [IO.Path]::GetFullPath((Join-Path $packageRoot '_internal'))
+foreach ($icuName in @('icuuc.dll', 'icudt78.dll')) {
+    $icuPath = [IO.Path]::GetFullPath((Join-Path $internalRoot $icuName))
+    if ([IO.Path]::GetDirectoryName($icuPath) -ne $internalRoot) { throw 'Invalid runtime ICU path' }
+    if (Test-Path -LiteralPath $icuPath) { Remove-Item -LiteralPath $icuPath -Force }
+}
 foreach ($document in (Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object {
     $_.Extension -in @(".md", ".txt", ".cmd") -and $_.Name -notin @("SHA256.txt", "version_info.txt", "requirements.txt")
 })) {

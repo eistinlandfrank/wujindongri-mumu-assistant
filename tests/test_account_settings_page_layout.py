@@ -62,7 +62,7 @@ class AccountSettingsPageLayoutTests(unittest.TestCase):
 
         self.assertEqual(window.mining_level_button.text(), "手动采矿 Lv.9")
         self.assertEqual(window.beast_rally_settings_button.text(), "修改巨兽参数")
-        self.assertEqual(window.beast_rally_profile_summary.text(), "等级 8 · 上限 不限 · 今日 40")
+        self.assertEqual(window.beast_rally_profile_summary.text(), "8级 · 打野 · 单队 · 上限 不限 · 今日 40")
         self.assertIn("账号 …7cd5ab", window.mining_profile_context.text())
         self.assertIn("账号 …7cd5ab", window.beast_rally_profile_context.text())
         self.assertIn("仅作用于当前账号", window.mining_profile_context.text())
