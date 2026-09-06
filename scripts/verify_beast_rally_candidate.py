@@ -30,6 +30,7 @@ REQUIRED_ASSETS = (
     "beast_rally_progress_idle_live.png",
 )
 FOCUSED_MODULES = (
+    "tests.test_world_control_interiors",
     "tests.test_beast_reservation_recovery_flow",
     "tests.test_settings_light_palette",
     "tests.test_account_settings_page_layout",
@@ -93,10 +94,10 @@ def main() -> None:
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         fail(f"focused tests exited {result.returncode}")
-    if "Ran 50 tests" not in result.stderr + result.stdout:
-        fail("focused suite did not execute the expected 50 tests")
+    if "Ran 55 tests" not in result.stderr + result.stdout:
+        fail("focused suite did not execute the expected 55 tests")
 
-    print("PASS: candidate source/assets are self-contained; 50 focused tests passed.")
+    print("PASS: candidate source/assets are self-contained; 55 focused tests passed.")
     print("STATUS: live end-to-end acceptance is still required; this is not release proof.")
 
 

@@ -5540,6 +5540,53 @@ def match_daily_gather_world_search(
     return None, max(score, tight_score, tutorial_score)
 
 
+@lru_cache(maxsize=1)
+def _world_control_interiors() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    with Image.open(resource_path(BUILTIN_BEAST_RALLY_WORLD_TOWN_DENSE_ASSET)) as im:
+        town = np.asarray(im.convert("RGB").crop((35, 112, 110, 207))).copy()
+    with Image.open(resource_path(BUILTIN_BEAST_RALLY_WORLD_SEARCH_ROUND_ASSET)) as im:
+        lens = np.asarray(im.convert("RGB").crop((20, 22, 113, 118)))
+    white = (lens.min(axis=2) >= 225).astype(np.uint8)
+    # Sample the white lens and its immediate outline, not the transparent
+    # background/buildings/labels. A plain white patch must fail the outline.
+    ring = cv2.dilate(white, np.ones((5, 5), np.uint8)) - white
+    return town, white.astype(np.float32), (white + ring).astype(np.uint8)
+
+
+def match_world_control_interiors(screenshot: Image.Image) -> tuple[bool, bool, float]:
+    """Fixed-geometry opaque Town interior plus background-independent lens.
+
+    Town is the *destination*: its presence means we are in wilderness.
+    This exposes no action unless both independent controls are proved.
+    """
+    viewport = content_viewport(screenshot)
+    if viewport.height < viewport.width:
+        return False, False, 0.0
+    frame = screenshot.crop((viewport.left, viewport.top,
+                             viewport.left + viewport.width, viewport.top + viewport.height))
+    frame = frame.resize((1440, 2560)) if frame.size != (1440, 2560) else frame
+    town, lens, mask = _world_control_interiors()
+    town_roi = np.asarray(frame.crop((1242, 2344, 1353, 2475)).convert("RGB"))
+    match = cv2.matchTemplate(town_roi, town, cv2.TM_SQDIFF)
+    _, _, location, _ = cv2.minMaxLoc(match)
+    x, y = location
+    patch = town_roi[y:y+town.shape[0], x:x+town.shape[1]]
+    error = float(np.abs(patch.astype(np.float32)-town).mean())
+    brightness_ratio = float(patch.mean()) / max(1.0, float(town.mean()))
+    # Fresh unoccluded daytime frames measured .9585 of the saved interior;
+    # reject a 6% dimmed reference (.94) without accepting generic overlays.
+    town_ok = error <= 12.0 and .95 <= brightness_ratio <= 1.06
+    roi = np.asarray(frame.crop((27, 1686, 156, 1818)).convert("RGB"))
+    white = (roi.min(axis=2) >= 215).astype(np.float32)
+    mismatch = cv2.matchTemplate(white, lens, cv2.TM_SQDIFF, mask=mask)
+    minimum, _, location, _ = cv2.minMaxLoc(mismatch)
+    lens_score = 1.0 - minimum / max(1, int(mask.sum()))
+    x, y = location
+    coverage = float(white[y:y+lens.shape[0], x:x+lens.shape[1]][lens > 0].mean())
+    lens_ok = lens_score >= .91 and coverage >= .94
+    return town_ok, lens_ok, min(max(0.0, 1-error/255), lens_score)
+
+
 def match_daily_world_town_entry(
     screenshot: Image.Image,
     threshold: float,
@@ -5550,6 +5597,9 @@ def match_daily_world_town_entry(
     lower-left world-search lens and the lower-right Town control in the same
     frame, and callers use it only before their own Daily Task city-entry tap.
     """
+    town_core, search_shape, core_score = match_world_control_interiors(screenshot)
+    if town_core and search_shape:
+        return map_content_point((1330, 2395), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), core_score
     world_lens, lens_score = match_daily_gather_world_search(screenshot, threshold)
     if world_lens:
         point, town_score = _match_daily_task_template(
@@ -6354,6 +6404,9 @@ def match_beast_rally_world_search(
     """Expose the reviewed world-search lens only on a proved wilderness map."""
     if match_daily_city_wilderness_entry(screenshot, threshold)[0]:
         return None, 0.0
+    town_core, search_shape, core_score = match_world_control_interiors(screenshot)
+    if town_core and search_shape:
+        return map_content_point((90, 1754), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), core_score
     dense_town, dense_town_score = _match_beast_rally_template(
         screenshot,
         BUILTIN_BEAST_RALLY_WORLD_TOWN_DENSE_ASSET,
