@@ -290,7 +290,7 @@ DAILY_PROFILE_RETURN_PASSIVE_CAP_SECONDS = 16.0
 # Longer passive policies remain absolute deadlines and are revisited through
 # repeated short slices; action holds such as the reviewed 10-second donation
 # press are inputs, not sleeps, and retain their exact documented duration.
-MAX_SINGLE_WAIT_SECONDS = 1.5
+MAX_SINGLE_WAIT_SECONDS = 0.2
 # A failed, unavailable, yielded, or retry-suppressed Daily route must become
 # eligible for a fresh exact-card proof within thirty seconds.  This is not a
 # game-input timer: normal Warehouse/recruit refreshes and proved natural
@@ -594,7 +594,7 @@ class BeastRallySettingsDialog(LightSettingsDialog):
         form.addWidget(QLabel(str(max(0, int(uncertain_today)))), 3, 1)
         layout.addLayout(form)
         warning = QLabel(
-            "固定8级、3分钟，只用名称为“打野”的编组；一队实际回兵后再出下一队。不会自动加入、购买体力或加速。"
+            "固定8级、3分钟，只用名称为“打野”的编组。首次使用请先在游戏中保存并命名为“打野”；未找到会提示，不会默认替你选队。一队实际回兵后再出下一队。"
         )
         warning.setObjectName("noticeText")
         warning.setWordWrap(True)
@@ -2112,11 +2112,14 @@ class MainWindow(QMainWindow):
 
     def _start_beast_rally_flow(self) -> None:
         """Run Lv.8 / three minutes / named 打野, with one account team at a time."""
-        from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_sidebar_countdown, read_compact_rally_rows
+        from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB
+        from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
-        missing = [resource_path(asset) for asset in BEAST_RALLY_BUILTIN_ASSETS if not resource_path(asset).is_file()]
+        beast_assets = (*BEAST_RALLY_BUILTIN_ASSETS, "assets/beast_rally_compact_march_title.png",
+                        "assets/beast_rally_hunt_name_large.png")
+        missing = [resource_path(asset) for asset in beast_assets if not resource_path(asset).is_file()]
         if missing:
             names = "、".join(path.name for path in missing)
             QMessageBox.warning(self, APP_NAME, f"巨兽集结识别素材缺失：{names}\n请重新解压完整程序包。")
@@ -2127,6 +2130,8 @@ class MainWindow(QMainWindow):
         profile = load_beast_rally_profile(identity)
         profile = BeastRallyProfile(beast_level=8, stamina_limit=profile.stamina_limit)
         threshold = 0.90
+        target = GuardedBeastADB(target, self.stop_event,
+                                 lambda text: self._log_for_device(target.device, text))
 
         def job() -> None:
             capture_latency = 0.0
@@ -2148,7 +2153,7 @@ class MainWindow(QMainWindow):
                 image = target.screenshot()
                 sample = time.monotonic() - started
                 capture_latency = sample if capture_latency <= 0 else capture_latency * 0.75 + sample * 0.25
-                poll_interval = min(1.5, max(0.05, 0.06 + capture_latency * 0.08))
+                poll_interval = min(MAX_SINGLE_WAIT_SECONDS, max(0.05, 0.06 + capture_latency * 0.08))
                 return image
 
             def pause() -> bool:
@@ -2193,6 +2198,7 @@ class MainWindow(QMainWindow):
                 deadline = time.monotonic() + bounded_step_timeout(timeout)
                 previous: tuple[int, int] | None = None
                 streak = 0
+                missing_hunt_streak = 0
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     image = capture()
                     if daily_network_dialog_is_visible(image, threshold):
@@ -2200,12 +2206,24 @@ class MainWindow(QMainWindow):
                         self._log_for_device(target.device, "巨兽集结检测到游戏网络/账号离线；未执行输入。")
                         return None
                     point, payload = matcher(image)
+                    if label == "确认出征编组页面" and not point:
+                        controls = match_beast_rally_formation_controls(image, threshold)
+                        missing_hunt_streak = missing_hunt_streak + 1 if controls.state is BeastRallyState.FORMATION else 0
+                        if missing_hunt_streak >= 2:
+                            message = "当前账号未识别到可见的“打野”编组。请在游戏中保存阵容并命名为“打野”，确认该编组显示在当前列表后再启动；未点击出征。"
+                            set_state("需要配置打野编组；未出征")
+                            self._log_for_device(target.device, message)
+                            self.signals.alert.emit(APP_NAME, message)
+                            return None
                     if point:
                         streak = streak + 1 if stable(point, previous) else 1
                         previous = point
                         set_state(f"{label}（{min(streak, 2)}/2）")
                         if streak >= 2:
                             return image, point, payload
+                        # A positive first frame should be followed immediately
+                        # by the second; poll delay is only for failed matches.
+                        continue
                     else:
                         previous, streak = None, 0
                     if pause():
@@ -2600,30 +2618,42 @@ class MainWindow(QMainWindow):
                     return False
                 return collapse_wilderness_queue_panel()
 
+            def ensure_compact_march_panel() -> bool:
+                """Never open the side panel at startup; close it if left open."""
+                first, second = capture(), capture()
+                p = match_beast_rally_progress_sidebar_expanded(first, threshold)[0]
+                q = match_beast_rally_progress_sidebar_expanded(second, threshold)[0]
+                if stable(p, q):
+                    self._log_for_device(target.device, "已有野外面板遮住顶部列表：只收起，不展开。")
+                    return collapse_wilderness_queue_panel()
+                if p or q:
+                    return False
+                return True
+
             def recover_pending_reservation() -> bool:
                 """Monitor the old army; recover on fresh idle proof, never guess a debit."""
                 reserved = load_beast_rally_stamina_reserved(identity)
                 if not reserved:
                     return True
                 set_state(f"自动恢复旧记录 {reserved}：核对实际回兵，不新增出征")
-                if open_wilderness_queue_panel("恢复旧记录：核对野外队伍") is None:
+                if not ensure_compact_march_panel():
                     return False
                 unknown_since = time.monotonic()
                 heartbeat_at = 0.0
                 while not self.stop_event.is_set():
                     first, second = capture(), capture()
-                    states1 = read_beast_rally_wilderness_queue_states(first, threshold)
-                    states2 = read_beast_rally_wilderness_queue_states(second, threshold)
-                    cap1 = read_beast_rally_expanded_march_capacity(first, threshold)
-                    cap2 = read_beast_rally_expanded_march_capacity(second, threshold)
+                    cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
+                    cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    owners = read_compact_rally_rows(first) + read_compact_rally_rows(second)
                     now = time.monotonic()
-                    stable_rows = states1 == states2 and states1 and len(states1) == 6
-                    if stable_rows and all(states1) and all(c is None or (c.used, c.total) == (0, 6) for c in (cap1, cap2)):
-                        amount = reconcile_beast_rally_idle_reservation(identity, states1, states2)
-                        self._log_for_device(target.device, f"双帧确认六队全部空闲：自动解除旧预留 {amount}，转为待核实消耗并计入体力上限；继续下一轮，不冒充战斗成功。")
-                        save_evidence(second, (450, 770), "reservation_recovered_idle", f"六队双帧空闲；旧预留 {amount} 转待核实记账，自动恢复。")
-                        return collapse_wilderness_queue_panel()
-                    if stable_rows or (cap1 and cap2 and (cap1.used, cap1.total) == (cap2.used, cap2.total) and cap1.total == 6):
+                    stable_capacity = bool(cap1 and cap2 and (cap1.used, cap1.total, cap1.evidence) == (cap2.used, cap2.total, cap2.evidence))
+                    if stable_capacity and cap1.used == 0 and not any(r.owner == 'own' for r in owners):
+                        amount = reconcile_beast_rally_idle_reservation(identity, None, None, first_capacity=cap1, second_capacity=cap2)
+                        idle_label = "列表消失" if cap1.evidence == 'hidden_idle' else f"0/{cap1.total}"
+                        self._log_for_device(target.device, f"顶部列表双帧确认空闲（{idle_label}）：解除旧预留 {amount}，转为待核实消耗并计入上限；没有展开野外面板。")
+                        save_evidence(second, (435, 450), "reservation_recovered_idle", f"双帧空闲（{idle_label}）；旧预留 {amount} 转待核实记账，未推断胜负。")
+                        return True
+                    if stable_capacity or any(r.owner == 'own' for r in owners):
                         unknown_since = now
                     elif now - unknown_since >= 24.0:
                         self._log_for_device(target.device, "恢复期间连续24秒无法识别队伍；保留记录，未新增出征。")
@@ -2638,31 +2668,25 @@ class MainWindow(QMainWindow):
 
             def single_team_baseline() -> bool:
                 nonlocal baseline_march_capacity
-                first_owners, second_owners = read_compact_rally_rows(capture()), read_compact_rally_rows(capture())
-                if any(r.owner == 'own' for r in first_owners) or any(r.owner == 'own' for r in second_owners):
-                    self._log_for_device(target.device, "上方列表检测到绿色图标的自建集结；不重复发起。蓝色加入集结不算自建。")
+                if not ensure_compact_march_panel():
                     return False
-                states = open_wilderness_queue_panel("单队模式：确认本号野外全部空闲")
-                if not states:
-                    return False
-                first, second = capture(), capture()
-                fresh_states = read_beast_rally_wilderness_queue_states(first, threshold)
-                if fresh_states != states or read_beast_rally_wilderness_queue_states(second, threshold) != states:
-                    return False
-                baseline = beast_rally_expanded_capacity_baseline(
-                    states, read_beast_rally_expanded_march_capacity(first, threshold),
-                    read_beast_rally_expanded_march_capacity(second, threshold),
-                )
-                # This reviewed account has six visible rows.  Five idle
-                # labels with an unreadable busy header must not become 0/5.
-                if baseline and baseline[1] != 6:
-                    self._log_for_device(target.device, "打野单队模式尚未完整证明本号六行队列；未新增出征。")
-                    return False
-                if baseline is None or baseline[0] != 0:
-                    self._log_for_device(target.device, "单队模式：既有行军尚未确认全部回兵，本次不新增巨兽队伍。")
-                    return False
-                baseline_march_capacity = baseline
-                return collapse_wilderness_queue_panel()
+                deadline = time.monotonic() + 24.0
+                while not self.stop_event.is_set() and time.monotonic() < deadline:
+                    first, second = capture(), capture()
+                    owners = read_compact_rally_rows(first) + read_compact_rally_rows(second)
+                    cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
+                    cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    if (not any(r.owner == 'own' for r in owners) and cap1 and cap2
+                            and cap1.used == cap2.used == 0
+                            and (cap1.total, cap1.evidence) == (cap2.total, cap2.evidence)):
+                        baseline_march_capacity = (0, cap1.total)
+                        self._log_for_device(target.device, "双帧确认空闲：" + ("野外列表已消失" if cap1.evidence == 'hidden_idle' else f"0/{cap1.total}") + "；未展开野外面板。")
+                        return True
+                    set_state("自动复核顶部列表：等待双帧空闲证据，不展开、不出征")
+                    if pause():
+                        return False
+                self._log_for_device(target.device, "顶部列表24秒内未证明空闲；保留记录，不把缺失数字当0。")
+                return False
 
             def monitor_single_team() -> bool:
                 if baseline_march_capacity is None:
@@ -2674,7 +2698,7 @@ class MainWindow(QMainWindow):
                 unknown_since = time.monotonic()
                 heartbeat_at = 0.0
                 accounted = False
-                panel_opened = False
+                overlay_recovery_used = False
                 while not self.stop_event.is_set():
                     first, second = capture(), capture()
                     owners1 = [r for r in read_compact_rally_rows(first) if r.owner == 'own']
@@ -2706,30 +2730,32 @@ class MainWindow(QMainWindow):
                         if pause():
                             return False
                         continue
-                    if not panel_opened:
-                        # Green disappearance means phase change/occlusion,
-                        # NOT return. Blue returning rows may still be ours.
-                        self._log_for_device(target.device, "绿色集结行已变化：保留本轮关联，转查实际回兵；不把蓝色返回行直接当盟军忽略。")
-                        if open_wilderness_queue_panel("自建集结变更阶段后核对回兵") is None:
-                            return False
-                        panel_opened = True
-                        unknown_since = time.monotonic()
-                        continue
-                    states1 = read_beast_rally_wilderness_queue_states(first, threshold)
-                    states2 = read_beast_rally_wilderness_queue_states(second, threshold)
-                    cap1 = read_beast_rally_expanded_march_capacity(first, threshold)
-                    cap2 = read_beast_rally_expanded_march_capacity(second, threshold)
+                    # Keep reading the compact list throughout phase changes.
+                    # Green disappearance alone is not return evidence.
+                    cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
+                    cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
                     used = None
-                    if states1 == states2 and states1 and len(states1) == total and all(states1):
-                        if (cap1 is None or cap1.used == 0) and (cap2 is None or cap2.used == 0):
-                            used = 0
-                    elif cap1 and cap2 and (cap1.used, cap1.total) == (cap2.used, cap2.total) and cap1.total == total:
-                        used = cap1.used
+                    if cap1 and cap2 and (cap1.used, cap1.total, cap1.evidence) == (cap2.used, cap2.total, cap2.evidence):
+                        if cap1.total and not total:
+                            total = cap1.total
+                            cycle.total = total
+                        if cap1.total == total or cap1.evidence == 'hidden_idle':
+                            used = cap1.used
                     now = time.monotonic()
                     if used is None:
+                        if not overlay_recovery_used:
+                            overlay_recovery_used = True
+                            if not ensure_compact_march_panel():
+                                return False
+                            set_state("顶部列表暂时不可读：复核遮挡并获取新帧，保留本轮队伍")
                         if now - unknown_since >= 24.0:
-                            self._log_for_device(target.device, "侧栏状态连续24秒无法验证，保留单队占用并停止。")
-                            return False
+                            if match_world(first)[0] and match_world(second)[0]:
+                                self._log_for_device(target.device, "野外页面仍可确认，队列暂时不可读：保留本轮队伍继续被动恢复，不新增出征。")
+                                set_state("本轮队伍仍受保护：被动复查队列，不重复出征")
+                                unknown_since = now
+                            else:
+                                self._log_for_device(target.device, "页面连续24秒无法确认，保留单队记录并停止输入；需要核对当前页面。")
+                                return False
                         continue
                     unknown_since = now
                     try:
@@ -2739,12 +2765,14 @@ class MainWindow(QMainWindow):
                         return False
                     if state == "returned":
                         self._log_for_device(target.device, f"本号侧栏 1/{total}→0/{total}，全部空闲已双帧确认，允许下一队。")
-                        save_evidence(second, (450, 770), "hunt_returned", "队伍实际回兵，下一轮可开始。")
-                        return collapse_wilderness_queue_panel()
+                        save_evidence(second, (435, 450), "hunt_returned", "顶部列表双帧确认队伍实际回兵，下一轮可开始。")
+                        return True
                     if not cycle.seen_busy and now >= proof_deadline:
                         self._log_for_device(target.device, "出征后24秒未证明单队占用，保留体力预留并停止。")
                         return False
-                    seconds1, seconds2 = read_sidebar_countdown(first), read_sidebar_countdown(second)
+                    # Expanded-row coordinates are not a timer source while
+                    # monitoring the compact list. Missing time is not return.
+                    seconds1 = seconds2 = None
                     timer_text = "时间识别中"
                     if seconds1 is not None and seconds2 is not None and 0 <= seconds1-seconds2 <= 3:
                         timer_text = f"{seconds2//3600:02}:{seconds2//60%60:02}:{seconds2%60:02}"
@@ -2927,6 +2955,7 @@ class MainWindow(QMainWindow):
                     set_state(f"体力上限已到：今日 {spent}，下一次 {cost}")
                     self._log_for_device(target.device, f"今日确认消耗 {spent}，待核实 {uncertain}，下一次需 {cost}，上限 {profile.stamina_limit}；未点击出征。")
                     return False
+                target.check_active()
                 reserve_beast_rally_stamina(identity, cost)
                 target.tap(*dispatch)
                 action_count += 1
@@ -11226,6 +11255,8 @@ class MainWindow(QMainWindow):
             self.signals.running.emit(True, "运行中")
             try:
                 callback()
+            except InterruptedError:
+                self.log("任务已取消；未重试或重放后续输入。")
             except Exception as exc:
                 self.log(f"任务线程异常：{type(exc).__name__}: {exc}")
                 self.signals.alert.emit(

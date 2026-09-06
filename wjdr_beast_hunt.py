@@ -1,6 +1,7 @@
 """Named hunting formation and one-team Beast lifecycle, separate from Daily."""
 from dataclasses import dataclass
 from functools import lru_cache
+import time
 
 import cv2
 import numpy as np
@@ -9,11 +10,121 @@ from PIL import Image
 from wjdr_backend import (
     BeastRallyMatch, BeastRallyState, BUILTIN_DAILY_TASK_REFERENCE_SIZE,
     content_viewport, map_content_point, match_beast_rally_formation_controls,
-    resource_path,
+    resource_path, AdbError, DailyMarchCapacity,
+    read_beast_rally_collapsed_march_capacity,
+    read_daily_march_capacity,
+    match_beast_rally_world_search,
+    match_beast_rally_progress_sidebar_collapsed,
+    match_beast_rally_progress_sidebar_expanded,
     _daily_white_numeric_components, _read_daily_numeric_glyph,
 )
 
 HUNT_NAME_ASSET = "assets/beast_rally_hunt_name.png"
+
+
+@lru_cache(maxsize=1)
+def compact_header_masks():
+    with Image.open(resource_path('assets/beast_rally_compact_march_title.png')) as image:
+        return tuple(white_mask(np.asarray(image.convert('RGB').resize((round(image.width*s), round(image.height*s)))))
+                     for s in (1., 1.2, 4/3, 1.5))
+
+
+@lru_cache(maxsize=1)
+def compact_closed_masks():
+    with Image.open(resource_path('assets/beast_rally_progress_sidebar_collapsed_live.png')) as image:
+        return tuple(white_mask(np.asarray(image.convert('RGB').resize((round(image.width*s),round(image.height*s)))))
+                     for s in (1., 4/3, 1.5))
+
+
+def read_compact_capacity(image, threshold=.90):
+    """Numeric header, or user-confirmed hidden-list idle on a proved world.
+
+    total=0 is explicitly unknown capacity, not a fabricated six-slot reading.
+    Header/text/bar presence vetoes hidden-idle even if its digits fail OCR.
+    """
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
+        return None
+    numeric = read_beast_rally_collapsed_march_capacity(image, threshold)
+    if numeric:
+        return numeric
+    if (not match_beast_rally_world_search(image, threshold)[0]
+            or match_beast_rally_progress_sidebar_expanded(image, threshold)[0]):
+        return None
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440,2560)).convert('RGB')
+    rgb = np.asarray(frame)
+    roi = rgb[300:1400, 0:590]
+    white = white_mask(roi)
+    header_score = max(cv2.minMaxLoc(cv2.matchTemplate(white, mask, cv2.TM_CCOEFF_NORMED))[1]
+                       for mask in compact_header_masks())
+    if header_score >= .70:
+        # A strong title + its fixed numeric lane establishes the compact
+        # header directly, without a background-sensitive unrelated arrow.
+        return read_daily_march_capacity(image) if header_score >= .90 else None
+    if not match_beast_rally_progress_sidebar_collapsed(image, threshold)[0]:
+        arrow_roi = white_mask(rgb[980:1240, 0:120])
+        closed = any(cv2.minMaxLoc(cv2.matchTemplate(arrow_roi, mask, cv2.TM_CCOEFF_NORMED))[1] >= .94
+                     for mask in compact_closed_masks())
+        if not closed:
+            return None
+    if read_compact_rally_rows(image):
+        return None
+    # A visible countdown bar or the opaque wide header must never become
+    # idle merely because the text is blurred. These are vetoes, not actions.
+    dark = ((roi.max(axis=2) < 90) & (roi.min(axis=2) < 65)).astype(np.uint8)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(dark, 8)
+    if any(w >= 170 and 12 <= h <= 130 and area > w*h*.60
+           for x,y,w,h,area in stats[1:n]):
+        return None
+    return DailyMarchCapacity(0, 0, .95, 'hidden_idle')
+
+
+class GuardedBeastADB:
+    """Retry fresh reads only. Never replay input or migrate to another device."""
+
+    def __init__(self, adb, stop_event, report, clock=time.monotonic):
+        self.adb, self.stop_event, self.report, self.clock = adb, stop_event, report, clock
+        self.bound_device = adb.device
+
+    def __getattr__(self, name):
+        return getattr(self.adb, name)
+
+    def check_active(self):
+        if self.stop_event.is_set():
+            raise InterruptedError("用户已停止；取消后续输入")
+        if self.adb.device != self.bound_device:
+            raise AdbError("ADB目标发生变化；不自动迁移当前队伍")
+
+    def screenshot(self):
+        deadline = self.clock() + 8.0
+        for attempt in range(3):
+            self.check_active()
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                raise AdbError("新帧恢复超过8秒；保留当前流程记录")
+            try:
+                image = self.adb.screenshot(timeout=min(2.5, remaining))
+                self.check_active()
+                if self.clock() > deadline:
+                    raise AdbError("截图恢复超时；拒绝过期画面")
+                return image
+            except AdbError:
+                self.check_active()
+                if attempt == 2 or self.clock() >= deadline:
+                    raise
+                self.report(f"截图暂时失败，立即获取新帧（{attempt + 1}/2）；不重放点击、不切换ADB")
+
+    def tap(self, *point):
+        self.check_active()
+        return self.adb.tap(*point)
+
+    def back(self):
+        self.check_active()
+        return self.adb.back()
+
+    def shell(self, *args, **kwargs):
+        self.check_active()
+        return self.adb.shell(*args, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -53,8 +164,10 @@ def read_compact_rally_rows(image: Image.Image) -> tuple[CompactRallyRow, ...]:
         # rally icon. Exclude the timer below/right from colour samples.
         icon = rgb[y:y+80, max(0,x-92):max(0,x-12)]
         hsv = cv2.cvtColor(icon, cv2.COLOR_RGB2HSV)
-        green = ((hsv[:,:,0]>=35)&(hsv[:,:,0]<=85)&(hsv[:,:,1]>110)&(hsv[:,:,2]>100)).mean()
-        blue = ((hsv[:,:,0]>=95)&(hsv[:,:,0]<=125)&(hsv[:,:,1]>100)&(hsv[:,:,2]>100)).mean()
+        yy, xx = np.ogrid[:icon.shape[0], :icon.shape[1]]
+        circle = (xx-icon.shape[1]/2)**2 + (yy-icon.shape[0]/2)**2 <= (min(icon.shape[:2])*.38)**2
+        green = ((hsv[:,:,0]>=35)&(hsv[:,:,0]<=85)&(hsv[:,:,1]>110)&(hsv[:,:,2]>100))[circle].mean()
+        blue = ((hsv[:,:,0]>=95)&(hsv[:,:,0]<=125)&(hsv[:,:,1]>100)&(hsv[:,:,2]>100))[circle].mean()
         owner = 'own' if green > .30 and blue < .15 else 'joined' if blue > .30 and green < .15 else 'unknown'
         timer = frame.crop((x-5,y+36,min(x+275,520),y+86))
         comps = _daily_white_numeric_components(timer)
@@ -112,6 +225,12 @@ def hunt_name_template() -> np.ndarray:
         return white_mask(np.asarray(image.convert("RGB")))
 
 
+@lru_cache(maxsize=1)
+def hunt_name_variants():
+    with Image.open(resource_path('assets/beast_rally_hunt_name_large.png')) as image:
+        return hunt_name_template(), white_mask(np.asarray(image.convert('RGB')))
+
+
 def match_hunt_formation(image: Image.Image, *, selected: bool = False) -> BeastRallyMatch:
     """Require the Beast formation page and the literal 打野 name anywhere in its tab strip."""
     controls = match_beast_rally_formation_controls(image)
@@ -121,9 +240,24 @@ def match_hunt_formation(image: Image.Image, *, selected: bool = False) -> Beast
     rgb = np.asarray(image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560)).convert("RGB"))
     left, top, right, bottom = 25, 175, 1210, 315
     mask = white_mask(rgb[top:bottom, left:right])
-    template = hunt_name_template()
-    scores = cv2.matchTemplate(mask, template, cv2.TM_CCOEFF_NORMED)
-    _, score, _, (x, y) = cv2.minMaxLoc(scores)
+    best = None
+    distinct_names = []
+    # Native text sizes differ across emulator density/account UI variants.
+    # Normalize the frame, then search a small fixed glyph-scale pyramid.
+    for base_template in hunt_name_variants():
+        for scale in (.9, 1., 1.1, 1.2):
+            template = cv2.resize(base_template, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+            scores = cv2.matchTemplate(mask, template, cv2.TM_CCOEFF_NORMED)
+            _, candidate_score, _, location = cv2.minMaxLoc(scores)
+            if candidate_score >= .90:
+                candidate_center = (location[0]+template.shape[1]//2, location[1]+template.shape[0]//2)
+                if not any(abs(candidate_center[0]-p[0]) <= 30 and abs(candidate_center[1]-p[1]) <= 20 for p in distinct_names):
+                    distinct_names.append(candidate_center)
+            if best is None or candidate_score > best[0]:
+                best = candidate_score, location, template, scores
+    score, (x, y), template, scores = best
+    if len(distinct_names) > 1:
+        return BeastRallyMatch(BeastRallyState.UNKNOWN, None, score)
     if score < 0.90:
         return BeastRallyMatch(BeastRallyState.UNKNOWN, None, score)
     h, w = template.shape

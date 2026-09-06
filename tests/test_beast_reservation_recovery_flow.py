@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from wjdr_backend import DailyMarchCapacity
 
 
 class RecoveryControllerTest(unittest.TestCase):
@@ -16,6 +17,9 @@ class RecoveryControllerTest(unittest.TestCase):
         env = dict(
             load_beast_rally_stamina_reserved=lambda _: 20, identity="test-account",
             set_state=Mock(), open_wilderness_queue_panel=Mock(return_value=(True,) * 6),
+            ensure_compact_march_panel=Mock(return_value=True),
+            read_compact_rally_rows=lambda _: (),
+            read_beast_rally_collapsed_march_capacity=lambda image, _: image,
             time=SimpleNamespace(monotonic=Mock(side_effect=range(0, 400, 5))),
             self=SimpleNamespace(stop_event=SimpleNamespace(is_set=lambda: False), _log_for_device=log),
             target=SimpleNamespace(device="test"), capture=lambda: next(frames), threshold=0.9,
@@ -28,12 +32,13 @@ class RecoveryControllerTest(unittest.TestCase):
         return env["recover_pending_reservation"](), reconcile, collapse, env
 
     def test_existing_busy_team_waits_then_idle_recovers_without_dispatch(self):
-        idle = (True,) * 6
-        busy = (False,) + idle[1:]
+        idle = DailyMarchCapacity(0, 6, 1.0)
+        busy = DailyMarchCapacity(1, 6, 1.0)
         result, reconcile, collapse, env = self.run_controller([busy, busy, idle, idle])
         self.assertTrue(result)
-        reconcile.assert_called_once_with("test-account", idle, idle)
-        collapse.assert_called_once()
+        reconcile.assert_called_once_with("test-account", None, None, first_capacity=idle, second_capacity=idle)
+        collapse.assert_not_called()
+        env["open_wilderness_queue_panel"].assert_not_called()
         # No tap or Expedition interface is provided: recovery must not dispatch.
         self.assertGreaterEqual(env["set_state"].call_count, 2)
 

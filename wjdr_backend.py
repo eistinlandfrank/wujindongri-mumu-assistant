@@ -1696,13 +1696,21 @@ def load_beast_rally_stamina_uncertain(
 def reconcile_beast_rally_idle_reservation(
     identity: str, first: tuple[bool, ...] | None, second: tuple[bool, ...] | None,
     *, day: str | None = None, path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
+    first_capacity: DailyMarchCapacity | None = None,
+    second_capacity: DailyMarchCapacity | None = None,
 ) -> int:
     """Release a stale queue hold only with two complete six-idle-row proofs.
 
     Preserve an uncertain budget debit: idle now cannot prove the old cost.
     Caller owns the account DeviceLease and must use fresh same-account frames.
     """
-    if not first or first != second or len(first) != 6 or not all(x is True for x in first):
+    compact_idle = bool(first_capacity and second_capacity
+                        and first_capacity.used == second_capacity.used == 0
+                        and first_capacity.total == second_capacity.total
+                        and (1 <= first_capacity.total <= 9 or
+                             first_capacity.total == 0 and first_capacity.evidence == second_capacity.evidence == "hidden_idle"))
+    row_idle = bool(first and first == second and len(first) == 6 and all(x is True for x in first))
+    if not row_idle and not compact_idle:
         raise ValueError("two complete six-idle-row proofs are required")
     if not identity.strip():
         raise ValueError("device identity is required")
@@ -1715,7 +1723,7 @@ def reconcile_beast_rally_idle_reservation(
         return 0
     account["uncertain"] = max(0, int(account.get("uncertain", 0))) + reserved
     account["reserved"] = 0
-    account["last_recovery"] = {"reason": "fresh_double_six_idle", "amount": reserved,
+    account["last_recovery"] = {"reason": "fresh_double_empty_compact" if compact_idle else "fresh_double_six_idle", "amount": reserved,
                                 "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     _atomic_json_write(path, payload)
     return reserved
@@ -1982,6 +1990,7 @@ class DailyMarchCapacity:
     used: int
     total: int
     confidence: float
+    evidence: str = "numeric"
 
     @property
     def free(self) -> int:
@@ -2744,8 +2753,8 @@ class MuMuADB:
     def launch_game(self) -> None:
         self.shell(["monkey", "-p", GAME_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"], timeout=20)
 
-    def screenshot(self) -> Image.Image:
-        raw = self._run(self._device_args(["exec-out", "screencap", "-p"]), timeout=20, binary=True)
+    def screenshot(self, *, timeout: float = 20) -> Image.Image:
+        raw = self._run(self._device_args(["exec-out", "screencap", "-p"]), timeout=min(20, max(0.1, timeout)), binary=True)
         assert isinstance(raw, bytes)
         try:
             image = Image.open(io.BytesIO(raw))
@@ -7673,14 +7682,17 @@ def read_beast_rally_collapsed_march_capacity(
     )
     expected_world = map_content_point((90, 1754), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
     expected_collapsed = map_content_point((45, 1111), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
-    if not world or not collapsed:
-        return None
-    if not town:
-        return None
-    if max(abs(world[0] - expected_world[0]), abs(world[1] - expected_world[1])) > 12:
-        return None
-    if max(abs(collapsed[0] - expected_collapsed[0]), abs(collapsed[1] - expected_collapsed[1])) > 12:
-        return None
+    legacy_context = bool(town and world and collapsed
+        and max(abs(world[0]-expected_world[0]), abs(world[1]-expected_world[1])) <= 12
+        and max(abs(collapsed[0]-expected_collapsed[0]), abs(collapsed[1]-expected_collapsed[1])) <= 12)
+    if not legacy_context:
+        # A different live map background must not force opening the side
+        # panel. Reuse the reviewed world/arrow variants, not stale evidence.
+        current_world = match_beast_rally_world_search(screenshot, threshold)[0]
+        current_collapsed = match_beast_rally_progress_sidebar_collapsed(screenshot, threshold)[0]
+        expanded = match_beast_rally_progress_sidebar_expanded(screenshot, threshold)[0]
+        if not current_world or not current_collapsed or expanded:
+            return None
     crop = _daily_reference_crop(screenshot, (330, 380, 540, 520))
     components = _daily_white_numeric_components(crop)
     slash_indexes = [

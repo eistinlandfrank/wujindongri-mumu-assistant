@@ -1,4 +1,4 @@
-param([ValidateRange(0, 9)][int]$Page = 4, [string]$Screenshot = '')
+param([ValidateRange(0, 9)][int]$Page = 4, [string]$Screenshot = '', [string]$Device = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo
@@ -7,7 +7,12 @@ $env:WJDR_QA_PAGE = [string]$Page
 if ($Screenshot) { $env:WJDR_QA_SCREENSHOT = [IO.Path]::GetFullPath($Screenshot) }
 # Never pass auto-task arguments or terminate an existing worker for a demo.
 $timer = [Diagnostics.Stopwatch]::StartNew()
-$process = Start-Process -FilePath $python -ArgumentList 'wjdr_mumu_assistant_qt.py' -WorkingDirectory $repo -WindowStyle Normal -PassThru
+$demoArgs = @('wjdr_mumu_assistant_qt.py')
+if ($Device) {
+    if ($Device -notmatch '^[a-zA-Z0-9.:_-]+$') { throw 'Invalid ADB device' }
+    $demoArgs += @('--device', $Device)
+}
+$process = Start-Process -FilePath $python -ArgumentList $demoArgs -WorkingDirectory $repo -WindowStyle Normal -PassThru
 $deadline = [DateTime]::UtcNow.AddSeconds(15)
 while ([DateTime]::UtcNow -lt $deadline) {
     $process.Refresh()

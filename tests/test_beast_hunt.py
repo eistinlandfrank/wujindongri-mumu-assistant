@@ -26,6 +26,16 @@ class HuntTests(unittest.TestCase):
             self.assertIs(match.state, BeastRallyState.FORMATION)
             self.assertEqual(dict(match.anchors)['hunt'][0], x + 40)
 
+    def test_large_named_team_variant_and_mixed_duplicates(self):
+        frame = self.frame(x=650, selected=True)
+        frame.paste((240,195,45), (645,245,750,300))
+        with Image.open('assets/beast_rally_hunt_name_large.png') as asset:
+            frame.paste(asset, (650,247))
+        self.assertIs(match_hunt_formation(frame, selected=True).state, BeastRallyState.FORMATION)
+        with Image.open('assets/beast_rally_hunt_name.png') as asset:
+            frame.paste(asset, (450,248))
+        self.assertIs(match_hunt_formation(frame).state, BeastRallyState.UNKNOWN)
+
     def test_selected_required_before_dispatch(self):
         self.assertIs(match_hunt_formation(self.frame(), selected=True).state, BeastRallyState.UNKNOWN)
         self.assertIs(match_hunt_formation(self.frame(selected=True), selected=True).state, BeastRallyState.FORMATION)
@@ -71,6 +81,19 @@ class HuntTests(unittest.TestCase):
         self.assertEqual(cycle.observe(1,6), 'busy')
         self.assertFalse(cycle.returned)
         self.assertEqual(cycle.observe(0,6), 'returned')
+
+    def test_icon_ownership_ignores_opposite_colour_background(self):
+        for joined in (False, True):
+            frame = self.compact_frame(joined=joined)
+            row = read_compact_rally_rows(frame)[0]
+            x, y = row.point
+            rgb = np.array(frame)
+            roi = rgb[y-35:y+45, x-42:x+38]
+            yy, xx = np.ogrid[:80,:80]
+            outside = (xx-40)**2+(yy-40)**2 > 31**2
+            roi[outside] = (20,200,20) if joined else (30,130,240)
+            rows = read_compact_rally_rows(Image.fromarray(rgb))
+            self.assertEqual(rows[0].owner, 'joined' if joined else 'own')
 
     def compact_frame(self, joined=False, returning=False):
         frame = Image.new('RGB',(1440,2560),(30,50,90))
