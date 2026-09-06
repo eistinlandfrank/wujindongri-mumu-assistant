@@ -33,6 +33,32 @@ def consume_beast_test_cycle_limit(environ, automatic_start=False):
         return 0
 
 
+def consume_beast_search_race_pause(environ, automatic_start=False):
+    """Explicit user-requested 20s race injection; one automatic launch only."""
+    raw=environ.pop('WJDR_BEAST_SEARCH_RACE_PAUSE', '')
+    return 20.0 if automatic_start and raw=='20' else 0.0
+
+
+@lru_cache(maxsize=1)
+def target_conflict_templates():
+    return tuple(np.asarray(Image.open(resource_path('assets/'+name)).convert('RGB'))
+                 for name in ('beast_same_target_warning.png','beast_same_target_cancel.png'))
+
+
+def match_same_target_conflict(image):
+    """Exact warning sentence AND orange Cancel; never generic Confirm/X."""
+    viewport=content_viewport(image)
+    if viewport.width<720 or abs(viewport.width/viewport.height-9/16)>.008:
+        return None
+    rgb=np.asarray(image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560)).convert('RGB'))
+    body,cancel=target_conflict_templates()
+    for region,template in ((rgb[1120:1300,180:1260],body),(rgb[1535:1620,240:580],cancel)):
+        score=cv2.matchTemplate(region,template,cv2.TM_CCOEFF_NORMED)[0,0]
+        if score<.94 or np.abs(region.astype(float)-template).mean()>16:
+            return None
+    return map_content_point((420,1580),BUILTIN_DAILY_TASK_REFERENCE_SIZE,image)
+
+
 @lru_cache(maxsize=1)
 def compact_header_masks():
     with Image.open(resource_path('assets/beast_rally_compact_march_title.png')) as image:

@@ -640,6 +640,8 @@ class MainWindow(QMainWindow):
         self.auto_beast_rally_requested = auto_beast_rally
         from wjdr_beast_hunt import consume_beast_test_cycle_limit
         self._initial_beast_test_cycles = consume_beast_test_cycle_limit(os.environ, auto_beast_rally)
+        from wjdr_beast_hunt import consume_beast_search_race_pause
+        self._initial_beast_search_pause = consume_beast_search_race_pause(os.environ, auto_beast_rally)
         self.all_auto_beast_rally_requested = all_auto_beast_rally
         self.adb: MuMuADB | None = None
         self.devices: list[str] = []
@@ -2117,11 +2119,14 @@ class MainWindow(QMainWindow):
         from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
         from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies
+        from wjdr_beast_hunt import match_same_target_conflict
+        from wjdr_backend import cancel_beast_rally_conflict_reservation
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
         beast_assets = (*BEAST_RALLY_BUILTIN_ASSETS, "assets/beast_rally_compact_march_title.png",
-                        "assets/beast_rally_hunt_name_large.png", "assets/beast_rally_compact_marching_icon.png")
+                        "assets/beast_rally_hunt_name_large.png", "assets/beast_rally_compact_marching_icon.png",
+                        "assets/beast_same_target_warning.png", "assets/beast_same_target_cancel.png")
         missing = [resource_path(asset) for asset in beast_assets if not resource_path(asset).is_file()]
         if missing:
             names = "、".join(path.name for path in missing)
@@ -2137,6 +2142,8 @@ class MainWindow(QMainWindow):
                                  lambda text: self._log_for_device(target.device, text))
         initial_test_cycles = self._initial_beast_test_cycles
         self._initial_beast_test_cycles = 0
+        initial_search_pause = self._initial_beast_search_pause
+        self._initial_beast_search_pause = 0.0
 
         def job() -> None:
             capture_latency = 0.0
@@ -2145,6 +2152,10 @@ class MainWindow(QMainWindow):
             action_count = 0
             baseline_queue_states: tuple[bool, ...] | None = None
             baseline_march_capacity: tuple[int, int] | None = None
+            search_race_pause = initial_search_pause
+            race_evidence_frames = 0
+            retry_target_requested = False
+            target_conflicts = 0
 
             def set_state(text: str) -> None:
                 nonlocal last_state_text
@@ -2153,9 +2164,18 @@ class MainWindow(QMainWindow):
                     self.signals.beast_rally_state.emit(text)
 
             def capture() -> Image.Image:
-                nonlocal capture_latency, poll_interval
+                nonlocal capture_latency, poll_interval, race_evidence_frames
                 started = time.monotonic()
                 image = target.screenshot()
+                if race_evidence_frames > 0:
+                    race_evidence_frames -= 1
+                    # Temporary user-coordinated race probe: central message
+                    # band only, excludes account HUD and chat. Never recognition input.
+                    folder = Path('evidence/milestone-180-target-race')
+                    folder.mkdir(parents=True, exist_ok=True)
+                    viewport = content_viewport(image)
+                    normalized = image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560))
+                    normalized.crop((240,1000,1200,1420)).save(folder / f'race-{time.strftime("%H%M%S")}-{race_evidence_frames:02}.png')
                 sample = time.monotonic() - started
                 capture_latency = sample if capture_latency <= 0 else capture_latency * 0.75 + sample * 0.25
                 poll_interval = min(MAX_SINGLE_WAIT_SECONDS, max(0.05, 0.06 + capture_latency * 0.08))
@@ -2704,6 +2724,45 @@ class MainWindow(QMainWindow):
                 self._log_for_device(target.device, "顶部列表24秒内未证明空闲；保留记录，不把缺失数字当0。")
                 return False
 
+            def resolve_target_conflict(first, second) -> bool:
+                nonlocal retry_target_requested, target_conflicts
+                p,q=match_same_target_conflict(first),match_same_target_conflict(second)
+                if not stable(p,q):
+                    return False
+                if target_conflicts>=3:
+                    self._log_for_device(target.device, "连续目标冲突达到3次，停止重试；未点击确定或增加队伍。")
+                    return False
+                target.tap(*q)
+                self._log_for_device(target.device, "双帧确认目标冲突：点击橙色取消，绝不点击确定继续发兵。")
+                save_evidence(second,q,"same_target_cancel","精确同目标警告后取消出征。")
+                restored=wait_for_double("冲突取消后确认原打野编组",exact_formation_match)
+                if not restored:
+                    return False
+                frame,_,_=restored
+                cost=read_beast_rally_dispatch_stamina(frame,formation_proven=True)
+                fresh=capture()
+                if (match_hunt_formation(fresh,selected=True).state is not BeastRallyState.FORMATION
+                        or cost is None or read_beast_rally_dispatch_stamina(fresh,formation_proven=True)!=cost):
+                    return False
+                reserved=load_beast_rally_stamina_reserved(identity)
+                if reserved:
+                    cancel_beast_rally_conflict_reservation(identity,cost,cancelled_and_formation_restored=True)
+                    self._log_for_device(target.device,f"目标冲突已取消且编组恢复：解除本次未出征体力预留 {cost}，不计成功消耗。")
+                target.back()
+                first,second=capture(),capture()
+                # A target card may remain after formation Back. Only this
+                # reviewed Beast card may authorize one more Back.
+                p=match_beast_rally_open_button(first,threshold)[0]
+                q=match_beast_rally_open_button(second,threshold)[0]
+                if stable(p,q):
+                    target.back()
+                if not ensure_wilderness():
+                    return False
+                target_conflicts+=1
+                retry_target_requested=True
+                self._log_for_device(target.device,f"已退出冲突目标，重新搜索8级巨兽（换目标 {target_conflicts}/3）；不把冲突计作完成。")
+                return True
+
             def monitor_single_team() -> bool:
                 if baseline_march_capacity is None:
                     return False
@@ -2719,6 +2778,9 @@ class MainWindow(QMainWindow):
                 overlay_recovery_used = False
                 while not self.stop_event.is_set():
                     first, second = capture(), capture()
+                    if not cycle.seen_busy and (match_same_target_conflict(first) or match_same_target_conflict(second)):
+                        resolve_target_conflict(first,second)
+                        return False
                     owners1 = [r for r in read_compact_rally_rows(first) if r.owner == 'own']
                     owners2 = [r for r in read_compact_rally_rows(second) if r.owner == 'own']
                     if len(owners1) == len(owners2) == 1 and stable(owners1[0].point, owners2[0].point):
@@ -2825,10 +2887,13 @@ class MainWindow(QMainWindow):
                 return False
 
             def run_one_cycle() -> bool:
-                nonlocal action_count
+                nonlocal action_count, search_race_pause, race_evidence_frames
                 first_context = capture()
                 first_context_point, _ = match_wilderness_context(first_context)
                 second_context = capture()
+                if match_same_target_conflict(first_context) or match_same_target_conflict(second_context):
+                    resolve_target_conflict(first_context,second_context)
+                    return False
                 second_context_point, _ = match_wilderness_context(second_context)
                 first_collapsed_capacity = read_beast_rally_collapsed_march_capacity(
                     first_context,
@@ -2880,6 +2945,15 @@ class MainWindow(QMainWindow):
                 image, search_button = selector
                 target.tap(*search_button)
                 self._log_for_device(target.device, f"点击冰原巨兽搜索 {search_button}，等级 {profile.beast_level}。")
+                if search_race_pause:
+                    delay, search_race_pause = search_race_pause, 0.0
+                    self._log_for_device(target.device, "RACE_TEST_READY：搜索完成，按用户要求暂停20秒，请现在抢先集结该巨兽；本次之外不加延迟。")
+                    set_state("冲突验收：搜索后暂停20秒，请抢先集结；停止按钮可取消")
+                    if self.stop_event.wait(delay):
+                        return False
+                    target.check_active()
+                    race_evidence_frames = 12
+                    self._log_for_device(target.device, "RACE_TEST_RESUME：20秒结束，重新取新帧识别目标，不沿用暂停前坐标。")
 
                 opened = wait_for_double(
                     "确认橙色集结按钮",
@@ -3026,8 +3100,12 @@ class MainWindow(QMainWindow):
                     self._log_for_device(target.device, "游戏不在前台；巨兽集结未输入并停止。")
                     break
                 if not run_one_cycle():
+                    if retry_target_requested and not self.stop_event.is_set():
+                        retry_target_requested=False
+                        continue
                     break
                 completed_cycles += 1
+                target_conflicts = 0
                 if max_cycles and completed_cycles >= max_cycles:
                     set_state(f"已完成 {completed_cycles} 轮，队伍全部回兵")
                     break

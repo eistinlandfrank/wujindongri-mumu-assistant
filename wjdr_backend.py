@@ -1764,6 +1764,27 @@ def reserve_beast_rally_stamina(
     return debit
 
 
+def cancel_beast_rally_conflict_reservation(identity: str, expected_cost: int, *,
+                                           cancelled_and_formation_restored: bool = False,
+                                           path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> int:
+    """Clear only the matched unsent reservation after exact conflict Cancel.
+
+    Caller owns the account lease and proved both warning and restored
+    formation twice; never use for an ambiguous input or disappeared dialog.
+    """
+    if not cancelled_and_formation_restored or not identity.strip() or expected_cost<=0:
+        raise ValueError('verified conflict cancellation and cost required')
+    payload=json.loads(path.read_text(encoding='utf-8'))
+    account=payload.get('accounts',{}).get(identity,{})
+    if account.get('day')!=_beast_rally_ledger_day() or account.get('reserved')!=expected_cost:
+        raise ValueError('reservation changed; preserve it')
+    account['reserved']=0
+    account['last_recovery']={'reason':'verified_same_target_cancel','amount':expected_cost,
+                              'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
+    _atomic_json_write(path,payload)
+    return expected_cost
+
+
 def confirm_beast_rally_stamina_reservation(
     identity: str,
     *,

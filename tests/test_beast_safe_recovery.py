@@ -137,6 +137,7 @@ class CompactRecoveryTest(unittest.TestCase):
         frames = iter(['own', 'own'] + [None] * 60 + [busy, busy, idle, idle])
         confirm, repair = Mock(return_value=20), Mock(return_value=True)
         env = dict(baseline_march_capacity=(0, 0), SingleBeastCycle=SingleBeastCycle,
+                   match_same_target_conflict=lambda _:None,
                    only_joined_rallies=only_joined_rallies, read_compact_marching_rows=lambda _: (),
                    time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
                    match_world=lambda _: ((90,1754), 1),
@@ -158,6 +159,7 @@ class CompactRecoveryTest(unittest.TestCase):
     def test_owned_march_finishes_with_only_joined_rally_remaining(self):
         frames=iter(['own','own','march','march','joined','joined'])
         env=dict(baseline_march_capacity=(0,6),SingleBeastCycle=SingleBeastCycle,
+                 match_same_target_conflict=lambda _:None,
                  time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
                  capture=lambda: next(frames),threshold=.9,identity='test',
                  read_compact_rally_rows=lambda im: (CompactRallyRow('own' if im=='own' else 'joined',(70,530),60),) if im in ('own','joined') else (),
@@ -170,6 +172,33 @@ class CompactRecoveryTest(unittest.TestCase):
                  pause=lambda:False)
         self.assertTrue(nested('monitor_single_team',env)())
         self.assertEqual(env['save_evidence'].call_args.args[2],'hunt_done_allied_remaining')
+
+    def test_target_conflict_cancel_restore_and_retry_without_completion(self):
+        import wjdr_backend as b
+        target=Mock(device='test')
+        release=Mock()
+        env=dict(match_same_target_conflict=lambda _: (420,1580),stable=lambda p,q:bool(p and q and p==q),
+                 target_conflicts=0,retry_target_requested=False,target=target,
+                 self=SimpleNamespace(_log_for_device=Mock()),save_evidence=Mock(),
+                 wait_for_double=Mock(return_value=('formation',(1,2),None)),
+                 exact_formation_match=Mock(),capture=Mock(side_effect=['formation','world','world']),
+                 read_beast_rally_dispatch_stamina=Mock(return_value=20),
+                 match_hunt_formation=Mock(return_value=SimpleNamespace(state=b.BeastRallyState.FORMATION)),
+                 BeastRallyState=b.BeastRallyState,identity='account-a',
+                 load_beast_rally_stamina_reserved=Mock(return_value=20),
+                 cancel_beast_rally_conflict_reservation=release,
+                 match_beast_rally_open_button=Mock(return_value=(None,0)),threshold=.9,
+                 ensure_wilderness=Mock(return_value=True))
+        self.assertTrue(nested('resolve_target_conflict',env)('warning','warning'))
+        target.tap.assert_called_once_with(420,1580)
+        target.back.assert_called_once()
+        release.assert_called_once_with('account-a',20,cancelled_and_formation_restored=True)
+        self.assertTrue(env['retry_target_requested'])
+        self.assertEqual(env['target_conflicts'],1)
+        env['target_conflicts']=3
+        target.reset_mock()
+        self.assertFalse(nested('resolve_target_conflict',env)('warning','warning'))
+        target.tap.assert_not_called()
 
     def test_compact_reservation_recovery_keeps_uncertain_budget(self):
         import tempfile

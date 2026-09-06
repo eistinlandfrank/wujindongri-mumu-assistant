@@ -10,6 +10,43 @@ import numpy as np
 
 
 class HuntTests(unittest.TestCase):
+    def test_specific_conflict_warning_cancel_and_scaling(self):
+        from wjdr_beast_hunt import match_same_target_conflict
+        frame=Image.new('RGB',(1440,2560),(30,50,90))
+        with Image.open('tests/fixtures/beast_same_target_dialog.png') as crop:
+            frame.paste(crop,(100,820))
+        for size in ((720,1280),(1080,1920),(1440,2560)):
+            self.assertIsNotNone(match_same_target_conflict(frame.resize(size)))
+        frame.paste((180,200,220),(180,1120,1260,1300))
+        self.assertIsNone(match_same_target_conflict(frame))
+
+    def test_conflict_cancel_releases_only_verified_same_account_cost(self):
+        import tempfile
+        import json
+        import wjdr_backend as b
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'ledger.json'
+            b.reserve_beast_rally_stamina('a',20,path=path)
+            b.reserve_beast_rally_stamina('b',25,path=path)
+            with self.assertRaises(ValueError):
+                b.cancel_beast_rally_conflict_reservation('a',20,path=path)
+            with self.assertRaises(ValueError):
+                b.cancel_beast_rally_conflict_reservation('a',25,cancelled_and_formation_restored=True,path=path)
+            self.assertEqual(b.cancel_beast_rally_conflict_reservation('a',20,cancelled_and_formation_restored=True,path=path),20)
+            data=json.loads(path.read_text())['accounts']
+            self.assertEqual(data['a']['reserved'],0)
+            self.assertEqual(data['a']['spent'],0)
+            self.assertEqual(data['b']['reserved'],25)
+            with self.assertRaises(ValueError):
+                b.cancel_beast_rally_conflict_reservation('a',20,cancelled_and_formation_restored=True,path=path)
+    def test_race_pause_requires_explicit_launch_and_is_consumed(self):
+        from wjdr_beast_hunt import consume_beast_search_race_pause
+        env={'WJDR_BEAST_SEARCH_RACE_PAUSE':'20'}
+        self.assertEqual(consume_beast_search_race_pause(env,True),20)
+        self.assertEqual(consume_beast_search_race_pause(env,True),0)
+        self.assertFalse(env)
+        self.assertEqual(consume_beast_search_race_pause({'WJDR_BEAST_SEARCH_RACE_PAUSE':'20'},False),0)
+        self.assertEqual(consume_beast_search_race_pause({'WJDR_BEAST_SEARCH_RACE_PAUSE':'999'},True),0)
     def test_cycle_cap_is_launch_only_not_inherited_or_reused(self):
         from wjdr_beast_hunt import consume_beast_test_cycle_limit
         env={'WJDR_BEAST_MAX_CYCLES':'1'}
