@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 REQUIRED_ASSETS = (
+    "beast_rally_compact_marching_icon.png",
     "beast_rally_hunt_name_large.png",
     "beast_rally_compact_march_title.png",
     "beast_rally_compact_rallying_title.png",
@@ -97,10 +98,10 @@ def main() -> None:
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         fail(f"focused tests exited {result.returncode}")
-    if "Ran 74 tests" not in result.stderr + result.stdout:
-        fail("focused suite did not execute the expected 74 tests")
+    if "Ran 77 tests" not in result.stderr + result.stdout:
+        fail("focused suite did not execute the expected 77 tests")
 
-    print("PASS: candidate source/assets are self-contained; 74 focused tests passed.")
+    print("PASS: candidate source/assets are self-contained; 77 focused tests passed.")
     print("STATUS: live end-to-end acceptance is still required; this is not release proof.")
 
 

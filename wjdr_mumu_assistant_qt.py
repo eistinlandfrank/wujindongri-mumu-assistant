@@ -2114,11 +2114,12 @@ class MainWindow(QMainWindow):
         """Run Lv.8 / three minutes / named 打野, with one account team at a time."""
         from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
+        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
         beast_assets = (*BEAST_RALLY_BUILTIN_ASSETS, "assets/beast_rally_compact_march_title.png",
-                        "assets/beast_rally_hunt_name_large.png")
+                        "assets/beast_rally_hunt_name_large.png", "assets/beast_rally_compact_marching_icon.png")
         missing = [resource_path(asset) for asset in beast_assets if not resource_path(asset).is_file()]
         if missing:
             names = "、".join(path.name for path in missing)
@@ -2671,17 +2672,28 @@ class MainWindow(QMainWindow):
                 if not ensure_compact_march_panel():
                     return False
                 deadline = time.monotonic() + 24.0
+                diagnostic_logged = False
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     first, second = capture(), capture()
                     owners = read_compact_rally_rows(first) + read_compact_rally_rows(second)
                     cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
                     cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    joined_only = (only_joined_rallies(cap1, read_compact_rally_rows(first))
+                                   and only_joined_rallies(cap2, read_compact_rally_rows(second))
+                                   and (cap1.used,cap1.total)==(cap2.used,cap2.total))
+                    if joined_only:
+                        baseline_march_capacity = (cap2.used, cap2.total)
+                        self._log_for_device(target.device, "完整列表双帧确认仅有蓝色盟友集结且有空槽；不要求总行军数归零。")
+                        return True
                     if (not any(r.owner == 'own' for r in owners) and cap1 and cap2
                             and cap1.used == cap2.used == 0
                             and (cap1.total, cap1.evidence) == (cap2.total, cap2.evidence)):
                         baseline_march_capacity = (0, cap1.total)
                         self._log_for_device(target.device, "双帧确认空闲：" + ("野外列表已消失" if cap1.evidence == 'hidden_idle' else f"0/{cap1.total}") + "；未展开野外面板。")
                         return True
+                    if not diagnostic_logged:
+                        diagnostic_logged = True
+                        self._log_for_device(target.device, f"空闲诊断：首帧 {cap1}；次帧 {cap2}；集结行 {[(r.owner,r.phase) for r in owners]}。")
                     set_state("自动复核顶部列表：等待双帧空闲证据，不展开、不出征")
                     if pause():
                         return False
@@ -2698,6 +2710,8 @@ class MainWindow(QMainWindow):
                 unknown_since = time.monotonic()
                 heartbeat_at = 0.0
                 accounted = False
+                marched = False
+                last_phase = 'rallying'
                 overlay_recovery_used = False
                 while not self.stop_event.is_set():
                     first, second = capture(), capture()
@@ -2723,6 +2737,21 @@ class MainWindow(QMainWindow):
                         if pause():
                             return False
                         continue
+                    marches1 = read_compact_marching_rows(first) if cycle.seen_busy else ()
+                    marches2 = read_compact_marching_rows(second) if cycle.seen_busy else ()
+                    if (len(marches1)==len(marches2)==1
+                            and stable(marches1[0].point,marches2[0].point)
+                            and 0<=marches1[0].seconds-marches2[0].seconds<=3):
+                        marched = True
+                        seconds = marches2[0].seconds
+                        timer_text = f"{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02}"
+                        set_state(f"我的绿色行军 · 打野 · {timer_text} · 不新增队伍")
+                        unknown_since = time.monotonic()
+                        if last_phase != 'marching':
+                            last_phase = 'marching'
+                            self._log_for_device(target.device, f"本轮绿色自建集结已进入绿色行军：{timer_text}；按左侧图标识别，不使用绿色进度条判断归属。")
+                            save_evidence(second, marches2[0].point, "own_green_marching", "关联本轮集结后的绿色行军图标和同一行倒计时；未判定回城。")
+                        continue
                     if not cycle.seen_busy:
                         if time.monotonic() >= proof_deadline:
                             self._log_for_device(target.device, "出征后未及时证明绿色自建集结；转入回兵恢复监测，不把蓝色行认作自建、不新增出征。")
@@ -2734,6 +2763,12 @@ class MainWindow(QMainWindow):
                     # Green disappearance alone is not return evidence.
                     cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
                     cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    if (marched and only_joined_rallies(cap1, read_compact_rally_rows(first))
+                            and only_joined_rallies(cap2, read_compact_rally_rows(second))
+                            and (cap1.used,cap1.total)==(cap2.used,cap2.total)):
+                        self._log_for_device(target.device, "本轮已证明绿色集结和行军；完整列表双帧仅剩蓝色盟友集结，本轮队伍已离开占用列表，允许下一轮。")
+                        save_evidence(second, (435,450), "hunt_done_allied_remaining", "已见本轮绿色行军，完整列表仅剩蓝色集结；不是单凭总数量减少或绿色消失。")
+                        return True
                     used = None
                     if cap1 and cap2 and (cap1.used, cap1.total, cap1.evidence) == (cap2.used, cap2.total, cap2.evidence):
                         if cap1.total and not total:

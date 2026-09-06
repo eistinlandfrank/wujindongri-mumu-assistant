@@ -132,6 +132,65 @@ class CompactRallyRow:
     owner: str  # own / joined / unknown; only while exact 集结中 is present
     point: tuple[int, int]
     seconds: int | None
+    phase: str = 'rallying'
+
+
+@lru_cache(maxsize=1)
+def compact_marching_icon():
+    with Image.open(resource_path('assets/beast_rally_compact_marching_icon.png')) as image:
+        return np.asarray(image.convert('L'))
+
+
+def read_compact_marching_rows(image):
+    """Reviewed green marching glyph + same-row timer, not green bar colour.
+
+    Coordinates replace the rally title during marching. Ownership is only
+    usable by a controller with an already correlated self-rally proof.
+    """
+    viewport = content_viewport(image)
+    rgb = np.asarray(image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560)).convert('RGB'))
+    roi=rgb[390:1400,:140]
+    scores=cv2.matchTemplate(white_mask(roi),compact_marching_icon(),cv2.TM_CCOEFF_NORMED)
+    rows=[]
+    for _ in range(8):
+        _,score,_,(x,y)=cv2.minMaxLoc(scores)
+        if score<.90:
+            break
+        icon=roi[y:y+75,x:x+77]
+        hsv=cv2.cvtColor(icon,cv2.COLOR_RGB2HSV)
+        yy,xx=np.ogrid[:75,:77]
+        circle=(xx-38)**2+(yy-37)**2<28**2
+        colored=circle&(hsv[:,:,1]>110)&(hsv[:,:,2]>100)
+        green=((hsv[:,:,0]>=35)&(hsv[:,:,0]<=85))[colored].mean() if colored.any() else 0
+        # Large white marching glyph covers most of the circle; classify its
+        # remaining saturated fill, requiring substantial coloured coverage.
+        if colored.sum()/circle.sum()>.15 and green>.95:
+            # Glyph top is reference y503 in the reviewed frame; timer y540.
+            timer=Image.fromarray(rgb[390+y+37:390+y+88, x+80:min(x+370,520)])
+            comps=_daily_white_numeric_components(timer)
+            digits=[_read_daily_numeric_glyph(c[4]) for c in comps] if len(comps)==6 else []
+            seconds=None
+            if digits and all(d and d[1]>=.80 for d in digits):
+                v=[d[0] for d in digits]
+                hh,mm,ss=v[0]*10+v[1],v[2]*10+v[3],v[4]*10+v[5]
+                if hh<24 and mm<60 and ss<60:
+                    seconds=hh*3600+mm*60+ss
+            if seconds is not None:
+                rows.append(CompactRallyRow('own',map_content_point((x+38,390+y+37),BUILTIN_DAILY_TASK_REFERENCE_SIZE,image),seconds,'marching'))
+        scores[max(0,y-50):y+90,:]=-1
+    return tuple(rows)
+
+
+def only_joined_rallies(capacity, rows):
+    """A complete visible list of exact BLUE 集结中 rows, never blue returns.
+
+    Missing/hidden/truncated/duplicate rows and full capacity cannot authorize
+    a Beast. Numeric count alone is not ownership or completion evidence.
+    """
+    return bool(capacity and capacity.evidence=='numeric'
+                and 0<capacity.used<capacity.total and len(rows)==capacity.used
+                and all(r.owner=='joined' and r.phase=='rallying' for r in rows)
+                and len({r.point for r in rows})==len(rows))
 
 
 @lru_cache(maxsize=1)

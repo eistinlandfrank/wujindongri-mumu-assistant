@@ -4,10 +4,43 @@ from PIL import Image, ImageDraw
 from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_sidebar_countdown
 from wjdr_backend import BeastRallyState
 from wjdr_beast_hunt import read_compact_rally_rows
+from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies, CompactRallyRow
+from wjdr_backend import DailyMarchCapacity
 import numpy as np
 
 
 class HuntTests(unittest.TestCase):
+    def test_green_marching_icon_timer_and_blue_negative(self):
+        with Image.open('tests/fixtures/beast_green_marching_row.png') as crop:
+            rgb=np.array(crop.convert('RGB'))
+        for blue in (False,True):
+            candidate=rgb.copy()
+            if blue:
+                icon=candidate[:,:95]
+                green=(icon[:,:,1]>100)&(icon[:,:,0]<100)&(icon[:,:,2]<100)
+                icon[green]=(45,128,210)
+            frame=Image.new('RGB',(1440,2560),(30,50,90))
+            frame.paste(Image.fromarray(candidate),(20,480))
+            for size in ((720,1280),(1080,1920),(1440,2560)):
+                rows=read_compact_marching_rows(frame.resize(size))
+                if blue:
+                    self.assertFalse(rows)
+                else:
+                    self.assertEqual(len(rows),1)
+                    self.assertEqual((rows[0].phase,rows[0].seconds),('marching',16))
+
+    def test_only_full_known_blue_rally_list_allows_free_beast(self):
+        row=CompactRallyRow('joined',(70,530),60)
+        self.assertTrue(only_joined_rallies(DailyMarchCapacity(1,6,1),[row]))
+        for used in (2,3):
+            allied=[CompactRallyRow('joined',(70,530+120*i),60) for i in range(used)]
+            self.assertTrue(only_joined_rallies(DailyMarchCapacity(used,6,1),allied))
+        for capacity,rows in [(None,[row]),(DailyMarchCapacity(2,6,1),[row]),
+                              (DailyMarchCapacity(1,1,1),[row]),
+                              (DailyMarchCapacity(1,6,1),[CompactRallyRow('unknown',(70,530),60)]),
+                              (DailyMarchCapacity(1,6,1),[CompactRallyRow('joined',(70,530),60,'returning')])]:
+            self.assertFalse(only_joined_rallies(capacity,rows))
+
     def frame(self, x=1115, selected=False):
         frame = Image.new('RGB', (1440, 2560), (20, 65, 109))
         for name, xy in [('beast_rally_formation_anchor.png', (105, 26)),

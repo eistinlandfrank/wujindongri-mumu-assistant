@@ -24,6 +24,6 @@
 - Other-account/machine support is pending until a compatibility matrix is verified. Do not generalize one successful account into universal support.
 
 ## Current status
-- Source candidate5.63.0;74 focused tests. Milestone177 real-ADB continuous two-cycle acceptance passed, including final return and automatic stop. Other-account/machine compatibility and new portable boot remain pending; this is not a new published EXE.
+- Source candidate5.63.0;77 focused tests. Milestone177 proved two cycles on instance2. Milestone178 adds exact green marching-icon/timer recognition, live-proved on instance0; all-blue joined-rally remainder is a complete-list gate, not a count-decrease gate. Allied-overlap live acceptance and new portable boot remain pending.
 - The root working folder is not the public Git checkout. Scoped source is published via release_publish_v5_63/main; exclude account ledgers, raw screenshots, runtime caches and build residue.
 - User-deleted cron must not be recreated without a new request. No cleanup of historical build/worktree directories without a separately reviewed exact target list.

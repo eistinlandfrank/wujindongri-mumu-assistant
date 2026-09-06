@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 
 from wjdr_backend import AdbError, DailyMarchCapacity, BeastRallyState
 from wjdr_beast_hunt import GuardedBeastADB, SingleBeastCycle, CompactRallyRow, read_compact_capacity
+from wjdr_beast_hunt import only_joined_rallies
 
 
 class ReadRecoveryTest(unittest.TestCase):
@@ -96,7 +97,7 @@ class CompactRecoveryTest(unittest.TestCase):
                    time=SimpleNamespace(monotonic=Mock(side_effect=range(0, 500, 3))),
                    self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock()),
                    target=SimpleNamespace(device='new-adb'), capture=lambda: next(frame_iter),
-                   read_compact_rally_rows=lambda _: (),
+                   read_compact_rally_rows=lambda _: (), only_joined_rallies=only_joined_rallies,
                    read_beast_rally_collapsed_march_capacity=lambda image, _: image,
                    threshold=.9, set_state=Mock(), pause=lambda: False,
                    open_wilderness_queue_panel=Mock(), baseline_march_capacity=None)
@@ -136,6 +137,7 @@ class CompactRecoveryTest(unittest.TestCase):
         frames = iter(['own', 'own'] + [None] * 60 + [busy, busy, idle, idle])
         confirm, repair = Mock(return_value=20), Mock(return_value=True)
         env = dict(baseline_march_capacity=(0, 0), SingleBeastCycle=SingleBeastCycle,
+                   only_joined_rallies=only_joined_rallies, read_compact_marching_rows=lambda _: (),
                    time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
                    match_world=lambda _: ((90,1754), 1),
                    ensure_compact_march_panel=repair, capture=lambda: next(frames),
@@ -152,6 +154,22 @@ class CompactRecoveryTest(unittest.TestCase):
         self.assertEqual(repair.call_count, 1)  # only upon unreadable state
         env['open_wilderness_queue_panel'].assert_not_called()
         env['recover_pending_reservation'].assert_not_called()
+
+    def test_owned_march_finishes_with_only_joined_rally_remaining(self):
+        frames=iter(['own','own','march','march','joined','joined'])
+        env=dict(baseline_march_capacity=(0,6),SingleBeastCycle=SingleBeastCycle,
+                 time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
+                 capture=lambda: next(frames),threshold=.9,identity='test',
+                 read_compact_rally_rows=lambda im: (CompactRallyRow('own' if im=='own' else 'joined',(70,530),60),) if im in ('own','joined') else (),
+                 read_compact_marching_rows=lambda im: (CompactRallyRow('own',(72,540),16,'marching'),) if im=='march' else (),
+                 read_beast_rally_collapsed_march_capacity=lambda im,_: DailyMarchCapacity(1,6,1),
+                 only_joined_rallies=only_joined_rallies,stable=lambda p,q:p==q,
+                 confirm_beast_rally_stamina_reservation=Mock(return_value=20),
+                 self=SimpleNamespace(stop_event=threading.Event(),_log_for_device=Mock()),
+                 target=SimpleNamespace(device='test'),set_state=Mock(),save_evidence=Mock(),
+                 pause=lambda:False)
+        self.assertTrue(nested('monitor_single_team',env)())
+        self.assertEqual(env['save_evidence'].call_args.args[2],'hunt_done_allied_remaining')
 
     def test_compact_reservation_recovery_keeps_uncertain_budget(self):
         import tempfile
