@@ -22,6 +22,17 @@ from wjdr_backend import (
 HUNT_NAME_ASSET = "assets/beast_rally_hunt_name.png"
 
 
+def consume_beast_test_cycle_limit(environ, automatic_start=False):
+    """One-shot launch QA only; never leak a test cap to buttons/child apps."""
+    raw = environ.pop('WJDR_BEAST_MAX_CYCLES', '0')
+    if not automatic_start:
+        return 0
+    try:
+        return max(0, int(raw))
+    except (ValueError, TypeError):
+        return 0
+
+
 @lru_cache(maxsize=1)
 def compact_header_masks():
     with Image.open(resource_path('assets/beast_rally_compact_march_title.png')) as image:

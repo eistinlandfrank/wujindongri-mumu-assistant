@@ -24,6 +24,6 @@
 - Other-account/machine support is pending until a compatibility matrix is verified. Do not generalize one successful account into universal support.
 
 ## Current status
-- Source candidate5.63.0;77 focused tests. Milestone177 proved two cycles on instance2. Milestone178 adds exact green marching-icon/timer recognition, live-proved on instance0; all-blue joined-rally remainder is a complete-list gate, not a count-decrease gate. Allied-overlap live acceptance and new portable boot remain pending.
+- Source candidate5.63.0;78 focused tests. Milestone179 proved two completed cycles and third owned rally in continuous PID54760 on instance2,19:28–19:33, including two ordinary inventory stamina uses. QA cycle limit is consumed once at construction, never reused by user starts/child windows. Preserve the running worker. Allied-overlap live acceptance and new portable boot remain pending; milestone178 proved green marching on instance0.
 - The root working folder is not the public Git checkout. Scoped source is published via release_publish_v5_63/main; exclude account ledgers, raw screenshots, runtime caches and build residue.
 - User-deleted cron must not be recreated without a new request. No cleanup of historical build/worktree directories without a separately reviewed exact target list.

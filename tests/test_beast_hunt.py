@@ -10,6 +10,14 @@ import numpy as np
 
 
 class HuntTests(unittest.TestCase):
+    def test_cycle_cap_is_launch_only_not_inherited_or_reused(self):
+        from wjdr_beast_hunt import consume_beast_test_cycle_limit
+        env={'WJDR_BEAST_MAX_CYCLES':'1'}
+        self.assertEqual(consume_beast_test_cycle_limit(env,True),1)
+        self.assertEqual(consume_beast_test_cycle_limit(env,True),0)
+        self.assertNotIn('WJDR_BEAST_MAX_CYCLES',env)
+        self.assertEqual(consume_beast_test_cycle_limit({'WJDR_BEAST_MAX_CYCLES':'1'},False),0)
+        self.assertEqual(consume_beast_test_cycle_limit({'WJDR_BEAST_MAX_CYCLES':'bad'},True),0)
     def test_green_marching_icon_timer_and_blue_negative(self):
         with Image.open('tests/fixtures/beast_green_marching_row.png') as crop:
             rgb=np.array(crop.convert('RGB'))

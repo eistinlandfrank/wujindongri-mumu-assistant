@@ -638,6 +638,8 @@ class MainWindow(QMainWindow):
         self.auto_daily_requested = auto_daily
         self.all_auto_daily_requested = all_auto_daily
         self.auto_beast_rally_requested = auto_beast_rally
+        from wjdr_beast_hunt import consume_beast_test_cycle_limit
+        self._initial_beast_test_cycles = consume_beast_test_cycle_limit(os.environ, auto_beast_rally)
         self.all_auto_beast_rally_requested = all_auto_beast_rally
         self.adb: MuMuADB | None = None
         self.devices: list[str] = []
@@ -2133,6 +2135,8 @@ class MainWindow(QMainWindow):
         threshold = 0.90
         target = GuardedBeastADB(target, self.stop_event,
                                  lambda text: self._log_for_device(target.device, text))
+        initial_test_cycles = self._initial_beast_test_cycles
+        self._initial_beast_test_cycles = 0
 
         def job() -> None:
             capture_latency = 0.0
@@ -2799,7 +2803,8 @@ class MainWindow(QMainWindow):
                         self._log_for_device(target.device, "侧栏容量变化或数字无效，单队模式停止新增出征。")
                         return False
                     if state == "returned":
-                        self._log_for_device(target.device, f"本号侧栏 1/{total}→0/{total}，全部空闲已双帧确认，允许下一队。")
+                        idle_label = f"0/{total}" if total else "列表已消失（总容量未知）"
+                        self._log_for_device(target.device, f"本号顶部列表双帧确认空闲：{idle_label}，允许下一队。")
                         save_evidence(second, (435, 450), "hunt_returned", "顶部列表双帧确认队伍实际回兵，下一轮可开始。")
                         return True
                     if not cycle.seen_busy and now >= proof_deadline:
@@ -3013,7 +3018,8 @@ class MainWindow(QMainWindow):
             set_state("启动：确认野外与既有队列")
             completed_cycles = 0
             # Optional bounded live acceptance; normal UI runs remain continuous.
-            max_cycles = max(0, int(os.environ.get("WJDR_BEAST_MAX_CYCLES", "0")))
+            max_cycles = initial_test_cycles
+            self._log_for_device(target.device, f"仅本次自动验收：最多 {max_cycles} 轮；之后手动开始不受此限制。" if max_cycles else "连续运行模式：无轮数上限；按体力设置或用户停止结束。")
             while not self.stop_event.is_set():
                 if not target.foreground_is_game():
                     set_state("游戏不在前台：零输入停止")

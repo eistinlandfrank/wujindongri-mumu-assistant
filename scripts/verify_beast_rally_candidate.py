@@ -98,10 +98,10 @@ def main() -> None:
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         fail(f"focused tests exited {result.returncode}")
-    if "Ran 77 tests" not in result.stderr + result.stdout:
-        fail("focused suite did not execute the expected 77 tests")
+    if "Ran 78 tests" not in result.stderr + result.stdout:
+        fail("focused suite did not execute the expected 78 tests")
 
-    print("PASS: candidate source/assets are self-contained; 77 focused tests passed.")
+    print("PASS: candidate source/assets are self-contained; 78 focused tests passed.")
     print("STATUS: live end-to-end acceptance is still required; this is not release proof.")
 
 
