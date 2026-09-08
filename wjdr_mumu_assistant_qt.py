@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from PIL import Image, ImageChops, ImageStat
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, QDateTime, QTime
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDateTimeEdit,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -31,6 +32,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QAbstractItemView,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -250,6 +255,9 @@ from wjdr_backend import (
 )
 
 
+from wjdr_schedule_ui import ScheduleUI
+import wjdr_schedule as schedules
+
 COLORS = {
     "window": "#F4F7FC",
     "surface": "#FFFFFF",
@@ -331,6 +339,7 @@ def bounded_step_timeout(seconds: float) -> float:
 
 
 class UiSignals(QObject):
+    schedule_verified = Signal(object, str)
     log = Signal(str)
     status = Signal(str, str)
     devices = Signal(object, str)
@@ -614,7 +623,7 @@ class BeastRallySettingsDialog(LightSettingsDialog):
         )
 
 
-class MainWindow(QMainWindow):
+class MainWindow(ScheduleUI, QMainWindow):
     def __init__(
         self,
         preferred_device: str | None,
@@ -655,6 +664,8 @@ class MainWindow(QMainWindow):
         self.started_at = 0.0
         self.tasks = self._load_tasks()
         self.active_steps: list[dict[str, Any]] = []
+        self.schedule_path = schedules.SCHEDULE_FILE
+        self._schedule_checking = False
         self.signals = UiSignals()
         self._connect_signals()
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
@@ -678,8 +689,12 @@ class MainWindow(QMainWindow):
         self._load_log_tail()
         threading.Thread(target=self._hotkey_loop, daemon=True).start()
         self._run_async(self._connect_job)
+        self.schedule_timer = QTimer(self)
+        self.schedule_timer.timeout.connect(self._schedule_tick)
+        self.schedule_timer.start(200)
 
     def _connect_signals(self) -> None:
+        self.signals.schedule_verified.connect(self._schedule_verified)
         self.signals.log.connect(self._append_log)
         self.signals.status.connect(self._set_status)
         self.signals.devices.connect(self._apply_devices)
@@ -727,6 +742,7 @@ class MainWindow(QMainWindow):
             ("✦", "联盟红包"),
             ("☀", "每日任务"),
             ("R", "巨兽集结"),
+            ("◷", "定时启动"),
             ("☷", "任务编排"),
             ("≡", "运行日志"),
             ("i", "关于与安全"),
@@ -799,6 +815,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._build_red_packet_page())
         self.stack.addWidget(self._build_daily_task_page())
         self.stack.addWidget(self._build_beast_rally_page())
+        self.stack.addWidget(self._build_schedule_page())
         self.stack.addWidget(self._build_tasks_page())
         self.stack.addWidget(self._build_log_page())
         self.stack.addWidget(self._build_about_page())
@@ -807,7 +824,7 @@ class MainWindow(QMainWindow):
         for label in main.findChildren(QLabel) + self.stack.findChildren(QLabel):
             if label.objectName() not in {"statusPill", "statValue", "greenPill"}:
                 label.setWordWrap(True)
-        for index in (0, 5):
+        for index in (0, 6):
             body = self.stack.widget(index)
             self.stack.removeWidget(body)
             scroll = QScrollArea()
@@ -1606,7 +1623,7 @@ class MainWindow(QMainWindow):
             QPushButton#softButton, QPushButton#ghostButton {{ background: white; color: #3D4C63; border: 1px solid {COLORS['border']}; }}
             QPushButton#softButton:hover, QPushButton#ghostButton:hover {{ border-color: #AFC3E3; background: #F8FAFE; }}
             QPushButton#dangerButton {{ background: {COLORS['red']}; color: white; border: none; }}
-            QComboBox, QSpinBox, QDoubleSpinBox {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
+            QComboBox, QSpinBox, QDoubleSpinBox, QDateTimeEdit {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
             QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: #AFC3E3; }}
             QComboBox::drop-down {{ border: none; width: 28px; }}
             QComboBox::down-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{resource_path('assets/ui_chevron_down.svg').as_posix()}"); width: 12px; height: 8px; }}
@@ -1615,6 +1632,10 @@ class MainWindow(QMainWindow):
             QComboBox QAbstractItemView {{ background: white; border: 1px solid {COLORS['border']}; selection-background-color: #E9F0FE; selection-color: {COLORS['text']}; padding: 6px; }}
             QCheckBox {{ spacing: 8px; }}
             QListWidget {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 10px; padding: 6px; }}
+            QTableWidget {{ background: white; alternate-background-color: #F5F8FD; color: #233247; gridline-color: #DCE4F0; border: 1px solid #DCE4F0; selection-background-color: #E4EDFE; selection-color: #233247; }}
+            QHeaderView::section {{ background: #EDF3FC; color: #344960; padding: 8px; border: none; font-weight: 600; }}
+            QCalendarWidget QWidget {{ background: white; color: #233247; }}
+            QCalendarWidget QToolButton {{ background: #EDF3FC; color: #233247; }}
             QListWidget::item {{ padding: 10px; border-radius: 7px; }}
             QListWidget::item:selected {{ background: #E4EDFE; color: #255EC5; }}
             QTextEdit#logEdit {{ background: #0D1627; color: #D7E3F6; border: none; border-radius: 11px; padding: 12px; font-family: 'Cascadia Mono'; font-size: 12px; }}
@@ -1635,6 +1656,7 @@ class MainWindow(QMainWindow):
             ("联盟红包", "只开启已确认的熔炉升级红包"),
             ("每日任务", "优先领取奖励，再执行当前账号已支持的日常流程"),
             ("巨兽集结", "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环 · 体力上限"),
+            ("定时启动", "按手机预约开始时间 · 保存后仅触发一次"),
             ("任务编排", "组合点击、等待、返回和识图步骤"),
             ("运行日志", "每条记录都标注绑定的 ADB 端口"),
             ("关于与安全", "版本、兼容范围与账号风险"),
@@ -11420,6 +11442,11 @@ class MainWindow(QMainWindow):
         self._start_worker(target.device, job)
 
     def _start_worker(self, device: str, callback: Callable[[], None]) -> None:
+        scheduled = getattr(self, "_launching_schedule", None)
+        def schedule_state(state: str, note: str) -> bool:
+            if not scheduled:
+                return True
+            return schedules.transition(scheduled["id"], scheduled["token"], state, note, path=self.schedule_path)
         if self.worker and self.worker.is_alive():
             QMessageBox.information(self, APP_NAME, "当前窗口已有任务正在运行。")
             return
@@ -11438,15 +11465,24 @@ class MainWindow(QMainWindow):
         def protected() -> None:
             lease = DeviceLease(lease_key)
             if not lease.acquire():
+                if scheduled:
+                    schedule_state("failed", "该手机已被另一个窗口占用，未启动重复任务")
                 self.log(f"实例 {device} 已被另一个窗口占用，本窗口未启动任务。")
                 self.signals.alert.emit(APP_NAME, f"{device} 已在另一个助手窗口运行。\n为防止重复点击，本窗口未启动任务。")
                 return
-            self.signals.running.emit(True, "运行中")
             try:
+                if not schedule_state("running", "已核验手机并取得独占权限；仅触发一次"):
+                    return
+                self.signals.running.emit(True, "运行中")
                 callback()
             except InterruptedError:
                 self.log("任务已取消；未重试或重放后续输入。")
             except Exception as exc:
+                if scheduled:
+                    try:
+                        schedule_state("failed", f"流程异常结束：{type(exc).__name__}: {exc}")
+                    except Exception:
+                        pass
                 self.log(f"任务线程异常：{type(exc).__name__}: {exc}")
                 self.signals.alert.emit(
                     APP_NAME,
@@ -11456,12 +11492,22 @@ class MainWindow(QMainWindow):
                 lease.release()
                 self.stop_event.set()
                 self.signals.running.emit(False, "已停止")
+                if scheduled:
+                    try:
+                        schedule_state("finished", "任务流程已结束或用户停止；不会再次自动启动")
+                    except Exception as exc:
+                        self.log(f"定时任务结束记录写入失败：{exc}；不会重放启动")
 
         self.worker = threading.Thread(target=protected, daemon=True)
         self.worker.start()
 
     def stop_all(self) -> None:
         self.stop_event.set()
+        try:
+            if self.adb and hasattr(self, "schedule_path"):
+                schedules.cancel_waiting(self.adb.device_identity(), claimed_only=True, path=self.schedule_path)
+        except Exception as exc:
+            self.log(f"取消正在核验的预约失败：{exc}")
         self.log("已发出停止指令。")
 
     def _update_runtime(self) -> None:
@@ -11753,10 +11799,17 @@ class MainWindow(QMainWindow):
         if os.name != "nt":
             return
         user32 = ctypes.windll.user32
+        was_down = False
         while not self.closing.is_set():
-            if user32.GetAsyncKeyState(0x77) & 1:
+            down = bool(user32.GetAsyncKeyState(0x77) & 0x8000)
+            if down and not was_down:
                 self.stop_event.set()
+                try:
+                    schedules.cancel_waiting(path=self.schedule_path)
+                except Exception as exc:
+                    self.log(f"F8取消预约记录失败：{exc}")
                 self.log("检测到全局 F8，正在停止。")
+            was_down = down
             time.sleep(0.08)
 
     def closeEvent(self, event: Any) -> None:

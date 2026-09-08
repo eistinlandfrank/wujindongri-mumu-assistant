@@ -1,4 +1,4 @@
-"""Render all eight pages without ADB, accounts or game input (25s watchdog)."""
+"""Render every page without ADB, accounts or game input (25s watchdog)."""
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "windows" if os.name == "nt" else "offscreen")
 import sys
@@ -21,7 +21,7 @@ output.mkdir(parents=True, exist_ok=True)
 for width, height in ((1080, 720), (1280, 840)):
     window.resize(width, height)
     window.show()
-    for index in range(8):
+    for index in range(window.stack.count()):
         window._show_page(index)
         app.processEvents()
         assert window.width() == width, (index, window.width(), width)

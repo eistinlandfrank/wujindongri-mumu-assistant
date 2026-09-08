@@ -1,6 +1,14 @@
-# 无尽冬日 MuMu 助手 5.64.0
+# 无尽冬日 MuMu 助手 5.65.0
 
-本版主程序为 `WJDRMuMuAssistant_v5.64.0_Portable.exe`，双击直接使用，无需安装 Python 或执行安装向导。首次启动会校验并解压到本机用户目录。需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。
+本版主程序为 `WJDRMuMuAssistant_v5.65.0_Portable.exe`，双击直接使用，无需安装 Python 或执行安装向导。首次启动会校验并解压到本机用户目录。需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。
+
+## 定时启动巨兽集结
+
+选择目标手机 → 左侧“定时启动” → 设置本机日期时间（例如 `2026/09/09 00:00:00`）→ 保存预约。每条预约只触发一次；到点使用该账号当时保存的巨兽设置，先核验手机身份，再进入现有巨兽流程。多个账号分别打开对应窗口、分别预约，记录保存在本地。
+
+电脑必须保持开机、不休眠，MuMu 游戏在前台，且对应账号的助手窗口持续打开并保持绑定。此功能不会开机、唤醒电脑或启动 MuMu。已有任务运行时不打断、不重复启动；超过预约时间30秒视为错过，不自动补跑。F8 全局急停会取消所有尚未启动的预约；“取消选中预约”不会停止已经运行的任务。
+
+已通过真实 ADB 的到点核验、独占启动入口、单次触发及取消验收（使用只读截图回调，不代替实战验收）。未替用户自动保存上述示例预约。
 
 ## 多手机使用
 
@@ -59,10 +67,10 @@ py wjdr_mumu_assistant_qt.py --device 127.0.0.1:16448 --auto-beast-rally
 要生成无安装便携版，请在 PowerShell 中运行：
 
 ```powershell
-python scripts/run_bounded.py --seconds 295 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_portable.ps1
+python scripts/run_bounded.py --seconds 25 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_portable.ps1
 ```
 
-默认输出为 `release_v5_63/WJDRMuMuAssistant_v5.63.0_Portable.exe`；运行目录位于 `release_v5_63/dist/WJDRMuMuAssistant`。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
+默认输出为 `release_v5_65/WJDRMuMuAssistant_v5.65.0_Portable.exe`；运行目录位于 `release_v5_65/dist/WJDRMuMuAssistant`。长构建必须拆分成有界步骤，不得放大看门狗；已有源代码一致的运行目录时可加 `-SkipRuntime` 仅重新封装。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
 
 ## 项目文件
 

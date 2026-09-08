@@ -37,13 +37,13 @@ class MultiDeviceUITests(unittest.TestCase):
         window.resize(1080, 720)
         window.show()
         for index, title in enumerate(("设备中心", "联盟帮助", "联盟红包", "每日任务",
-                                       "巨兽集结", "任务编排", "运行日志", "关于与安全")):
+                                       "巨兽集结", "定时启动", "任务编排", "运行日志", "关于与安全")):
             window._show_page(index)
             self.app.processEvents()
             self.assertEqual(window.page_title.text(), title)
             self.assertEqual(window.width(), 1080)
             self.assertEqual(window.height(), 720)
-            if index != 6:
+            if index != 7:
                 self.assertIsInstance(window.stack.widget(index), QScrollArea)
                 self.assertLessEqual(window.stack.widget(index).horizontalScrollBar().maximum(), 0)
 

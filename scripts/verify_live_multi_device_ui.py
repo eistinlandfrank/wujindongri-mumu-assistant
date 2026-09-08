@@ -33,13 +33,13 @@ else:
 for window, device in zip(windows, devices):
     identity = window.device_combo.currentData()["identity"]
     assert identity
-    for index in range(8):
+    for index in range(window.stack.count()):
         window._show_page(index)
         app.processEvents()
         assert window.adb.device == device and window.worker is None
     window._show_page(4)
     assert f"[{devices[1] if device == devices[0] else devices[0]}]" not in window.log_edit.toPlainText()
-    print(f"PASS {device}: fresh {window.current_image.size}; 8 pages; no worker; isolated logs", flush=True)
+    print(f"PASS {device}: fresh {window.current_image.size}; {window.stack.count()} pages; no worker; isolated logs", flush=True)
 assert windows[0].device_combo.currentData()["identity"] != windows[1].device_combo.currentData()["identity"]
 result = []
 def inspect_manager():
