@@ -1,7 +1,7 @@
 """Generate ZIP+integrity manifests for the offline portable launcher."""
 import argparse, hashlib, threading, os, zipfile, shutil
 from pathlib import Path
-guard=threading.Timer(295,lambda:os._exit(124));guard.daemon=True;guard.start()
+guard=threading.Timer(25,lambda:os._exit(124));guard.daemon=True;guard.start()
 p=argparse.ArgumentParser();p.add_argument('runtime',type=Path);p.add_argument('output',type=Path);a=p.parse_args()
 a.output.mkdir(parents=True,exist_ok=True)
 for name in ('README.md','发行说明.txt','第三方许可说明.txt'):

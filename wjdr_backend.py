@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import inspect
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.63.0"
+APP_VERSION = "5.64.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -1607,6 +1608,51 @@ def load_beast_rally_profile(
         return BeastRallyProfile()
 
 
+def _serialized_account_write(function):
+    """Lock the entire read/modify/replace transaction across device processes.
+
+    Atomic rename alone prevents torn JSON, not lost updates by other accounts.
+    A persistent lock file uses an OS lock which is released after a crash.
+    """
+    signature = inspect.signature(function)
+
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        path = Path(bound.arguments["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.with_name(path.name + ".write.lock").open("a+b") as handle:
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            deadline = time.monotonic() + 2
+            while True:
+                try:
+                    handle.seek(0)
+                    if os.name == "nt":
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("账号记录正在写入，请稍后重试（2秒保护）")
+                    time.sleep(0.01)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                handle.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+    return guarded
+
+
+@_serialized_account_write
 def save_beast_rally_profile(
     identity: str,
     profile: BeastRallyProfile,
@@ -1693,6 +1739,7 @@ def load_beast_rally_stamina_uncertain(
     return max(0, int(account.get("uncertain", 0)))
 
 
+@_serialized_account_write
 def reconcile_beast_rally_idle_reservation(
     identity: str, first: tuple[bool, ...] | None, second: tuple[bool, ...] | None,
     *, day: str | None = None, path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
@@ -1729,6 +1776,7 @@ def reconcile_beast_rally_idle_reservation(
     return reserved
 
 
+@_serialized_account_write
 def reserve_beast_rally_stamina(
     identity: str,
     cost: int,
@@ -1764,6 +1812,7 @@ def reserve_beast_rally_stamina(
     return debit
 
 
+@_serialized_account_write
 def cancel_beast_rally_conflict_reservation(identity: str, expected_cost: int, *,
                                            cancelled_and_formation_restored: bool = False,
                                            path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> int:
@@ -1785,6 +1834,7 @@ def cancel_beast_rally_conflict_reservation(identity: str, expected_cost: int, *
     return expected_cost
 
 
+@_serialized_account_write
 def confirm_beast_rally_stamina_reservation(
     identity: str,
     *,
@@ -1817,6 +1867,7 @@ def confirm_beast_rally_stamina_reservation(
     return spent
 
 
+@_serialized_account_write
 def record_beast_rally_stamina_spent(
     identity: str,
     cost: int,
@@ -1898,6 +1949,7 @@ def load_mining_level_profile(
         return MiningLevelProfile()
 
 
+@_serialized_account_write
 def save_mining_level_profile(
     identity: str,
     profile: MiningLevelProfile,
@@ -2774,8 +2826,10 @@ class MuMuADB:
     def launch_game(self) -> None:
         self.shell(["monkey", "-p", GAME_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"], timeout=20)
 
-    def screenshot(self, *, timeout: float = 20) -> Image.Image:
-        raw = self._run(self._device_args(["exec-out", "screencap", "-p"]), timeout=min(20, max(0.1, timeout)), binary=True)
+    def screenshot(self, *, timeout: float = 20, device: str | None = None) -> Image.Image:
+        args = (["-s", device, "exec-out", "screencap", "-p"] if device
+                else self._device_args(["exec-out", "screencap", "-p"]))
+        raw = self._run(args, timeout=min(20, max(0.1, timeout)), binary=True)
         assert isinstance(raw, bytes)
         try:
             image = Image.open(io.BytesIO(raw))

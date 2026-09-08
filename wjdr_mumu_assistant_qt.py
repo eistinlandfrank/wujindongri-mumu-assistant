@@ -701,7 +701,7 @@ class MainWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(224)
+        sidebar.setFixedWidth(204)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(18, 24, 18, 20)
         side.setSpacing(8)
@@ -734,6 +734,7 @@ class MainWindow(QMainWindow):
         for index, (glyph, text) in enumerate(nav_items):
             button = QPushButton(f"{glyph}    {text}")
             button.setObjectName("navButton")
+            button.setFixedHeight(44)
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda _checked=False, page=index: self._show_page(page))
@@ -756,8 +757,8 @@ class MainWindow(QMainWindow):
         main = QWidget()
         main.setObjectName("main")
         main_layout = QVBoxLayout(main)
-        main_layout.setContentsMargins(30, 22, 30, 26)
-        main_layout.setSpacing(18)
+        main_layout.setContentsMargins(22, 18, 22, 18)
+        main_layout.setSpacing(12)
         top = QHBoxLayout()
         titles = QVBoxLayout()
         self.page_title = QLabel("设备中心")
@@ -766,21 +767,31 @@ class MainWindow(QMainWindow):
         self.page_subtitle.setObjectName("pageSubtitle")
         titles.addWidget(self.page_title)
         titles.addWidget(self.page_subtitle)
-        top.addLayout(titles)
-        top.addStretch()
+        top.addLayout(titles, 1)
+        self.status_pill = QLabel("●  正在连接")
+        self.status_pill.setObjectName("statusPill")
+        top.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
+        main_layout.addLayout(top)
+        device_bar = QHBoxLayout()
+        device_bar.addWidget(self._field_label("当前手机"))
         self.device_combo = QComboBox()
         self.device_combo.setObjectName("deviceCombo")
-        self.device_combo.setMinimumWidth(360)
+        self.device_combo.setMinimumWidth(200)
+        self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.device_combo.setMinimumContentsLength(16)
+        self.device_combo.setAccessibleName("当前绑定手机")
         self.device_combo.currentIndexChanged.connect(self._device_changed)
-        top.addWidget(self.device_combo)
+        device_bar.addWidget(self.device_combo, 1)
         scan = QPushButton("↻  扫描")
         scan.setObjectName("ghostButton")
         scan.clicked.connect(lambda: self._run_async(self._connect_job))
-        top.addWidget(scan)
-        self.status_pill = QLabel("●  正在连接")
-        self.status_pill.setObjectName("statusPill")
-        top.addWidget(self.status_pill)
-        main_layout.addLayout(top)
+        self.scan_button = scan
+        device_bar.addWidget(scan)
+        self.device_manager_button = QPushButton("多手机窗口")
+        self.device_manager_button.setObjectName("secondaryButton")
+        self.device_manager_button.clicked.connect(self._open_device_manager)
+        device_bar.addWidget(self.device_manager_button)
+        main_layout.addLayout(device_bar)
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_dashboard())
@@ -791,6 +802,21 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._build_tasks_page())
         self.stack.addWidget(self._build_log_page())
         self.stack.addWidget(self._build_about_page())
+        # Every page remains accessible on short/high-DPI displays. Never let
+        # a long status or title silently enlarge the native window.
+        for label in main.findChildren(QLabel) + self.stack.findChildren(QLabel):
+            if label.objectName() not in {"statusPill", "statValue", "greenPill"}:
+                label.setWordWrap(True)
+        for index in (0, 5):
+            body = self.stack.widget(index)
+            self.stack.removeWidget(body)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self._set_window_background(scroll.viewport())
+            self._set_window_background(body)
+            scroll.setWidget(body)
+            self.stack.insertWidget(index, scroll)
         main_layout.addWidget(self.stack, 1)
         shell.addWidget(main, 1)
 
@@ -803,17 +829,17 @@ class MainWindow(QMainWindow):
         hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(26, 22, 24, 22)
         hero_text = QVBoxLayout()
-        kicker = QLabel("联盟帮助页面流程")
+        kicker = QLabel("设备工作台 · 独立账号 · 并行运行")
         kicker.setObjectName("heroKicker")
-        title = QLabel("自动进入联盟互助，识别后点击“全部帮助”")
+        title = QLabel("每台手机，一个独立工作窗口")
         title.setObjectName("heroTitle")
-        desc = QLabel("主城 → 联盟 → 联盟互助；仅在标题与绿色按钮同时确认时点击，空页原地等待。")
+        desc = QLabel("在“多手机窗口”中打开其他设备；设置与任务独立，切换页面不影响正在运行的流程。")
         desc.setObjectName("heroText")
         hero_text.addWidget(kicker)
         hero_text.addWidget(title)
         hero_text.addWidget(desc)
         hero_layout.addLayout(hero_text, 1)
-        self.start_button = QPushButton("▶  自动导航并全部帮助")
+        self.start_button = QPushButton("▶  联盟帮助")
         self.start_button.setObjectName("primaryButton")
         self.start_button.clicked.connect(self._start_help_preset)
         stop = QPushButton("■  停止")
@@ -879,9 +905,9 @@ class MainWindow(QMainWindow):
         separate = QPushButton("独立窗口")
         separate.setObjectName("softButton")
         separate.clicked.connect(self._open_selected_window)
-        all_instances = QPushButton("全部实例挂机")
+        all_instances = QPushButton("管理多手机窗口")
         all_instances.setObjectName("secondaryButton")
-        all_instances.clicked.connect(self._start_all_instances)
+        all_instances.clicked.connect(self._open_device_manager)
         action_grid.addWidget(launch, 0, 0)
         action_grid.addWidget(separate, 0, 1)
         action_grid.addWidget(all_instances, 1, 0, 1, 2)
@@ -913,7 +939,7 @@ class MainWindow(QMainWindow):
         note_layout.setContentsMargins(18, 15, 18, 15)
         note_title = QLabel("安全提示")
         note_title.setObjectName("noticeTitle")
-        note_text = QLabel("F8 会停止所有助手窗口。建议保持短时、有人观察，不用于战斗或充值操作。")
+        note_text = QLabel("打开窗口不会启动任务。每台手机单独开始 / 停止；F8 停止所有窗口。请勿同时手动操作正在自动运行的手机。")
         note_text.setObjectName("noticeText")
         note_text.setWordWrap(True)
         note_layout.addWidget(note_title)
@@ -1235,7 +1261,7 @@ class MainWindow(QMainWindow):
         limits = Card(name="dailyAccountSettingsCard")
         limit_layout = QVBoxLayout(limits)
         limit_layout.setContentsMargins(24, 22, 24, 24)
-        settings_header = QHBoxLayout()
+        settings_header = QVBoxLayout()
         settings_header.setSpacing(14)
         settings_copy = QVBoxLayout()
         settings_copy.setSpacing(4)
@@ -1364,7 +1390,7 @@ class MainWindow(QMainWindow):
         account_layout.addLayout(account_copy, 1)
         self.beast_rally_profile_summary = QLabel("等级 8 · 体力不限 · 今日 0")
         self.beast_rally_profile_summary.setObjectName("valuePill")
-        account_layout.addWidget(self.beast_rally_profile_summary)
+        account_copy.addWidget(self.beast_rally_profile_summary)
         self.beast_rally_settings_button = QPushButton("设置巨兽参数")
         self.beast_rally_settings_button.setObjectName("settingsButton")
         self.beast_rally_settings_button.setAccessibleName("当前账号巨兽设置")
@@ -1472,6 +1498,7 @@ class MainWindow(QMainWindow):
         self.log_edit = QTextEdit()
         self.log_edit.setObjectName("logEdit")
         self.log_edit.setReadOnly(True)
+        self.log_edit.document().setMaximumBlockCount(2000)
         layout.addWidget(self.log_edit, 1)
         return page
 
@@ -1490,15 +1517,15 @@ class MainWindow(QMainWindow):
         about_layout = QVBoxLayout(about)
         about_layout.setContentsMargins(28, 26, 28, 28)
         title = QLabel(f"{APP_NAME}  {APP_VERSION}")
-        title.setObjectName("heroTitle")
+        title.setObjectName("sectionTitle")
         text = QLabel(
             "这是一个只通过 MuMu 自带 ADB 截图、识图和模拟点击工作的本地工具。\n\n"
             "• 不读取游戏内存，不修改 APK，不读取账号密码。\n"
             "• 每个窗口绑定一个独立 ADB 端口，同一实例带跨进程占用锁。\n"
-            "• 内置模板支持 720×1280 至 1600×2560 的已测分辨率范围。\n"
+            "• 游戏画面自动归一化；具体账号与分辨率仍需首次运行核验。\n"
             "• F8 是全局急停；普通停止按钮只停止当前窗口。\n\n"
             "游戏服务条款可能禁止 auto / macro / bot。无人值守自动化可能导致账号处罚，"
-            "请保持短时、有人观察，不要用于战斗、抢占、充值或批量账号。"
+            "请保持有人观察；仅运行已配置的流程，不进行充值或额外购买。"
         )
         text.setObjectName("aboutText")
         text.setWordWrap(True)
@@ -1531,7 +1558,7 @@ class MainWindow(QMainWindow):
             QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 13px; min-width: 42px; min-height: 42px; font-size: 24px; font-weight: 700; }}
             QLabel#brand {{ color: white; font-size: 17px; font-weight: 700; }}
             QLabel#brandSub {{ color: #8294B3; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
-            QPushButton#navButton {{ text-align: left; color: #93A4C0; background: transparent; border: none; border-radius: 9px; padding: 12px 14px; font-weight: 600; }}
+            QPushButton#navButton {{ text-align: left; color: #93A4C0; background: transparent; border: none; border-radius: 9px; min-height: 0; padding: 8px 14px; font-weight: 600; }}
             QPushButton#navButton:hover {{ color: white; background: #172947; }}
             QPushButton#navButton:checked {{ color: white; background: #245FD0; }}
             QFrame#sidebarCard {{ background: #172947; border: 1px solid #233A60; border-radius: 12px; }}
@@ -1581,6 +1608,10 @@ class MainWindow(QMainWindow):
             QPushButton#dangerButton {{ background: {COLORS['red']}; color: white; border: none; }}
             QComboBox, QSpinBox, QDoubleSpinBox {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
             QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: #AFC3E3; }}
+            QComboBox::drop-down {{ border: none; width: 28px; }}
+            QComboBox::down-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{resource_path('assets/ui_chevron_down.svg').as_posix()}"); width: 12px; height: 8px; }}
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{resource_path('assets/ui_chevron_up.svg').as_posix()}"); width: 12px; height: 8px; }}
+            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{ border: none; width: 22px; background: #EDF2FA; }}
             QComboBox QAbstractItemView {{ background: white; border: 1px solid {COLORS['border']}; selection-background-color: #E9F0FE; selection-color: {COLORS['text']}; padding: 6px; }}
             QCheckBox {{ spacing: 8px; }}
             QListWidget {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 10px; padding: 6px; }}
@@ -1602,7 +1633,7 @@ class MainWindow(QMainWindow):
             ("设备中心", "选择实例、确认画面并快速启动"),
             ("联盟帮助", "识图阈值与运行限制"),
             ("联盟红包", "只开启已确认的熔炉升级红包"),
-            ("每日任务", "仅领取已验证的每日登录 (1/1) 奖励"),
+            ("每日任务", "优先领取奖励，再执行当前账号已支持的日常流程"),
             ("巨兽集结", "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环 · 体力上限"),
             ("任务编排", "组合点击、等待、返回和识图步骤"),
             ("运行日志", "每条记录都标注绑定的 ADB 端口"),
@@ -1672,7 +1703,9 @@ class MainWindow(QMainWindow):
         return labels.get(state, "未允许的页面")
 
     def _append_log(self, line: str) -> None:
-        self.log_edit.append(line)
+        device = self.adb.device if self.adb else None
+        if not device or f"[{device}]" in line or "[未绑定]" in line:
+            self.log_edit.append(line)
         try:
             with LOG_FILE.open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
@@ -1681,7 +1714,14 @@ class MainWindow(QMainWindow):
 
     def _load_log_tail(self) -> None:
         try:
-            lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-100:]
+            device = self.adb.device if self.adb else None
+            # Read only a bounded tail; a long-running multi-device installation
+            # must not load the complete shared log into each window.
+            with LOG_FILE.open("rb") as handle:
+                handle.seek(0, 2)
+                handle.seek(max(0, handle.tell() - 256_000))
+                lines = handle.read().decode("utf-8", errors="replace").splitlines()
+            lines = [line for line in lines if not device or f"[{device}]" in line][-200:]
             self.log_edit.setPlainText("\n".join(lines))
         except OSError:
             pass
@@ -1698,6 +1738,7 @@ class MainWindow(QMainWindow):
         self.status_pill.setStyleSheet(f"background:{bg};color:{fg};border-radius:15px;padding:8px 12px;font-weight:700;")
 
     def _set_running(self, running: bool, text: str) -> None:
+        self.scan_button.setEnabled(not running)
         self.start_button.setEnabled(not running)
         self.red_packet_start_button.setEnabled(not running)
         self.daily_task_start_button.setEnabled(not running)
@@ -1713,6 +1754,12 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, title, message)
 
     def _connect_job(self) -> None:
+        if self.worker and self.worker.is_alive():
+            self.log("当前手机正在运行，保持绑定连接；可用多手机窗口打开其他设备。")
+            return
+        if getattr(self, "_connecting", False):
+            return
+        self._connecting = True
         try:
             self.signals.status.emit("●  正在扫描", "busy")
             adb = MuMuADB()
@@ -1727,6 +1774,8 @@ class MainWindow(QMainWindow):
             self.signals.status.emit("●  连接失败", "error")
             self.log(str(exc))
             self.signals.alert.emit(APP_NAME, str(exc))
+        finally:
+            self._connecting = False
 
     def _apply_devices(self, summaries: list[dict[str, Any]], selected: str) -> None:
         self.devices = [item["device"] for item in summaries]
@@ -1741,6 +1790,7 @@ class MainWindow(QMainWindow):
         self.device_combo.setCurrentIndex(selected_index)
         self.device_combo.blockSignals(False)
         self._show_device_info(self.device_combo.currentData())
+        self._load_log_tail()
         self.signals.status.emit("●  已就绪", "ready")
         if self.all_auto_daily_requested:
             self.all_auto_daily_requested = False
@@ -1775,6 +1825,7 @@ class MainWindow(QMainWindow):
         self.instance_name.setText(f"#{item['index']}  {item['name']}")
         self.instance_meta.setText(f"ADB {item['device']}   ·   {item['resolution']}")
         self.instance_state.setText(item["state"])
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · #{item['index']} · {item['device']}")
         self._update_mining_level_button(item)
         self._update_beast_rally_settings(item)
 
@@ -1896,6 +1947,13 @@ class MainWindow(QMainWindow):
     def _device_changed(self, index: int) -> None:
         if index < 0 or not self.adb:
             return
+        if getattr(self, "_connecting", False):
+            current = next((i for i in range(self.device_combo.count())
+                            if self.device_combo.itemData(i)["device"] == self.adb.device), 0)
+            self.device_combo.blockSignals(True)
+            self.device_combo.setCurrentIndex(current)
+            self.device_combo.blockSignals(False)
+            return
         if self.worker and self.worker.is_alive():
             current = next((i for i in range(self.device_combo.count()) if self.device_combo.itemData(i)["device"] == self.adb.device), 0)
             self.device_combo.blockSignals(True)
@@ -1907,6 +1965,13 @@ class MainWindow(QMainWindow):
         self.adb.set_device(item["device"])
         self.preferred_device = item["device"]
         self._show_device_info(item)
+        self.current_image = None
+        self.selected_point = self.selected_region = self.selected_source_size = None
+        self.screenshot.set_pil_image(Image.new("RGB", (720, 1280), "#E8EDF5"))
+        self.point_label.setText("正在读取当前手机…")
+        self.click_count.setText("0")
+        self.runtime_label.setText("00:00:00")
+        self._load_log_tail()
         self.log(f"当前窗口已绑定 {item['device']}。")
         self._run_async(self._capture_job)
 
@@ -1914,13 +1979,18 @@ class MainWindow(QMainWindow):
         try:
             if not self.adb:
                 return
-            image = self.adb.screenshot()
-            self.current_image = image
-            self.signals.image.emit(image)
+            device = self.adb.device
+            image = self.adb.screenshot(device=device)
+            self.signals.image.emit((device, image))
         except Exception as exc:
             self.log(f"截图失败：{exc}")
 
     def _apply_image(self, image: Image.Image) -> None:
+        if isinstance(image, tuple):
+            device, image = image
+            if not self.adb or self.adb.device != device:
+                return
+        self.current_image = image
         self.screenshot.set_pil_image(image)
 
     def _launch_game_job(self) -> None:
@@ -11416,11 +11486,21 @@ class MainWindow(QMainWindow):
 
     def _spawn_instance(self, device: str, startup_mode: str | None = None) -> None:
         try:
-            subprocess.Popen(
+            children = getattr(self, "_child_windows", {})
+            existing = children.get(device)
+            if existing is not None and existing.poll() is None:
+                self.log(f"{device} 的独立窗口已打开，请在该窗口操作。")
+                return
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith("WJDR_QA_") and key not in
+                   {"WJDR_BEAST_MAX_CYCLES", "WJDR_BEAST_SEARCH_RACE_PAUSE"}}
+            children[device] = subprocess.Popen(
                 self._assistant_command(device, startup_mode),
                 cwd=str(Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent),
                 creationflags=CREATE_NO_WINDOW,
+                env=env,
             )
+            self._child_windows = children
             mode_text = {
                 "help": "并开始联盟帮助",
                 "red_packet": "并开始抢红包",
@@ -11430,6 +11510,56 @@ class MainWindow(QMainWindow):
             self.log(f"已为 {device} 打开独立窗口{mode_text}。")
         except OSError as exc:
             QMessageBox.warning(self, APP_NAME, f"无法打开独立窗口：{exc}")
+
+    def _open_device_manager(self) -> None:
+        dialog = LightSettingsDialog(self)
+        dialog.setWindowTitle("多手机窗口 · 每台设备独立运行")
+        dialog.resize(680, 400)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        title = QLabel("为不同手机打开独立窗口")
+        title.setStyleSheet("font-size:20px;font-weight:700")
+        layout.addWidget(title)
+        hint = QLabel("打开窗口不会启动游戏任务。各窗口独立设置、开始和停止，F8 可统一急停。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        self._set_window_background(scroll.viewport())
+        self._set_window_background(body)
+        rows = QVBoxLayout(body)
+        items = [self.device_combo.itemData(i) for i in range(self.device_combo.count())]
+        for item in items:
+            row = QHBoxLayout()
+            label = QLabel(f"#{item['index']}  {item['name']}\n{item['device']} · {item.get('resolution', '—')}")
+            label.setWordWrap(True)
+            row.addWidget(label, 1)
+            button = QPushButton("打开独立窗口")
+            button.setAccessibleName(f"打开手机 {item['device']}")
+            button.clicked.connect(lambda _checked=False, device=item['device']: self._spawn_instance(device))
+            row.addWidget(button)
+            rows.addLayout(row)
+        if not items:
+            rows.addWidget(QLabel("未发现在线手机，请启动 MuMu 后点击顶部“扫描”。"))
+        rows.addStretch()
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
+        all_windows = QPushButton("打开其他所有手机（不启动任务）")
+        all_windows.setEnabled(bool(items))
+        all_windows.clicked.connect(lambda: self._open_other_windows())
+        layout.addWidget(all_windows)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
+        close.rejected.connect(dialog.reject)
+        layout.addWidget(close)
+        dialog.exec()
+
+    def _open_other_windows(self) -> None:
+        current = self.adb.device if self.adb else None
+        for device in self.devices:
+            if device != current:
+                self._spawn_instance(device)
 
     def _open_selected_window(self) -> None:
         if self.adb:
