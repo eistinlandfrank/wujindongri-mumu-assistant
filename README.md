@@ -1,6 +1,8 @@
-# 无尽冬日 MuMu 助手 5.66.0
+# 无尽冬日 MuMu 助手 5.67.0
 
-本版主程序为 `WJDRMuMuAssistant_v5.66.0_Portable.exe`，双击直接使用，无需安装 Python 或执行安装向导。首次启动会校验并解压到本机用户目录。需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。
+本版主程序为 `WJDRMuMuAssistant_v5.67.0_Portable.exe`，双击直接使用，无需安装 Python 或执行安装向导。首次启动会校验并解压到本机用户目录。需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。
+
+5.67修复“出征目标相同”弹窗刚出现就停止：单帧命中只触发即时补帧，连续两帧确认后才取消并重新搜索；不重发出征、不点确定。补帧最多4次、4秒预算，截图异常仍受独立有界保护。取消期间可停止，失败会说明具体原因并保留待核实记录。
 
 5.66修复蓝色队伍导致无限等待：完整列表连续两帧只有蓝色圆形图标、没有绿色自建阶段且有空槽时，直接开始下一轮搜索，不等蓝色行军/返回全部清空。不是仅凭“识别不到绿色”放行，缺行、遮挡或满槽仍阻止出征。仍要求“打野”编组和正常出征验证；不把蓝色剩余误记为所有部队回城。2026-09-09已在2号实测自建→绿色行军→蓝色剩余→下一轮自建。
 
@@ -72,7 +74,7 @@ py wjdr_mumu_assistant_qt.py --device 127.0.0.1:16448 --auto-beast-rally
 python scripts/run_bounded.py --seconds 25 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_portable.ps1
 ```
 
-默认输出为 `release_v5_66/WJDRMuMuAssistant_v5.66.0_Portable.exe`；运行目录位于 `release_v5_66/dist/WJDRMuMuAssistant`。长构建必须拆分成有界步骤，不得放大看门狗；已有源代码一致的运行目录时可加 `-SkipRuntime` 仅重新封装。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
+默认输出为 `release_v5_67/WJDRMuMuAssistant_v5.67.0_Portable.exe`；运行目录位于 `release_v5_67/dist/WJDRMuMuAssistant`。长构建必须拆分成有界步骤，不得放大看门狗；已有源代码一致的运行目录时可加 `-SkipRuntime` 仅重新封装。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
 
 ## 项目文件
 

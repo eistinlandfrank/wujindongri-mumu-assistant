@@ -180,7 +180,7 @@ class CompactRecoveryTest(unittest.TestCase):
         release=Mock()
         env=dict(match_same_target_conflict=lambda _: (420,1580),stable=lambda p,q:bool(p and q and p==q),
                  target_conflicts=0,retry_target_requested=False,target=target,
-                 self=SimpleNamespace(_log_for_device=Mock()),save_evidence=Mock(),
+                 self=SimpleNamespace(_log_for_device=Mock(),stop_event=threading.Event()),save_evidence=Mock(),
                  wait_for_double=Mock(return_value=('formation',(1,2),None)),
                  exact_formation_match=Mock(),capture=Mock(side_effect=['formation','world','world']),
                  read_beast_rally_dispatch_stamina=Mock(return_value=20),

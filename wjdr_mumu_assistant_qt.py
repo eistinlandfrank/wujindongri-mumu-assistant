@@ -2820,6 +2820,22 @@ class MainWindow(ScheduleUI, QMainWindow):
                 nonlocal retry_target_requested, target_conflicts
                 p,q=match_same_target_conflict(first),match_same_target_conflict(second)
                 if not stable(p,q):
+                    # A modal often appears between the first two captures.
+                    # Keep a sliding fresh pair instead of treating that timing
+                    # gap as a failed cancellation. Never click a single match.
+                    self._log_for_device(target.device, "目标冲突提示正在出现：立即补取新帧确认，不点击、不重发出征。")
+                    deadline = time.monotonic() + 4.0
+                    for _ in range(4):
+                        if self.stop_event.is_set() or time.monotonic() >= deadline:
+                            break
+                        first, second = second, capture()
+                        p,q=match_same_target_conflict(first),match_same_target_conflict(second)
+                        if stable(p,q):
+                            break
+                if self.stop_event.is_set():
+                    return False
+                if not stable(p,q):
+                    self._log_for_device(target.device, "目标冲突未形成连续双帧确认；保留出征记录，未点击取消或确定。")
                     return False
                 if target_conflicts>=3:
                     self._log_for_device(target.device, "连续目标冲突达到3次，停止重试；未点击确定或增加队伍。")
@@ -2829,12 +2845,14 @@ class MainWindow(ScheduleUI, QMainWindow):
                 save_evidence(second,q,"same_target_cancel","精确同目标警告后取消出征。")
                 restored=wait_for_double("冲突取消后确认原打野编组",exact_formation_match)
                 if not restored:
+                    self._log_for_device(target.device, "冲突取消后未确认原打野编组；保留体力预留，未重新搜索。")
                     return False
                 frame,_,_=restored
                 cost=read_beast_rally_dispatch_stamina(frame,formation_proven=True)
                 fresh=capture()
                 if (match_hunt_formation(fresh,selected=True).state is not BeastRallyState.FORMATION
                         or cost is None or read_beast_rally_dispatch_stamina(fresh,formation_proven=True)!=cost):
+                    self._log_for_device(target.device, "冲突取消后的编组/体力数值复核不一致；保留预留，未重新搜索。")
                     return False
                 reserved=load_beast_rally_stamina_reserved(identity)
                 if reserved:
