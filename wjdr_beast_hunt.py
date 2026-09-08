@@ -17,6 +17,7 @@ from wjdr_backend import (
     match_beast_rally_progress_sidebar_collapsed,
     match_beast_rally_progress_sidebar_expanded,
     _daily_white_numeric_components, _read_daily_numeric_glyph,
+    _daily_numeric_component_is_slash,
 )
 
 HUNT_NAME_ASSET = "assets/beast_rally_hunt_name.png"
@@ -88,6 +89,12 @@ def read_compact_capacity(image, threshold=.90):
     if (not match_beast_rally_world_search(image, threshold)[0]
             or match_beast_rally_progress_sidebar_expanded(image, threshold)[0]):
         return None
+    # Live0号: clear5/6 and all five opaque circular icons, but translucent
+    # title/background template failed. Cross-check numeric + every icon,
+    # never substitute a guessed zero or a fabricated slot count.
+    direct = read_compact_header_digits(image)
+    if direct and direct.used > 0 and len(read_compact_queue_icons(image,direct)) == direct.used:
+        return direct
     frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440,2560)).convert('RGB')
     rgb = np.asarray(frame)
     roi = rgb[300:1400, 0:590]
@@ -114,6 +121,19 @@ def read_compact_capacity(image, threshold=.90):
            for x,y,w,h,area in stats[1:n]):
         return None
     return DailyMarchCapacity(0, 0, .95, 'hidden_idle')
+
+
+def read_compact_header_digits(image):
+    """Keep bright map outside the opaque numeric header out of glyph filtering."""
+    viewport=content_viewport(image)
+    frame=image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560))
+    components=_daily_white_numeric_components(frame.crop((395,400,485,460)))
+    if len(components)!=3 or not _daily_numeric_component_is_slash(components[1][4]):
+        return None
+    left,right=(_read_daily_numeric_glyph(components[i][4]) for i in (0,2))
+    if not left or not right or min(left[1],right[1])<.85 or not 0<=left[0]<=right[0]<=9 or right[0]==0:
+        return None
+    return DailyMarchCapacity(left[0],right[0],min(left[1],right[1]))
 
 
 class GuardedBeastADB:
@@ -228,6 +248,59 @@ def only_joined_rallies(capacity, rows):
                 and 0<capacity.used<capacity.total and len(rows)==capacity.used
                 and all(r.owner=='joined' and r.phase=='rallying' for r in rows)
                 and len({r.point for r in rows})==len(rows))
+
+
+def read_compact_queue_icons(image, capacity):
+    """Read every circular left icon, independent of rally/coordinate text.
+
+    Blue means no green self-created phase, not proof that troops are home.
+    Caller must confirm the world, numeric capacity and both fresh frames.
+    """
+    if not capacity or capacity.evidence != 'numeric' or not 0 < capacity.used <= capacity.total:
+        return ()
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
+        return ()
+    rgb = np.asarray(image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom))
+                     .resize((1440,2560)).convert('RGB'))
+    rows = []
+    # Fixed normalized compact layout. Do not segment the whole blue blob:
+    # moving allied arrows behind this translucent panel touch its circle.
+    for index in range(capacity.used):
+        cx,cy = 70,545+122*index
+        icon = rgb[cy-38:cy+38,cx-38:cx+38]
+        patch = cv2.cvtColor(icon,cv2.COLOR_RGB2HSV)
+        yy,xx = np.ogrid[:76,:76]
+        circle = (xx-38)**2 + (yy-38)**2 < 27**2
+        saturated = circle & (patch[:,:,1]>100) & (patch[:,:,2]>100)
+        if saturated.sum() < circle.sum()*.20:
+            continue
+        green = ((patch[:,:,0]>=35)&(patch[:,:,0]<=85))[saturated].mean()
+        blue = ((patch[:,:,0]>=95)&(patch[:,:,0]<=125))[saturated].mean()
+        glyph = white_mask(icon)[circle] > 0
+        if not .08 < glyph.mean() < .72:
+            continue
+        owner = 'own' if green>.95 else 'blue' if blue>.95 else 'unknown'
+        rows.append(CompactRallyRow(owner, (cx,cy), None, 'icon'))
+    rows.sort(key=lambda r:r.point[1])
+    if (len(rows) != capacity.used or any(not 100 <= b.point[1]-a.point[1] <= 145
+                                         for a,b in zip(rows,rows[1:]))):
+        return ()
+    return tuple(rows)
+
+
+def blue_only_free_slot(capacity, rows):
+    return bool(capacity and capacity.evidence=='numeric' and 0<capacity.used<capacity.total
+                and len(rows)==capacity.used and all(r.owner=='blue' for r in rows)
+                and len({r.point for r in rows})==len(rows))
+
+
+def blue_pair_free(first, second, cap1, cap2):
+    """User-authorized next search when only blue phases remain, not a return claim."""
+    return bool(cap1 and cap2 and (cap1.used,cap1.total)==(cap2.used,cap2.total)
+                and match_beast_rally_world_search(first)[0] and match_beast_rally_world_search(second)[0]
+                and blue_only_free_slot(cap1,read_compact_queue_icons(first,cap1))
+                and blue_only_free_slot(cap2,read_compact_queue_icons(second,cap2)))
 
 
 @lru_cache(maxsize=1)

@@ -8,8 +8,8 @@ using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("WJDR MuMu Assistant Portable")]
-[assembly: AssemblyVersion("5.65.0.0")]
-[assembly: AssemblyFileVersion("5.65.0.0")]
+[assembly: AssemblyVersion("5.66.0.0")]
+[assembly: AssemblyFileVersion("5.66.0.0")]
 
 internal static class PortableLauncher
 {
@@ -37,7 +37,7 @@ internal static class PortableLauncher
     static int Run(bool verifyOnly,Action<string> status) {
         string digest=TextResource("payload.sha256");
         string root=Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "WJDRMuMuAssistant","portable","5.65.0-"+digest.Substring(0,12)));
+                    "WJDRMuMuAssistant","portable","5.66.0-"+digest.Substring(0,12)));
         using(Mutex mutex=new Mutex(false,"Local\\WJDR-Portable-"+digest.Substring(0,12))) {
             bool acquired=false;
             try {
@@ -88,7 +88,7 @@ internal static class PortableLauncher
         using(System.Threading.Timer guard=new System.Threading.Timer(_=>Environment.Exit(124),null,30000,Timeout.Infinite)) {
             if(verifyOnly) { try{return Run(true,_=>{});}catch{return 1;} }
             Application.EnableVisualStyles();
-            Form form=new Form {Text="无尽冬日助手 5.65.0 · 免安装",Width=450,Height=145,
+            Form form=new Form {Text="无尽冬日助手 5.66.0 · 免安装",Width=450,Height=145,
                 StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false};
             Label label=new Label {Left=22,Top=20,Width=405,Height=28,Text="正在准备便携运行环境…"};
             ProgressBar progress=new ProgressBar {Left=22,Top=58,Width=390,Style=ProgressBarStyle.Marquee};

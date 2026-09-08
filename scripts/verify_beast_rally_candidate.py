@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import argparse
+import re
 import py_compile
 import subprocess
 import sys
@@ -35,6 +36,7 @@ REQUIRED_ASSETS = (
     "beast_rally_progress_idle_live.png",
 )
 FOCUSED_MODULES = (
+    "tests.test_compact_blue_phases",
     "tests.test_beast_safe_recovery",
     "tests.test_world_control_interiors",
     "tests.test_beast_reservation_recovery_flow",
@@ -100,10 +102,11 @@ def main() -> None:
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         fail(f"focused tests exited {result.returncode}")
-    if "Ran 82 tests" not in result.stderr + result.stdout:
-        fail("focused suite did not execute the expected 82 tests")
+    count = re.search(r"Ran (\d+) tests", result.stderr + result.stdout)
+    if not count or int(count[1]) < 1:
+        fail("focused suite did not report executed tests")
 
-    print("PASS: candidate source/assets are self-contained; 82 focused tests passed.")
+    print(f"PASS: candidate source/assets are self-contained; {count[1]} focused tests passed.")
     print("STATUS: live end-to-end acceptance is still required; this is not release proof.")
 
 

@@ -70,6 +70,7 @@ def nested(name, env):
     class Bind(ast.NodeTransformer):
         def visit_Nonlocal(self, node):
             return ast.copy_location(ast.Global(names=node.names), node)
+    env.setdefault('blue_pair_free', lambda *_: False)
     fn = Bind().visit(fn)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), name, 'exec'), env)
     return env[name]

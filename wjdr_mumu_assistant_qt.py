@@ -2210,7 +2210,7 @@ class MainWindow(ScheduleUI, QMainWindow):
         """Run Lv.8 / three minutes / named 打野, with one account team at a time."""
         from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
-        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies
+        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies, blue_pair_free
         from wjdr_beast_hunt import match_same_target_conflict
         from wjdr_backend import cancel_beast_rally_conflict_reservation
         if not self.adb:
@@ -2797,9 +2797,9 @@ class MainWindow(ScheduleUI, QMainWindow):
                     joined_only = (only_joined_rallies(cap1, read_compact_rally_rows(first))
                                    and only_joined_rallies(cap2, read_compact_rally_rows(second))
                                    and (cap1.used,cap1.total)==(cap2.used,cap2.total))
-                    if joined_only:
+                    if joined_only or blue_pair_free(first,second,cap1,cap2):
                         baseline_march_capacity = (cap2.used, cap2.total)
-                        self._log_for_device(target.device, "完整列表双帧确认仅有蓝色盟友集结且有空槽；不要求总行军数归零。")
+                        self._log_for_device(target.device, "完整列表双帧确认只有蓝色图标且有空槽；不等待蓝色行军/返回归零，下一步仍核验打野编组。")
                         return True
                     if (not any(r.owner == 'own' for r in owners) and cap1 and cap2
                             and cap1.used == cap2.used == 0
@@ -2918,9 +2918,14 @@ class MainWindow(ScheduleUI, QMainWindow):
                             return False
                         continue
                     # Keep reading the compact list throughout phase changes.
-                    # Green disappearance alone is not return evidence.
+                    # No return claim: a complete blue-only list permits next
+                    # search under the user's revised no-green-phase rule.
                     cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
                     cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    if blue_pair_free(first,second,cap1,cap2):
+                        self._log_for_device(target.device, "本轮绿色自建阶段已结束：完整列表双帧只有蓝色图标且有空槽；立即进入下一轮，不等蓝色行军/回兵清空。")
+                        save_evidence(second, (70,545), "hunt_no_green_blue_remaining", "完整蓝色图标列表与空槽双帧确认；允许下一轮搜索，不宣称所有部队已回城。")
+                        return True
                     if (marched and only_joined_rallies(cap1, read_compact_rally_rows(first))
                             and only_joined_rallies(cap2, read_compact_rally_rows(second))
                             and (cap1.used,cap1.total)==(cap2.used,cap2.total)):
@@ -3172,7 +3177,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                 if not completed:
                     set_state("出征后未完成唯一队列占用→回兵证明：安全停止")
                     return False
-                self._log_for_device(target.device, "本轮新增巨兽队列已恢复空闲；允许下一轮，其他队列不受影响。")
+                self._log_for_device(target.device, "本轮已满足下一轮条件；不要求全部队伍归零，其他队列不受影响。")
                 return True
 
             self._log_for_device(

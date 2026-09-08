@@ -29,7 +29,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.65.0"
+APP_VERSION = "5.66.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -7768,7 +7768,12 @@ def read_beast_rally_collapsed_march_capacity(
         expanded = match_beast_rally_progress_sidebar_expanded(screenshot, threshold)[0]
         if not current_world or not current_collapsed or expanded:
             return None
-    crop = _daily_reference_crop(screenshot, (330, 380, 540, 520))
+    # Keep the capacity lane tight.  Current world renders can place a tall
+    # neutral-white map/status decoration immediately to the right of the
+    # ``used/total`` digits.  Including it raises the component-height floor
+    # and discards the otherwise unambiguous 3/6 glyphs.  The numeric header
+    # itself ends before x=500 on every reviewed 1440-wide render.
+    crop = _daily_reference_crop(screenshot, (330, 380, 500, 520))
     components = _daily_white_numeric_components(crop)
     slash_indexes = [
         index
