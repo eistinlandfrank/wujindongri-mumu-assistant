@@ -123,11 +123,26 @@ def read_compact_capacity(image, threshold=.90):
     return DailyMarchCapacity(0, 0, .95, 'hidden_idle')
 
 
+def _compact_shifted_header(frame):
+    """Locate the compact title in normalized content, not desktop pixels.
+
+    Only the calibrated title scale and constrained left-hand lane qualify.
+    An unproved title must not authorize a shifted-list interpretation.
+    """
+    rgb = np.asarray(frame.convert('RGB'))
+    lane = white_mask(rgb[300:700, 60:200])
+    mask = compact_header_masks()[2]
+    score, point = cv2.minMaxLoc(cv2.matchTemplate(lane, mask, cv2.TM_CCOEFF_NORMED))[1::2]
+    return (point[0] + 60, point[1] + 300) if score >= .84 else None
+
+
 def read_compact_header_digits(image):
     """Keep bright map outside the opaque numeric header out of glyph filtering."""
     viewport=content_viewport(image)
     frame=image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560))
-    components=_daily_white_numeric_components(frame.crop((395,400,485,460)))
+    anchor = _compact_shifted_header(frame)
+    top = anchor[1] - 9 if anchor else 400
+    components=_daily_white_numeric_components(frame.crop((395,top,485,top+60)))
     if len(components)!=3 or not _daily_numeric_component_is_slash(components[1][4]):
         return None
     left,right=(_read_daily_numeric_glyph(components[i][4]) for i in (0,2))
@@ -261,13 +276,18 @@ def read_compact_queue_icons(image, capacity):
     viewport = content_viewport(image)
     if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
         return ()
-    rgb = np.asarray(image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom))
-                     .resize((1440,2560)).convert('RGB'))
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440,2560)).convert('RGB')
+    anchor = _compact_shifted_header(frame)
+    if anchor:
+        observed = read_compact_header_digits(image)
+        if not observed or (observed.used, observed.total) != (capacity.used, capacity.total):
+            return ()
+    rgb = np.asarray(frame)
     rows = []
     # Fixed normalized compact layout. Do not segment the whole blue blob:
     # moving allied arrows behind this translucent panel touch its circle.
     for index in range(capacity.used):
-        cx,cy = 70,545+122*index
+        cx,cy = 70,(anchor[1]+141 if anchor else 545)+122*index
         icon = rgb[cy-38:cy+38,cx-38:cx+38]
         patch = cv2.cvtColor(icon,cv2.COLOR_RGB2HSV)
         yy,xx = np.ogrid[:76,:76]

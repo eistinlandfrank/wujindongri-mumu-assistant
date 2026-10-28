@@ -1,11 +1,49 @@
 import unittest
 from unittest.mock import patch
 from PIL import Image, ImageDraw
+import numpy as np
+import cv2
 import wjdr_beast_hunt as h
 from wjdr_backend import DailyMarchCapacity
 
 
 class BluePhaseTest(unittest.TestCase):
+    def shifted_fixture(self, offset=0):
+        im=Image.new('RGB',(1440,2560),(30,50,90))
+        with Image.open('tests/fixtures/beast_compact_shifted_5of6.png') as crop:
+            im.paste(crop,(0,offset))
+        return im
+
+    def test_shifted_real_header_and_complete_blue_icons(self):
+        for offset in (-20,0,20):
+            for size in ((720,1280),(1080,1920),(1440,2560)):
+                im=self.shifted_fixture(offset).resize(size)
+                cap=h.read_compact_header_digits(im)
+                self.assertIsNotNone(cap, (offset,size))
+                self.assertEqual((cap.used,cap.total),(5,6))
+                rows=h.read_compact_queue_icons(im,cap)
+                self.assertTrue(h.blue_only_free_slot(cap,rows), (offset,size,rows))
+
+    def test_shifted_green_missing_or_mismatched_stays_blocked(self):
+        im=self.shifted_fixture()
+        cap=h.read_compact_header_digits(im)
+        rgb=np.asarray(im).copy()
+        hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+        icon=hsv[550:631,30:111]
+        mask=(icon[:,:,0]>=90)&(icon[:,:,0]<=125)&(icon[:,:,1]>70)
+        self.assertGreater(np.count_nonzero(mask),100)
+        icon[:,:,0][mask]=60
+        green=Image.fromarray(cv2.cvtColor(hsv,cv2.COLOR_HSV2RGB))
+        self.assertFalse(h.blue_only_free_slot(cap,h.read_compact_queue_icons(green,cap)))
+        missing=im.copy()
+        ImageDraw.Draw(missing).rectangle((30,550,110,630),fill=(30,50,90))
+        self.assertFalse(h.blue_only_free_slot(cap,h.read_compact_queue_icons(missing,cap)))
+        wrong=DailyMarchCapacity(4,6,1)
+        self.assertFalse(h.blue_only_free_slot(wrong,h.read_compact_queue_icons(im,wrong)))
+        with patch.object(h,'match_beast_rally_world_search',return_value=((90,1754),1)):
+            self.assertTrue(h.blue_pair_free(im,im,cap,cap))
+            self.assertFalse(h.blue_pair_free(im,green,cap,cap))
+
     def test_clear_numeric_and_complete_icons_survive_title_background_failure(self):
         cap=DailyMarchCapacity(5,6,1)
         im=self.frame([(50,135,215)]*5)
