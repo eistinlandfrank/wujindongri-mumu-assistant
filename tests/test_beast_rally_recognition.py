@@ -95,6 +95,20 @@ class BeastRallyRecognitionTests(unittest.TestCase):
         self.assertIs(match_beast_rally_selector(image).state, BeastRallyState.SELECTOR)
         self.assertEqual(read_beast_rally_selector_level(image), 8)
 
+    def test_selector_recognizes_shifted_beast_card_but_requires_search(self):
+        image = Image.new("RGB", (1440, 2560), (36, 75, 110))
+        paste_asset(image, "beast_rally_beast_target.png", (790, 1660))
+        self.assertIs(match_beast_rally_selector(image).state, BeastRallyState.UNKNOWN)
+        paste_asset(image, "beast_rally_search_button.png", (430, 2310))
+        match = match_beast_rally_selector(image.copy())
+        self.assertIs(match.state, BeastRallyState.SELECTOR)
+        self.assertGreater(dict(match.anchors)["beast"][0], 0.54 * image.width)
+
+    def test_selector_does_not_accept_search_without_beast_card(self):
+        image = Image.new("RGB", (1440, 2560), (36, 75, 110))
+        paste_asset(image, "beast_rally_search_button.png", (430, 2310))
+        self.assertIs(match_beast_rally_selector(image).state, BeastRallyState.UNKNOWN)
+
     def test_only_orange_rally_control_matches(self):
         image = Image.new("RGB", (1440, 2560), (35, 67, 104))
         button = Image.open(Path("assets/beast_rally_open_button_25.png")).convert("RGB")

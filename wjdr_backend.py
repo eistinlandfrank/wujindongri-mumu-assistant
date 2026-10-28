@@ -29,7 +29,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.67.0"
+APP_VERSION = "5.68.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -6618,9 +6618,9 @@ def match_beast_rally_selector(
 ) -> BeastRallyMatch:
     fixture = screenshot.height < 1000 and screenshot.width > screenshot.height
     beast_region = (
-        _relative_region(screenshot, 0.16, 0.00, 0.54, 0.32)
+        _relative_region(screenshot, 0.16, 0.00, 0.75, 0.32)
         if fixture
-        else _relative_region(screenshot, 0.16, 0.62, 0.54, 0.80)
+        else _relative_region(screenshot, 0.16, 0.62, 0.75, 0.80)
     )
     search_region = (
         _relative_region(screenshot, 0.20, 0.62, 0.78, 1.00)
@@ -6661,7 +6661,7 @@ def beast_rally_beast_target_point(screenshot: Image.Image) -> tuple[int, int] |
             screenshot,
             0.16,
             0.00 if fixture else 0.62,
-            0.54,
+            0.75,
             0.32 if fixture else 0.80,
         ),
     )
