@@ -19,6 +19,8 @@ class RecoveryControllerTest(unittest.TestCase):
             set_state=Mock(), open_wilderness_queue_panel=Mock(return_value=(True,) * 6),
             ensure_compact_march_panel=Mock(return_value=True),
             read_compact_rally_rows=lambda _: (),
+            read_concurrent_snapshot=lambda _: None,
+            reconcile_beast_rally_gathering_reservation=Mock(),
             read_beast_rally_collapsed_march_capacity=lambda image, _: image,
             time=SimpleNamespace(monotonic=Mock(side_effect=range(0, 400, 5))),
             self=SimpleNamespace(stop_event=SimpleNamespace(is_set=lambda: False), _log_for_device=log),

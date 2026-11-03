@@ -71,26 +71,20 @@ def nested(name, env):
         def visit_Nonlocal(self, node):
             return ast.copy_location(ast.Global(names=node.names), node)
     env.setdefault('blue_pair_free', lambda *_: False)
+    env.setdefault('gathering_pair_free', lambda *_: False)
+    env.setdefault('troop_label', '手动兵力 (1, 0, 0)')
     fn = Bind().visit(fn)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), name, 'exec'), env)
     return env[name]
 
 
 class CompactRecoveryTest(unittest.TestCase):
-    def test_missing_hunt_prompts_after_two_formation_frames(self):
-        alert, capture = Mock(), Mock(return_value=object())
-        env = dict(Callable=Callable, Any=Any, Image=Image, AUTOMATION_STEP_TIMEOUT_SECONDS=24,
-                   bounded_step_timeout=lambda x: x, time=SimpleNamespace(monotonic=Mock(side_effect=range(20))),
-                   self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock(),
-                                        signals=SimpleNamespace(alert=SimpleNamespace(emit=alert))),
-                   capture=capture, daily_network_dialog_is_visible=lambda *_: False,
-                   threshold=.9, match_beast_rally_formation_controls=lambda *_: SimpleNamespace(state=BeastRallyState.FORMATION),
-                   BeastRallyState=BeastRallyState, set_state=Mock(), pause=lambda: False,
-                   APP_NAME='test', target=SimpleNamespace(device='new-adb'))
-        result = nested('wait_for_double', env)('确认出征编组页面', lambda _: (None, None))
-        self.assertIsNone(result)
-        self.assertEqual(capture.call_count, 2)
-        alert.assert_called_once()
+    def test_formation_page_does_not_require_saved_preset(self):
+        controls = SimpleNamespace(point=(700, 2200), state=BeastRallyState.FORMATION)
+        env = dict(Image=Image, Any=Any, threshold=.9, profile=SimpleNamespace(troop_mode='manual'),
+                   match_beast_rally_formation_controls=Mock(return_value=controls))
+        point, _ = nested('formation_controls_match', env)(object())
+        self.assertEqual(point, controls.point)
 
     def baseline(self, frames):
         frame_iter = iter(frames)
@@ -138,6 +132,7 @@ class CompactRecoveryTest(unittest.TestCase):
         frames = iter(['own', 'own'] + [None] * 60 + [busy, busy, idle, idle])
         confirm, repair = Mock(return_value=20), Mock(return_value=True)
         env = dict(baseline_march_capacity=(0, 0), SingleBeastCycle=SingleBeastCycle,
+                   profile=SimpleNamespace(beast_level=8),
                    match_same_target_conflict=lambda _:None,
                    only_joined_rallies=only_joined_rallies, read_compact_marching_rows=lambda _: (),
                    time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
@@ -160,6 +155,7 @@ class CompactRecoveryTest(unittest.TestCase):
     def test_owned_march_finishes_with_only_joined_rally_remaining(self):
         frames=iter(['own','own','march','march','joined','joined'])
         env=dict(baseline_march_capacity=(0,6),SingleBeastCycle=SingleBeastCycle,
+                 profile=SimpleNamespace(beast_level=8),
                  match_same_target_conflict=lambda _:None,
                  time=SimpleNamespace(monotonic=Mock(side_effect=range(200))),
                  capture=lambda: next(frames),threshold=.9,identity='test',
@@ -179,12 +175,14 @@ class CompactRecoveryTest(unittest.TestCase):
         target=Mock(device='test')
         release=Mock()
         env=dict(match_same_target_conflict=lambda _: (420,1580),stable=lambda p,q:bool(p and q and p==q),
+                 profile=SimpleNamespace(beast_level=8),
                  target_conflicts=0,retry_target_requested=False,target=target,
                  self=SimpleNamespace(_log_for_device=Mock(),stop_event=threading.Event()),save_evidence=Mock(),
                  wait_for_double=Mock(return_value=('formation',(1,2),None)),
-                 exact_formation_match=Mock(),capture=Mock(side_effect=['formation','world','world']),
+                 exact_formation_match=Mock(return_value=((1,2), None)),capture=Mock(side_effect=['formation','world','world']),
                  read_beast_rally_dispatch_stamina=Mock(return_value=20),
-                 match_hunt_formation=Mock(return_value=SimpleNamespace(state=b.BeastRallyState.FORMATION)),
+                  match_beast_rally_formation_controls=Mock(return_value=SimpleNamespace(state=b.BeastRallyState.FORMATION)),
+                  beast_soldier_rows=Mock(return_value=(1,0,0)),
                  BeastRallyState=b.BeastRallyState,identity='account-a',
                  load_beast_rally_stamina_reserved=Mock(return_value=20),
                  cancel_beast_rally_conflict_reservation=release,

@@ -29,7 +29,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.69.0"
+APP_VERSION = "5.70.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -1563,12 +1563,28 @@ class BeastRallyProfile:
 
     beast_level: int = 8
     stamina_limit: int = 0
+    troop_mode: str = "manual"
+    shield_count: int = 1
+    spear_count: int = 0
+    bow_count: int = 0
+    formation_name: str = "打野"
+    max_concurrent_rallies: int = 1
 
     def __post_init__(self) -> None:
         if not 1 <= int(self.beast_level) <= 30:
             raise ValueError("beast level must be between 1 and 30")
         if not 0 <= int(self.stamina_limit) <= 1_000_000:
             raise ValueError("stamina limit must be between 0 and 1000000")
+        if self.troop_mode not in ("manual", "formation"):
+            raise ValueError("invalid beast troop mode")
+        if any(not 0 <= int(n) <= 999999 for n in (self.shield_count, self.spear_count, self.bow_count)):
+            raise ValueError("invalid troop count")
+        if self.troop_mode == "manual" and not (self.shield_count or self.spear_count or self.bow_count):
+            raise ValueError("at least one soldier is required")
+        if self.formation_name != "打野":
+            raise ValueError("unsupported formation name")
+        if not 1 <= int(self.max_concurrent_rallies) <= 10:
+            raise ValueError("concurrent rally limit must be between 1 and 10")
 
 
 def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
@@ -1590,6 +1606,8 @@ def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
 def load_beast_rally_profile(
     identity: str,
     path: Path = BEAST_RALLY_PROFILES_FILE,
+    *,
+    strict: bool = False,
 ) -> BeastRallyProfile:
     key = str(identity).strip()
     if not key:
@@ -1597,14 +1615,28 @@ def load_beast_rally_profile(
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         profiles = payload.get("profiles", {})
+        if not isinstance(profiles, dict):
+            raise ValueError("invalid beast rally profiles")
         entry = profiles.get(key, {}) if isinstance(profiles, dict) else {}
         if not isinstance(entry, dict):
-            entry = {}
+            raise ValueError("invalid beast rally profile")
         return BeastRallyProfile(
             beast_level=int(entry.get("beast_level", 8)),
             stamina_limit=int(entry.get("stamina_limit", 0)),
+            # Existing accounts used the named saved formation before this
+            # field existed. Preserve that choice during schema migration.
+            troop_mode=str(entry.get("troop_mode", "formation" if entry else "manual")),
+            shield_count=int(entry.get("shield_count", 1)),
+            spear_count=int(entry.get("spear_count", 0)),
+            bow_count=int(entry.get("bow_count", 0)),
+            formation_name=str(entry.get("formation_name", "打野")),
+            max_concurrent_rallies=int(entry.get("max_concurrent_rallies", 1)),
         )
-    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return BeastRallyProfile()
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        if strict:
+            raise ValueError("invalid beast rally configuration") from exc
         return BeastRallyProfile()
 
 
@@ -1676,6 +1708,12 @@ def save_beast_rally_profile(
     profiles[key] = {
         "beast_level": int(profile.beast_level),
         "stamina_limit": int(profile.stamina_limit),
+        "troop_mode": profile.troop_mode,
+        "shield_count": int(profile.shield_count),
+        "spear_count": int(profile.spear_count),
+        "bow_count": int(profile.bow_count),
+        "formation_name": profile.formation_name,
+        "max_concurrent_rallies": int(profile.max_concurrent_rallies),
     }
     _atomic_json_write(path, {"version": 1, "profiles": profiles})
 
@@ -1773,6 +1811,31 @@ def reconcile_beast_rally_idle_reservation(
     account["last_recovery"] = {"reason": "fresh_double_empty_compact" if compact_idle else "fresh_double_six_idle", "amount": reserved,
                                 "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     _atomic_json_write(path, payload)
+    return reserved
+
+
+@_serialized_account_write
+def reconcile_beast_rally_gathering_reservation(identity, first, second, *, day=None,
+                                                path=BEAST_RALLY_STAMINA_LEDGER_FILE):
+    """Conservatively book a stale hold after two complete gathering-only frames.
+
+    Caller holds the account lease; no prior dispatch is inferred successful.
+    """
+    if (not identity.strip() or first is None or first != second or first.evidence != 'numeric'
+            or not (0 < first.used < first.total) or len(first.phases) != first.used
+            or any(phase != 'gathering' for phase in first.phases)):
+        raise ValueError('two matching complete gathering-only snapshots required')
+    payload = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'version': 2, 'accounts': {}}
+    account = payload.get('accounts', {}).get(identity, {})
+    if account.get('day') != (day or _beast_rally_ledger_day()):
+        return 0
+    reserved = max(0, int(account.get('reserved', 0)))
+    if reserved:
+        account['uncertain'] = max(0, int(account.get('uncertain', 0))) + reserved
+        account['reserved'] = 0
+        account['last_recovery'] = {'reason': 'fresh_double_gathering_only', 'amount': reserved,
+                                    'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+        _atomic_json_write(path, payload)
     return reserved
 
 

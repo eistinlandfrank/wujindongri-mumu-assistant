@@ -36,12 +36,32 @@ class BeastRallyProfileTests(unittest.TestCase):
             BeastRallyProfile(8, 0),
         )
 
+    def test_strict_load_rejects_damaged_configuration_before_dispatch(self):
+        self.assertEqual(load_beast_rally_profile("a", self.profiles, strict=True), BeastRallyProfile())
+        for damaged in ('{', '{"profiles": []}', '{"profiles": {"a": null}}',
+                        '{"profiles": {"a": {"troop_mode": "unknown"}}}'):
+            self.profiles.write_text(damaged, encoding="utf-8")
+            with self.subTest(damaged=damaged), self.assertRaises(ValueError):
+                load_beast_rally_profile("a", self.profiles, strict=True)
+
     def test_profiles_are_isolated_by_manager_scoped_identity(self):
         first = "mumu:0:android:cloned"
         second = "mumu:2:android:cloned"
         save_beast_rally_profile(first, BeastRallyProfile(9, 100), self.profiles)
         self.assertEqual(load_beast_rally_profile(first, self.profiles), BeastRallyProfile(9, 100))
         self.assertEqual(load_beast_rally_profile(second, self.profiles), BeastRallyProfile(8, 0))
+
+    def test_troop_modes_round_trip_and_migrate_existing_accounts(self):
+        manual = BeastRallyProfile(troop_mode='manual', shield_count=12, spear_count=34, bow_count=56)
+        saved = BeastRallyProfile(troop_mode='formation')
+        save_beast_rally_profile('a', manual, self.profiles)
+        save_beast_rally_profile('b', saved, self.profiles)
+        self.assertEqual(load_beast_rally_profile('a', self.profiles), manual)
+        self.assertEqual(load_beast_rally_profile('b', self.profiles), saved)
+        self.profiles.write_text(json.dumps({'profiles': {'old': {'beast_level': 9}}}), encoding='utf-8')
+        self.assertEqual(load_beast_rally_profile('old', self.profiles).troop_mode, 'formation')
+        with self.assertRaises(ValueError):
+            BeastRallyProfile(shield_count=0, spear_count=0, bow_count=0)
 
     def test_stamina_ledger_is_daily_and_atomic(self):
         identity = "mumu:1:android:one"

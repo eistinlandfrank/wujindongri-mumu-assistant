@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import numpy as np
 from PIL import Image
 
 from wjdr_backend import (
+    _DAILY_NUMERIC_PROTOTYPES,
     BeastRallyState,
     beast_rally_new_busy_queue_indexes,
     match_beast_rally_active_panel,
@@ -20,6 +23,7 @@ from wjdr_backend import (
     match_beast_rally_sheet_controls,
     read_beast_rally_dispatch_stamina,
     read_beast_rally_dispatch_stamina_shortfall,
+    read_beast_rally_collapsed_march_capacity,
     read_beast_rally_wilderness_queue_counts,
     read_beast_rally_wilderness_queue_states,
     read_beast_rally_selector_level,
@@ -39,6 +43,59 @@ def paste_asset(
 
 
 class BeastRallyRecognitionTests(unittest.TestCase):
+    @staticmethod
+    def _current_capacity_frame(*, include_digits: bool) -> Image.Image:
+        frame = Image.new("RGB", (1440, 2560), (45, 76, 115))
+        rgb = np.asarray(frame).copy()
+
+        def paste_digit(value: str, x: int) -> None:
+            glyph = np.kron(
+                _DAILY_NUMERIC_PROTOTYPES[value].astype(np.uint8),
+                np.ones((2, 2), dtype=np.uint8),
+            ).astype(bool)
+            rgb[412 : 412 + glyph.shape[0], x : x + glyph.shape[1]][glyph] = (
+                245,
+                245,
+                245,
+            )
+
+        if include_digits:
+            paste_digit("3", 405)
+            for y in range(36):
+                x = 448 - round(y * 13 / 35)
+                rgb[410 + y, x - 1 : x + 2] = (245, 245, 245)
+            paste_digit("6", 454)
+
+        # This reproduces the taller neutral-white neighbour observed just
+        # outside the current capacity lane.  It must not suppress the digits
+        # or become a numeric reading by itself.
+        rgb[380:448, 513:540] = (245, 245, 245)
+        return Image.fromarray(rgb)
+
+    def _read_current_capacity(self, frame: Image.Image):
+        with patch(
+            "wjdr_backend.match_daily_world_town_entry",
+            return_value=((1330, 2395), 1.0),
+        ), patch(
+            "wjdr_backend._match_beast_rally_template",
+            side_effect=[((90, 1754), 1.0), ((45, 1111), 1.0)],
+        ):
+            return read_beast_rally_collapsed_march_capacity(frame)
+
+    def test_current_capacity_lane_ignores_tall_right_neighbour(self):
+        reading = self._read_current_capacity(
+            self._current_capacity_frame(include_digits=True)
+        )
+        self.assertIsNotNone(reading)
+        self.assertEqual((reading.used, reading.total), (3, 6))
+
+    def test_current_capacity_lane_rejects_right_neighbour_without_digits(self):
+        self.assertIsNone(
+            self._read_current_capacity(
+                self._current_capacity_frame(include_digits=False)
+            )
+        )
+
     def test_full_wilderness_frame_exposes_only_search_lens(self):
         image = Image.new("RGB", (1440, 2560), (45, 76, 115))
         paste_asset(image, "beast_rally_world_search_dense_live.png", (25, 1682))

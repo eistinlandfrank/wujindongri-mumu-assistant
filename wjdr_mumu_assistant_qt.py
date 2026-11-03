@@ -103,6 +103,7 @@ from wjdr_backend import (
     load_beast_rally_stamina_reserved,
     load_beast_rally_stamina_uncertain,
     reconcile_beast_rally_idle_reservation,
+    reconcile_beast_rally_gathering_reservation,
     load_mining_level_profile,
     initial_mining_resource_level,
     prune_runtime_evidence,
@@ -585,8 +586,8 @@ class BeastRallySettingsDialog(LightSettingsDialog):
         layout.addSpacing(12)
 
         self.level_spin = QSpinBox()
-        self.level_spin.setRange(8, 8)
-        self.level_spin.setValue(8)
+        self.level_spin.setRange(1, 30)
+        self.level_spin.setValue(int(profile.beast_level))
         self.level_spin.setSuffix(" 级")
         self.stamina_limit_spin = QSpinBox()
         self.stamina_limit_spin.setRange(0, 1_000_000)
@@ -601,9 +602,40 @@ class BeastRallySettingsDialog(LightSettingsDialog):
         form.addWidget(QLabel(str(max(0, int(spent_today)))), 2, 1)
         form.addWidget(QLabel("待核实消耗（计入上限）"), 3, 0)
         form.addWidget(QLabel(str(max(0, int(uncertain_today)))), 3, 1)
+        self.troop_mode_combo = QComboBox()
+        self.troop_mode_combo.addItem("手动设置兵力", "manual")
+        self.troop_mode_combo.addItem("已保存编组", "formation")
+        self.troop_mode_combo.setCurrentIndex(0 if profile.troop_mode == "manual" else 1)
+        form.addWidget(QLabel("出征方式"), 4, 0)
+        form.addWidget(self.troop_mode_combo, 4, 1)
+        self.troop_spins = []
+        for row, (label, value) in enumerate((("盾兵", profile.shield_count), ("矛兵", profile.spear_count), ("射手", profile.bow_count)), 5):
+            spin = QSpinBox()
+            spin.setRange(0, 999999)
+            spin.setValue(value)
+            form.addWidget(QLabel(label), row, 0)
+            form.addWidget(spin, row, 1)
+            self.troop_spins.append(spin)
+        self.formation_combo = QComboBox()
+        self.formation_combo.addItem("打野（游戏内已保存）", "打野")
+        form.addWidget(QLabel("已保存编组"), 8, 0)
+        form.addWidget(self.formation_combo, 8, 1)
+        self.concurrent_spin = QSpinBox()
+        self.concurrent_spin.setRange(1, 10)
+        self.concurrent_spin.setValue(profile.max_concurrent_rallies)
+        self.concurrent_spin.setSuffix(" 支")
+        form.addWidget(QLabel("同时集结上限"), 9, 0)
+        form.addWidget(self.concurrent_spin, 9, 1)
+        def update_mode() -> None:
+            manual = self.troop_mode_combo.currentData() == "manual"
+            for spin in self.troop_spins:
+                spin.setEnabled(manual)
+            self.formation_combo.setEnabled(not manual)
+        self.troop_mode_combo.currentIndexChanged.connect(update_mode)
+        update_mode()
         layout.addLayout(form)
         warning = QLabel(
-            "固定8级、3分钟，只用名称为“打野”的编组。首次使用请先在游戏中保存并命名为“打野”；未找到会提示，不会默认替你选队。一队实际回兵后再出下一队。"
+            "默认8级、3分钟。集结结束后有空闲队伍时自动补开；实际出征不超过游戏可用队伍。手动兵力与保存编组二选一；编组识别支持游戏内名为“打野”的编组。"
         )
         warning.setObjectName("noticeText")
         warning.setWordWrap(True)
@@ -612,14 +644,24 @@ class BeastRallySettingsDialog(LightSettingsDialog):
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._accept_valid)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _accept_valid(self) -> None:
+        if self.troop_mode_combo.currentData() == "manual" and not sum(s.value() for s in self.troop_spins):
+            QMessageBox.warning(self, APP_NAME, "手动出征至少需要一个兵。")
+            return
+        self.accept()
 
     def profile(self) -> BeastRallyProfile:
         return BeastRallyProfile(
             beast_level=self.level_spin.value(),
             stamina_limit=self.stamina_limit_spin.value(),
+            troop_mode=self.troop_mode_combo.currentData(),
+            shield_count=self.troop_spins[0].value(), spear_count=self.troop_spins[1].value(),
+            bow_count=self.troop_spins[2].value(), formation_name=self.formation_combo.currentData(),
+            max_concurrent_rallies=self.concurrent_spin.value(),
         )
 
 
@@ -1351,7 +1393,7 @@ class MainWindow(ScheduleUI, QMainWindow):
         title = QLabel("自动发起 3 分钟集结并监控出征状态")
         title.setObjectName("heroTitle")
         desc = QLabel(
-            "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环；侧栏确认实际回兵后继续。"
+            "冰原巨兽 · 账号等级 · 3分钟 · 自选兵力或编组 · 同时集结数量可设。"
             "体力按最终出征页实际数值记账；0 上限表示不限制。"
         )
         desc.setObjectName("heroText")
@@ -1423,7 +1465,7 @@ class MainWindow(ScheduleUI, QMainWindow):
         heading.setObjectName("sectionTitle")
         explanation = QLabel(
             "只识别并点击冰原巨兽链路中的唯一控件；不会点击自动加入、其他集结时长、"
-            "体力购买、钻石、加速、其他战斗或未知弹窗。每次输入必须由连续两张新截图确认。"
+            "体力购买、钻石、加速、其他战斗或未知弹窗。队列和归属需连续两张新截图确认。"
         )
         explanation.setObjectName("noticeText")
         explanation.setWordWrap(True)
@@ -1655,7 +1697,7 @@ class MainWindow(ScheduleUI, QMainWindow):
             ("联盟帮助", "识图阈值与运行限制"),
             ("联盟红包", "只开启已确认的熔炉升级红包"),
             ("每日任务", "优先领取奖励，再执行当前账号已支持的日常流程"),
-            ("巨兽集结", "8级冰原巨兽 · 3分钟 · 打野编组 · 单队循环 · 体力上限"),
+            ("巨兽集结", "冰原巨兽 · 账号等级 · 3分钟 · 自选兵力或编组 · 体力上限"),
             ("定时启动", "按手机预约开始时间 · 保存后仅触发一次"),
             ("任务编排", "组合点击、等待、返回和识图步骤"),
             ("运行日志", "每条记录都标注绑定的 ADB 端口"),
@@ -1934,12 +1976,12 @@ class MainWindow(ScheduleUI, QMainWindow):
             f"{self._masked_account_label(identity)} · 设置仅作用于当前账号"
         )
         self.beast_rally_settings_button.setToolTip(
-            f"{self._masked_account_label(identity)}；固定8级、打野编组，点击修改该账号的体力上限"
+            f"{self._masked_account_label(identity)}；点击修改该账号的等级、兵力、编组和体力上限"
         )
         self.beast_rally_settings_button.setEnabled(True)
         if hasattr(self, "beast_rally_profile_summary"):
             self.beast_rally_profile_summary.setText(
-                f"8级 · 打野 · 单队 · 上限 {limit} · 今日 {spent}"
+                f"{profile.beast_level}级 · " + (f"兵力 {profile.shield_count}/{profile.spear_count}/{profile.bow_count}" if profile.troop_mode == 'manual' else f"编组 {profile.formation_name}") + f" · 同时集结 {profile.max_concurrent_rallies} · 体力上限 {limit} · 今日 {spent}"
             )
 
     def _open_beast_rally_settings(self) -> None:
@@ -2207,18 +2249,20 @@ class MainWindow(ScheduleUI, QMainWindow):
         self._start_worker(target.device, job)
 
     def _start_beast_rally_flow(self) -> None:
-        """Run Lv.8 / three minutes / named 打野, with one account team at a time."""
-        from wjdr_beast_hunt import match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB
+        """Run the selected level with the account's chosen troop mode."""
+        from wjdr_beast_hunt import beast_soldier_rows, match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB, CycleActionPositions
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
-        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies, blue_pair_free
+        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies, blue_pair_free, gathering_pair_free
         from wjdr_beast_hunt import match_same_target_conflict
+        from wjdr_beast_hunt import read_concurrent_snapshot, confirms_new_concurrent_rally
         from wjdr_backend import cancel_beast_rally_conflict_reservation
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
         beast_assets = (*BEAST_RALLY_BUILTIN_ASSETS, "assets/beast_rally_compact_march_title.png",
                         "assets/beast_rally_hunt_name_large.png", "assets/beast_rally_compact_marching_icon.png",
-                        "assets/beast_same_target_warning.png", "assets/beast_same_target_cancel.png")
+                        "assets/beast_same_target_warning.png", "assets/beast_same_target_cancel.png",
+                        "assets/beast_soldier_types.png", "assets/beast_gathering_title.png")
         missing = [resource_path(asset) for asset in beast_assets if not resource_path(asset).is_file()]
         if missing:
             names = "、".join(path.name for path in missing)
@@ -2227,8 +2271,13 @@ class MainWindow(ScheduleUI, QMainWindow):
 
         target = self.adb.clone_for_device()
         identity = target.device_identity()
-        profile = load_beast_rally_profile(identity)
-        profile = BeastRallyProfile(beast_level=8, stamina_limit=profile.stamina_limit)
+        try:
+            profile = load_beast_rally_profile(identity, strict=True)
+        except ValueError:
+            QMessageBox.warning(self, APP_NAME, "巨兽出征配置无法读取或无效，请检查账号配置；未开始出征。")
+            return
+        wanted_troops = (profile.shield_count, profile.spear_count, profile.bow_count)
+        troop_label = f"手动兵力 {wanted_troops}" if profile.troop_mode == "manual" else f"编组 {profile.formation_name}"
         threshold = 0.90
         target = GuardedBeastADB(target, self.stop_event,
                                  lambda text: self._log_for_device(target.device, text))
@@ -2248,6 +2297,19 @@ class MainWindow(ScheduleUI, QMainWindow):
             race_evidence_frames = 0
             retry_target_requested = False
             target_conflicts = 0
+            action_positions = CycleActionPositions()
+            baseline_concurrent = None
+            confirmed_dispatches = 0
+            tracked_green = 0
+            tracked_rallies = 0
+
+            def cycle_position(name: str, image: Image.Image, point: tuple[int, int]) -> tuple[int, int] | None:
+                if completed_cycles == 0:
+                    return action_positions.remember(name, image, point)
+                cached = action_positions.reuse(name, image, point)
+                if not cached:
+                    self._log_for_device(target.device, f"首轮位置 {name} 与当前页面不一致；零输入停止。")
+                return cached
 
             def set_state(text: str) -> None:
                 nonlocal last_state_text
@@ -2311,11 +2373,18 @@ class MainWindow(ScheduleUI, QMainWindow):
                 matcher: Callable[[Image.Image], tuple[tuple[int, int] | None, Any]],
                 timeout: float = AUTOMATION_STEP_TIMEOUT_SECONDS,
             ) -> tuple[Image.Image, tuple[int, int], Any] | None:
-                """Require two fresh stable frames; never act on a stale frame."""
+                """Use one fresh frame for routine cached navigation after cycle one."""
                 deadline = time.monotonic() + bounded_step_timeout(timeout)
+                routine = label in {
+                    "确认橙色集结按钮", "确认发起集结页面", "确认3分钟已选中", "确认出征编组页面",
+                    "确认冰原巨兽搜索页", "复核冰原巨兽卡片与搜索按钮", "确认手动兵力",
+                    "复核出征配置与普通出征",
+                } or label.startswith(("确认等级为 ", "确认等级已改为 ")) or (
+                    label.startswith("确认第 ") and " 行兵力为 " in label
+                )
+                required = 1 if completed_cycles and routine else 2
                 previous: tuple[int, int] | None = None
                 streak = 0
-                missing_hunt_streak = 0
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     image = capture()
                     if daily_network_dialog_is_visible(image, threshold):
@@ -2323,20 +2392,11 @@ class MainWindow(ScheduleUI, QMainWindow):
                         self._log_for_device(target.device, "巨兽集结检测到游戏网络/账号离线；未执行输入。")
                         return None
                     point, payload = matcher(image)
-                    if label == "确认出征编组页面" and not point:
-                        controls = match_beast_rally_formation_controls(image, threshold)
-                        missing_hunt_streak = missing_hunt_streak + 1 if controls.state is BeastRallyState.FORMATION else 0
-                        if missing_hunt_streak >= 2:
-                            message = "当前账号未识别到可见的“打野”编组。请在游戏中保存阵容并命名为“打野”，确认该编组显示在当前列表后再启动；未点击出征。"
-                            set_state("需要配置打野编组；未出征")
-                            self._log_for_device(target.device, message)
-                            self.signals.alert.emit(APP_NAME, message)
-                            return None
                     if point:
                         streak = streak + 1 if stable(point, previous) else 1
                         previous = point
-                        set_state(f"{label}（{min(streak, 2)}/2）")
-                        if streak >= 2:
+                        set_state(f"{label}（{min(streak, required)}/{required}）")
+                        if streak >= required:
                             return image, point, payload
                         # A positive first frame should be followed immediately
                         # by the second; poll delay is only for failed matches.
@@ -2345,7 +2405,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                         previous, streak = None, 0
                     if pause():
                         return None
-                self._log_for_device(target.device, f"{label}未在 {bounded_step_timeout(timeout):.0f} 秒内双帧确认；零输入停止。")
+                self._log_for_device(target.device, f"{label}未在 {bounded_step_timeout(timeout):.0f} 秒内完成{required}帧确认；零输入停止。")
                 return None
 
             def match_world(image: Image.Image) -> tuple[tuple[int, int] | None, float]:
@@ -2363,6 +2423,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                 prior_world = prior_city = None
                 world_streak = city_streak = 0
                 city_tapped = False
+                world_required = 1 if completed_cycles else 2
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     image = capture()
                     if daily_network_dialog_is_visible(image, threshold):
@@ -2374,8 +2435,9 @@ class MainWindow(ScheduleUI, QMainWindow):
                         world_streak = world_streak + 1 if stable(world, prior_world) else 1
                         prior_world = world
                         city_streak = 0
-                        set_state(f"确认野外与搜索按钮（{min(world_streak, 2)}/2）")
-                        if world_streak >= 2:
+                        required = 2 if city_tapped else world_required
+                        set_state(f"确认野外与搜索按钮（{min(world_streak, required)}/{required}）")
+                        if world_streak >= required:
                             return image, world
                     elif city and not city_tapped:
                         city_streak = city_streak + 1 if stable(city, prior_city) else 1
@@ -2408,12 +2470,57 @@ class MainWindow(ScheduleUI, QMainWindow):
                 return match.point, match
 
             def formation_controls_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
-                match = match_hunt_formation(image)
+                match = (match_hunt_formation(image) if profile.troop_mode == "formation"
+                         else match_beast_rally_formation_controls(image, threshold))
                 return match.point, match
 
             def exact_formation_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
-                match = match_hunt_formation(image, selected=True)
-                return match.point, match
+                if profile.troop_mode == "formation":
+                    match = match_hunt_formation(image, selected=True)
+                    return match.point, match
+                match = match_beast_rally_formation_controls(image, threshold)
+                return (match.point if beast_soldier_rows(image) == wanted_troops else None), match
+
+            def configure_single_shield() -> bool:
+                """Edit proven troop rows once each; never touch saved formations."""
+                for index, wanted in enumerate(wanted_troops):
+                    first = capture()
+                    second = capture() if not completed_cycles else first
+                    first_control = match_beast_rally_formation_controls(first, threshold)
+                    second_control = match_beast_rally_formation_controls(second, threshold)
+                    first_rows, second_rows = beast_soldier_rows(first), beast_soldier_rows(second)
+                    if (not stable(first_control.point, second_control.point)
+                            or first_rows is None or first_rows != second_rows):
+                        self._log_for_device(target.device, "兵种行未能确认；未修改兵力、未出征。")
+                        return False
+                    if second_rows[index] == wanted:
+                        continue
+                    field = map_content_point((950, (1318, 1598, 1878)[index]), (1440, 2560), second)
+                    target.tap(*field)
+                    deadline = time.monotonic() + 3.0
+                    focused = False
+                    while time.monotonic() < deadline and not self.stop_event.is_set():
+                        if daily_training_input_focus_is_proven(target.shell(["dumpsys", "input_method"], timeout=5)):
+                            focused = True
+                            break
+                        if self.stop_event.wait(0.15):
+                            return False
+                    if not focused:
+                        self._log_for_device(target.device, "兵力输入框未取得焦点；未继续输入或出征。")
+                        return False
+                    target.shell(["input", "keyevent", "123"], timeout=5)
+                    for _ in range(12):
+                        target.check_active()
+                        target.shell(["input", "keyevent", "67"], timeout=5)
+                    target.shell(["input", "text", str(wanted)], timeout=5)
+                    target.shell(["input", "keyevent", "66"], timeout=5)
+                    def row_matches(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
+                        control = match_beast_rally_formation_controls(image, threshold)
+                        rows = beast_soldier_rows(image)
+                        return (control.point if rows is not None and rows[index] == wanted else None), control
+                    if not wait_for_double(f"确认第 {index + 1} 行兵力为 {wanted}", row_matches):
+                        return False
+                return bool(wait_for_double("确认手动兵力", exact_formation_match))
 
             def stamina_more_match(image: Image.Image) -> tuple[tuple[int, int] | None, Any]:
                 match = match_beast_rally_stamina_more(image, threshold)
@@ -2643,39 +2750,51 @@ class MainWindow(ScheduleUI, QMainWindow):
                 beast_point = beast_rally_beast_target_point(image)
                 if not beast_point:
                     return None
+                beast_point = cycle_position('beast_card', image, beast_point)
+                if not beast_point:
+                    return None
                 target.tap(*beast_point)
                 self._log_for_device(target.device, f"点击精确冰原巨兽卡片 {beast_point}。")
                 selected = wait_for_double("复核冰原巨兽卡片与搜索按钮", selector_match)
                 if not selected:
                     return None
                 image, search_point, _ = selected
+                def configured(image: Image.Image) -> tuple[tuple[int, int] | None, int | None]:
+                    point = beast_rally_selector_search_point(image)
+                    value = read_beast_rally_selector_level(image) if point else None
+                    return (point if value == profile.beast_level else None), value
+
                 current = read_beast_rally_selector_level(image)
                 if current == profile.beast_level:
-                    return image, search_point
+                    result = wait_for_double(f"确认等级为 {profile.beast_level}", configured)
+                    return (result[0], result[1]) if result else None
                 field = beast_rally_level_field_point(image)
                 if not field:
                     self._log_for_device(target.device, "等级输入框未与冰原巨兽页同帧确认；未输入。")
                     return None
                 target.tap(*field)
-                input_state = target.shell(["dumpsys", "input_method"], timeout=5)
-                if not daily_training_input_focus_is_proven(input_state):
+                focus_deadline = time.monotonic() + 3.0
+                focused = False
+                while time.monotonic() < focus_deadline and not self.stop_event.is_set():
+                    input_state = target.shell(["dumpsys", "input_method"], timeout=5)
+                    if daily_training_input_focus_is_proven(input_state):
+                        focused = True
+                        break
+                    if self.stop_event.wait(0.15):
+                        return None
+                if not focused:
                     self._log_for_device(target.device, "等级输入框没有取得可编辑Unity焦点；未清除文字、未搜索。")
                     return None
                 target.shell(["input", "keyevent", "123"], timeout=5)
                 for _ in range(3):
                     target.shell(["input", "keyevent", "67"], timeout=5)
                 target.shell(["input", "text", str(profile.beast_level)], timeout=5)
-                target.shell(["input", "keyevent", "4"], timeout=5)
-
-                def configured(image: Image.Image) -> tuple[tuple[int, int] | None, int | None]:
-                    point = beast_rally_selector_search_point(image)
-                    value = read_beast_rally_selector_level(image) if point else None
-                    return (point if value == profile.beast_level else None), value
+                target.shell(["input", "keyevent", "66"], timeout=5)
 
                 result = wait_for_double(f"确认等级已改为 {profile.beast_level}", configured)
                 if result:
                     image, search_point, _ = result
-                    save_evidence(image, search_point, "level_ready", f"冰原巨兽等级双帧确认为 {profile.beast_level}。")
+                    save_evidence(image, search_point, "level_ready", f"冰原巨兽等级{'单' if completed_cycles else '双'}帧确认为 {profile.beast_level}。")
                     return image, search_point
                 return None
 
@@ -2764,6 +2883,13 @@ class MainWindow(ScheduleUI, QMainWindow):
                     owners = read_compact_rally_rows(first) + read_compact_rally_rows(second)
                     now = time.monotonic()
                     stable_capacity = bool(cap1 and cap2 and (cap1.used, cap1.total, cap1.evidence) == (cap2.used, cap2.total, cap2.evidence))
+                    gathering_a, gathering_b = read_concurrent_snapshot(first), read_concurrent_snapshot(second)
+                    if (gathering_a is not None and gathering_a == gathering_b
+                            and gathering_a.evidence == 'numeric' and gathering_a.free
+                            and gathering_a.used > 0 and all(p == 'gathering' for p in gathering_a.phases)):
+                        amount = reconcile_beast_rally_gathering_reservation(identity, gathering_a, gathering_b)
+                        self._log_for_device(target.device, f"双帧确认仅剩采集队：旧预留 {amount} 转待核实体力并计入上限；保留采集队。")
+                        return True
                     if stable_capacity and cap1.used == 0 and not any(r.owner == 'own' for r in owners):
                         amount = reconcile_beast_rally_idle_reservation(identity, None, None, first_capacity=cap1, second_capacity=cap2)
                         idle_label = "列表消失" if cap1.evidence == 'hidden_idle' else f"0/{cap1.total}"
@@ -2797,9 +2923,10 @@ class MainWindow(ScheduleUI, QMainWindow):
                     joined_only = (only_joined_rallies(cap1, read_compact_rally_rows(first))
                                    and only_joined_rallies(cap2, read_compact_rally_rows(second))
                                    and (cap1.used,cap1.total)==(cap2.used,cap2.total))
-                    if joined_only or blue_pair_free(first,second,cap1,cap2):
+                    gatherers_safe = gathering_pair_free(first,second,cap1,cap2)
+                    if joined_only or blue_pair_free(first,second,cap1,cap2) or gatherers_safe:
                         baseline_march_capacity = (cap2.used, cap2.total)
-                        self._log_for_device(target.device, "完整列表双帧确认只有蓝色图标且有空槽；不等待蓝色行军/返回归零，下一步仍核验打野编组。")
+                        self._log_for_device(target.device, "完整列表双帧确认仅有蓝色队伍或明确采集中的队伍且有空槽；保留现有队伍，下一步核验出征配置。")
                         return True
                     if (not any(r.owner == 'own' for r in owners) and cap1 and cap2
                             and cap1.used == cap2.used == 0
@@ -2843,14 +2970,14 @@ class MainWindow(ScheduleUI, QMainWindow):
                 target.tap(*q)
                 self._log_for_device(target.device, "双帧确认目标冲突：点击橙色取消，绝不点击确定继续发兵。")
                 save_evidence(second,q,"same_target_cancel","精确同目标警告后取消出征。")
-                restored=wait_for_double("冲突取消后确认原打野编组",exact_formation_match)
+                restored=wait_for_double("冲突取消后确认出征配置",exact_formation_match)
                 if not restored:
-                    self._log_for_device(target.device, "冲突取消后未确认原打野编组；保留体力预留，未重新搜索。")
+                    self._log_for_device(target.device, "冲突取消后未确认出征配置；保留体力预留，未重新搜索。")
                     return False
                 frame,_,_=restored
                 cost=read_beast_rally_dispatch_stamina(frame,formation_proven=True)
                 fresh=capture()
-                if (match_hunt_formation(fresh,selected=True).state is not BeastRallyState.FORMATION
+                if (not exact_formation_match(frame)[0] or not exact_formation_match(fresh)[0]
                         or cost is None or read_beast_rally_dispatch_stamina(fresh,formation_proven=True)!=cost):
                     self._log_for_device(target.device, "冲突取消后的编组/体力数值复核不一致；保留预留，未重新搜索。")
                     return False
@@ -2870,8 +2997,64 @@ class MainWindow(ScheduleUI, QMainWindow):
                     return False
                 target_conflicts+=1
                 retry_target_requested=True
-                self._log_for_device(target.device,f"已退出冲突目标，重新搜索8级巨兽（换目标 {target_conflicts}/3）；不把冲突计作完成。")
+                self._log_for_device(target.device,f"已退出冲突目标，重新搜索{profile.beast_level}级巨兽（换目标 {target_conflicts}/3）；不把冲突计作完成。")
                 return True
+
+            def concurrent_baseline() -> bool:
+                nonlocal baseline_concurrent, baseline_march_capacity, tracked_green, tracked_rallies
+                if not ensure_compact_march_panel():
+                    return False
+                unknown_since = time.monotonic()
+                heartbeat_at = 0.0
+                previous = None
+                while not self.stop_event.is_set():
+                    first, second = capture(), capture()
+                    a, b = read_concurrent_snapshot(first), read_concurrent_snapshot(second)
+                    now = time.monotonic()
+                    if a is not None and a == b and a.green <= tracked_green and a.rallies <= tracked_rallies:
+                        tracked_green, tracked_rallies = a.green, a.rallies
+                        unknown_since = now
+                        if a != previous:
+                            self._log_for_device(target.device, f"完整队列双帧：自建集结 {a.rallies}，绿色行军 {a.green-a.rallies}，占用 {a.used}/{a.total if a.total else '未知'}，上限 {profile.max_concurrent_rallies}；保留采集队。")
+                            previous = a
+                        if a.rallies < profile.max_concurrent_rallies and a.free:
+                            baseline_concurrent = a
+                            baseline_march_capacity = (a.used, a.total)
+                            return True
+                        set_state(f"等待集结结束或空位：集结 {a.rallies}/{profile.max_concurrent_rallies}，占用 {a.used}/{a.total}")
+                        if now >= heartbeat_at:
+                            self._log_for_device(target.device, "集结数已达上限或没有空位，持续观察；任一集结结束且有空位时补开。")
+                            heartbeat_at = now + 25.0
+                    elif now - unknown_since >= 24.0:
+                        self._log_for_device(target.device, "队列归属或完整性连续24秒无法双帧确认；停止新增出征。")
+                        return False
+                    if pause():
+                        return False
+                return False
+
+            def monitor_new_concurrent_rally() -> bool:
+                nonlocal confirmed_dispatches, tracked_green, tracked_rallies
+                before = baseline_concurrent
+                if before is None:
+                    return False
+                deadline = time.monotonic() + 24.0
+                while not self.stop_event.is_set() and time.monotonic() < deadline:
+                    first, second = capture(), capture()
+                    if match_same_target_conflict(first) or match_same_target_conflict(second):
+                        resolve_target_conflict(first, second)
+                        return False
+                    a, b = read_concurrent_snapshot(first), read_concurrent_snapshot(second)
+                    if a is not None and a == b and confirms_new_concurrent_rally(before, a):
+                        spent = confirm_beast_rally_stamina_reservation(identity)
+                        confirmed_dispatches += 1
+                        tracked_green, tracked_rallies = a.green, a.rallies
+                        self._log_for_device(target.device, f"双帧确认新增自建集结：{before.rallies} → {a.rallies}，占用 {a.used}/{a.total}，今日体力 {spent}。")
+                        save_evidence(second, (70, 545), "concurrent_own_rally", "双帧确认新增一个自建集结及占用；其余队伍保留。")
+                        return True
+                    if pause():
+                        return False
+                self._log_for_device(target.device, "出征后未能双帧确认新增自建集结；保留体力预留，不重发。")
+                return False
 
             def monitor_single_team() -> bool:
                 if baseline_march_capacity is None:
@@ -2904,7 +3087,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                         timer_text = "时间识别中"
                         if t1 is not None and t2 is not None and 0 <= t1-t2 <= 3:
                             timer_text = f"{t2//3600:02}:{t2//60%60:02}:{t2%60:02}"
-                        set_state(f"我的自建集结 · 打野 · {timer_text} · 不新增队伍")
+                        set_state(f"我的自建集结 · {troop_label} · {timer_text} · 不新增队伍")
                         now = time.monotonic()
                         unknown_since = now
                         if now >= heartbeat_at:
@@ -2921,7 +3104,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                         marched = True
                         seconds = marches2[0].seconds
                         timer_text = f"{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02}"
-                        set_state(f"我的绿色行军 · 打野 · {timer_text} · 不新增队伍")
+                        set_state(f"我的绿色行军 · {troop_label} · {timer_text} · 不新增队伍")
                         unknown_since = time.monotonic()
                         if last_phase != 'marching':
                             last_phase = 'marching'
@@ -2940,6 +3123,9 @@ class MainWindow(ScheduleUI, QMainWindow):
                     # search under the user's revised no-green-phase rule.
                     cap1 = read_beast_rally_collapsed_march_capacity(first, threshold)
                     cap2 = read_beast_rally_collapsed_march_capacity(second, threshold)
+                    if gathering_pair_free(first,second,cap1,cap2):
+                        self._log_for_device(target.device, "本轮绿色自建阶段已结束：双帧完整列表仅剩明确采集中的队伍或蓝色队伍且有空槽；保留采集队。")
+                        return True
                     if blue_pair_free(first,second,cap1,cap2):
                         self._log_for_device(target.device, "本轮绿色自建阶段已结束：完整列表双帧只有蓝色图标且有空槽；立即进入下一轮，不等蓝色行军/回兵清空。")
                         save_evidence(second, (70,545), "hunt_no_green_blue_remaining", "完整蓝色图标列表与空槽双帧确认；允许下一轮搜索，不宣称所有部队已回城。")
@@ -2993,7 +3179,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                     timer_text = "时间识别中"
                     if seconds1 is not None and seconds2 is not None and 0 <= seconds1-seconds2 <= 3:
                         timer_text = f"{seconds2//3600:02}:{seconds2//60%60:02}:{seconds2%60:02}"
-                    set_state(f"Lv.8 · 打野 · 本号队伍 {used}/{total} · {timer_text}")
+                    set_state(f"Lv.{profile.beast_level} · {troop_label} · 本号队伍 {used}/{total} · {timer_text}")
                     if now >= heartbeat_at:
                         self._log_for_device(target.device, f"巨兽侧栏监控：本号 {used}/{total}，{timer_text}，等待集结/行军/回兵，未发第二队。")
                         heartbeat_at = now + 25.0
@@ -3043,21 +3229,28 @@ class MainWindow(ScheduleUI, QMainWindow):
                         return False
                 if not recover_pending_reservation():
                     return False
-                if not single_team_baseline():
+                if not concurrent_baseline():
                     return False
                 # Re-capture Search after the queue panel has been collapsed.
                 world = ensure_wilderness()
                 if not world:
                     return False
                 image, search = world
+                search = cycle_position('world_search', image, search)
+                if not search:
+                    return False
                 target.tap(*search)
-                self._log_for_device(target.device, f"点击双帧确认的野外搜索按钮 {search}。")
-                save_evidence(image, search, "world_search", "野外页双帧确认后点击唯一搜索按钮。")
+                frame_label = "单帧复核" if completed_cycles else "双帧确认"
+                self._log_for_device(target.device, f"点击{frame_label}的野外搜索按钮 {search}。")
+                save_evidence(image, search, "world_search", f"野外页{frame_label}后点击唯一搜索按钮。")
 
                 selector = configure_level()
                 if not selector:
                     return False
                 image, search_button = selector
+                search_button = cycle_position('selector_search', image, search_button)
+                if not search_button:
+                    return False
                 target.tap(*search_button)
                 self._log_for_device(target.device, f"点击冰原巨兽搜索 {search_button}，等级 {profile.beast_level}。")
                 if search_race_pause:
@@ -3072,13 +3265,18 @@ class MainWindow(ScheduleUI, QMainWindow):
 
                 opened = wait_for_double(
                     "确认橙色集结按钮",
-                    lambda image: match_beast_rally_open_button(image, threshold),
+                    (lambda image: (action_positions.reuse('rally_button', image), None))
+                    if completed_cycles else
+                    (lambda image: match_beast_rally_open_button(image, threshold)),
                 )
                 if not opened:
                     return False
                 image, rally_button, _ = opened
+                rally_button = cycle_position('rally_button', image, rally_button)
+                if not rally_button:
+                    return False
                 target.tap(*rally_button)
-                save_evidence(image, rally_button, "rally_button", "仅点击双帧确认的橙色冰原巨兽集结按钮。")
+                save_evidence(image, rally_button, "rally_button", f"点击{'单' if completed_cycles else '双'}帧确认的橙色冰原巨兽集结按钮。")
 
                 sheet_controls = wait_for_double(
                     "确认发起集结页面",
@@ -3094,9 +3292,8 @@ class MainWindow(ScheduleUI, QMainWindow):
                         return False
                     target.tap(*three)
                     self._log_for_device(target.device, f"点击精确3分钟选项 {three}。")
-                # Even when 3 minutes was already selected on entry, require
-                # two new exact selected frames before Launch.  The broader
-                # sheet-controls proof above is not substituted for this.
+                # Confirm the exact selected state separately from the broader
+                # sheet controls, with the cycle-specific frame count.
                 sheet = wait_for_double(
                     "确认3分钟已选中",
                     exact_sheet_match,
@@ -3104,33 +3301,47 @@ class MainWindow(ScheduleUI, QMainWindow):
                 if not sheet:
                     return False
                 image, launch, _ = sheet
+                launch = cycle_position('launch', image, launch)
+                if not launch:
+                    return False
                 target.tap(*launch)
                 self._log_for_device(target.device, f"点击3分钟页的发起集结 {launch}。")
-                save_evidence(image, launch, "launch_three_minutes", "3分钟选中并双帧确认后发起集结。")
+                save_evidence(image, launch, "launch_three_minutes", f"3分钟选中并{'单' if completed_cycles else '双'}帧确认后发起集结。")
 
                 formation_controls = wait_for_double(
                     "确认出征编组页面",
                     formation_controls_match,
                 )
                 if not formation_controls:
+                    if profile.troop_mode == "formation":
+                        self.signals.alert.emit(APP_NAME, "未确认已保存的‘打野’编组，请在游戏中保存并显示该编组；未出征。")
                     return False
-                image, _, controls = formation_controls
-                first = next((p for n, p in controls.anchors if n == "hunt"), None)
-                if not first:
+                if profile.troop_mode == "formation":
+                    image, _, controls = formation_controls
+                    point = next ( (p for n, p in controls.anchors if n == "hunt"), None )
+                    if not point:
+                        return False
+                    target.tap(*point)
+                    self._log_for_device(target.device, f"点击名称已确认的打野编组 {point}。")
+                elif not configure_single_shield():
                     return False
-                target.tap(*first)
-                self._log_for_device(target.device, f"点击名称已验证的打野编组 {first}。")
 
                 formation = wait_for_double(
-                    "复核打野编组选中高亮与普通出征",
+                    "复核出征配置与普通出征",
                     exact_formation_match,
                 )
                 if not formation:
                     return False
                 image, dispatch, _ = formation
+                dispatch = cycle_position('dispatch', image, dispatch)
+                if not dispatch:
+                    return False
                 cost = read_beast_rally_dispatch_stamina(image, formation_proven=True)
-                second = capture()
-                second_match = match_hunt_formation(second, selected=True)
+                second = capture() if not completed_cycles or cost is None else image
+                second_match = exact_formation_match(second)[1]
+                if not exact_formation_match(image)[0] or not exact_formation_match(second)[0]:
+                    self._log_for_device(target.device, "出征配置复核失败；未出征。")
+                    return False
                 second_cost = read_beast_rally_dispatch_stamina(second, formation_proven=True)
                 red_cost = read_beast_rally_dispatch_stamina_shortfall(image, formation_proven=True)
                 second_red_cost = read_beast_rally_dispatch_stamina_shortfall(second, formation_proven=True)
@@ -3164,18 +3375,19 @@ class MainWindow(ScheduleUI, QMainWindow):
                     if not stamina_page:
                         return False
                     target.back()
-                    formation = wait_for_double("恢复体力后复核打野编组", exact_formation_match)
+                    formation = wait_for_double("恢复体力后复核出征配置", exact_formation_match)
                     if not formation:
                         return False
                     image, dispatch, _ = formation
                     cost = read_beast_rally_dispatch_stamina(image, formation_proven=True)
                     second = capture()
-                    second_match = match_hunt_formation(second, selected=True)
-                    if second_match.state is not BeastRallyState.FORMATION or not stable(dispatch, second_match.point):
+                    second_match = exact_formation_match(second)[1]
+                    if (second_match.state is not BeastRallyState.FORMATION or not stable(dispatch, second_match.point)
+                            or not exact_formation_match(image)[0] or not exact_formation_match(second)[0]):
                         return False
                     second_cost = read_beast_rally_dispatch_stamina(second, formation_proven=True)
                 if second_match.state is not BeastRallyState.FORMATION or not stable(dispatch, second_match.point) or cost is None or cost != second_cost:
-                    self._log_for_device(target.device, "最终出征体力未在两张新帧中读取为相同数值；未点击出征。")
+                    self._log_for_device(target.device, "最终出征体力复核失败；未点击出征。")
                     return False
                 spent = load_beast_rally_stamina_spent(identity)
                 reserved = load_beast_rally_stamina_reserved(identity)
@@ -3189,11 +3401,11 @@ class MainWindow(ScheduleUI, QMainWindow):
                 target.tap(*dispatch)
                 action_count += 1
                 self.signals.clicks.emit(action_count)
-                self._log_for_device(target.device, f"点击打野编组普通出征 {dispatch}；已预留体力 {cost}，本轮仅一队，等待侧栏双帧确认。")
+                self._log_for_device(target.device, f"点击{troop_label}普通出征 {dispatch}；已预留体力 {cost}，本轮仅一队，等待侧栏双帧确认。")
 
-                completed = monitor_single_team()
+                completed = monitor_new_concurrent_rally()
                 if not completed:
-                    set_state("出征后未完成唯一队列占用→回兵证明：安全停止")
+                    set_state("出征后未确认新增自建集结：安全停止")
                     return False
                 self._log_for_device(target.device, "本轮已满足下一轮条件；不要求全部队伍归零，其他队列不受影响。")
                 return True
@@ -3202,7 +3414,8 @@ class MainWindow(ScheduleUI, QMainWindow):
                 target.device,
                 f"开始冰原巨兽自动集结：Lv.{profile.beast_level}，"
                 f"体力上限 {'不限' if profile.stamina_limit == 0 else profile.stamina_limit}；"
-                "每个动作需两张新帧，单步不超过24秒。",
+                f"同时集结上限 {profile.max_concurrent_rallies}；"
+                "首轮识图，后续常规页面单帧复核；关键队列和归属核验保留双帧。",
             )
             set_state("启动：确认野外与既有队列")
             completed_cycles = 0
@@ -3222,7 +3435,7 @@ class MainWindow(ScheduleUI, QMainWindow):
                 completed_cycles += 1
                 target_conflicts = 0
                 if max_cycles and completed_cycles >= max_cycles:
-                    set_state(f"已完成 {completed_cycles} 轮，队伍全部回兵")
+                    set_state(f"已完成 {completed_cycles} 轮验证；其他行军状态以游戏为准")
                     break
             if self.stop_event.is_set():
                 set_state("已停止")

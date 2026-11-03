@@ -1,4 +1,4 @@
-"""Named hunting formation and one-team Beast lifecycle, separate from Daily."""
+"""Single-shield and one-team Beast lifecycle, separate from Daily."""
 from dataclasses import dataclass
 from functools import lru_cache
 import time
@@ -21,6 +21,38 @@ from wjdr_backend import (
 )
 
 HUNT_NAME_ASSET = "assets/beast_rally_hunt_name.png"
+
+
+class CycleActionPositions:
+    """Session-only positions from cycle one, guarded by identical viewport geometry."""
+    def __init__(self):
+        self.positions = {}
+
+    def remember(self, name, image, point):
+        viewport = content_viewport(image)
+        if not point or not (viewport.left <= point[0] < viewport.right and viewport.top <= point[1] < viewport.bottom):
+            return None
+        x, y = point
+        rx = max(3, round(viewport.width * 24 / 1440))
+        ry = max(3, round(viewport.height * 12 / 2560))
+        box = (x-rx, y-ry, x+rx, y+ry)
+        if box[0] < viewport.left or box[1] < viewport.top or box[2] > viewport.right or box[3] > viewport.bottom:
+            return None
+        crop = np.asarray(image.crop(box).convert('L'), dtype=np.int16).copy()
+        self.positions[name] = (image.size, viewport.box, point, box, crop)
+        return point
+
+    def reuse(self, name, image, recognized_point=None):
+        cached = self.positions.get(name)
+        if not cached:
+            return None
+        size, viewport, point, box, crop = cached
+        if image.size != size or content_viewport(image).box != viewport:
+            return None
+        if recognized_point is not None:
+            return point if max(abs(a-b) for a,b in zip(point, recognized_point)) <= 4 else None
+        current = np.asarray(image.crop(box).convert('L'), dtype=np.int16)
+        return point if current.shape == crop.shape and np.mean(np.abs(current-crop)) <= 12 else None
 
 
 def consume_beast_test_cycle_limit(environ, automatic_start=False):
@@ -265,6 +297,54 @@ def only_joined_rallies(capacity, rows):
                 and len({r.point for r in rows})==len(rows))
 
 
+@lru_cache(maxsize=1)
+def compact_gathering_title():
+    with Image.open(resource_path('assets/beast_gathering_title.png')) as image:
+        return np.asarray(image.convert('L'))
+
+
+def _compact_gathering_row(rgb, cx, cy):
+    """Exact same-row gathering text plus a green icon rim, never a green bar."""
+    icon = rgb[cy-38:cy+38,cx-38:cx+38]
+    if icon.shape != (76,76,3):
+        return False
+    hsv = cv2.cvtColor(icon, cv2.COLOR_RGB2HSV)
+    yy, xx = np.ogrid[:76,:76]
+    radius = (xx-38)**2 + (yy-38)**2
+    rim = (radius >= 25**2) & (radius <= 35**2)
+    green = rim & (hsv[:,:,0]>=35) & (hsv[:,:,0]<=85) & (hsv[:,:,1]>100) & (hsv[:,:,2]>100)
+    if green.sum() < rim.sum()*.30:
+        return False
+    region = cv2.cvtColor(rgb[cy-52:cy+4,115:255], cv2.COLOR_RGB2GRAY)
+    template = compact_gathering_title()
+    if region.shape[0] < template.shape[0] or region.shape[1] < template.shape[1]:
+        return False
+    _, raw_score, _, (raw_x, raw_y) = cv2.minMaxLoc(cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED))
+    if raw_score >= .94:
+        return True
+    # Detailed terrain can obscure one character without changing the green
+    # queue rim. Require the whole title, each character and a strong rim.
+    if raw_score >= .92 and green.sum() >= rim.sum() * .70:
+        matched = region[raw_y:raw_y + template.shape[0], raw_x:raw_x + template.shape[1]]
+        if all(cv2.matchTemplate(matched[:, a:b], template[:, a:b], cv2.TM_CCOEFF_NORMED)[0, 0] >= threshold
+               for a, b, threshold in ((0, 38, .86), (38, 77, .90), (77, 115, .90))):
+            return True
+    # A translucent queue can overlay a detailed map object. Remove slowly
+    # varying background, then demand a strong match of the whole title and
+    # of each character. This fallback does not relax the existing raw score.
+    kernel = np.ones((9, 9), np.uint8)
+    clean_region = cv2.morphologyEx(region, cv2.MORPH_TOPHAT, kernel)
+    clean_template = cv2.morphologyEx(template, cv2.MORPH_TOPHAT, kernel)
+    _, score, _, (x, y) = cv2.minMaxLoc(cv2.matchTemplate(clean_region, clean_template, cv2.TM_CCOEFF_NORMED))
+    if score < .94:
+        return False
+    matched = clean_region[y:y + template.shape[0], x:x + template.shape[1]]
+    return all(
+        cv2.matchTemplate(matched[:, a:b], clean_template[:, a:b], cv2.TM_CCOEFF_NORMED)[0, 0] >= .90
+        for a, b in ((0, 38), (38, 77), (77, 115))
+    )
+
+
 def read_compact_queue_icons(image, capacity):
     """Read every circular left icon, independent of rally/coordinate text.
 
@@ -288,6 +368,9 @@ def read_compact_queue_icons(image, capacity):
     # moving allied arrows behind this translucent panel touch its circle.
     for index in range(capacity.used):
         cx,cy = 70,(anchor[1]+141 if anchor else 545)+122*index
+        if _compact_gathering_row(rgb, cx, cy):
+            rows.append(CompactRallyRow('gathering', (cx,cy), None, 'gathering'))
+            continue
         icon = rgb[cy-38:cy+38,cx-38:cx+38]
         patch = cv2.cvtColor(icon,cv2.COLOR_RGB2HSV)
         yy,xx = np.ogrid[:76,:76]
@@ -321,6 +404,110 @@ def blue_pair_free(first, second, cap1, cap2):
                 and match_beast_rally_world_search(first)[0] and match_beast_rally_world_search(second)[0]
                 and blue_only_free_slot(cap1,read_compact_queue_icons(first,cap1))
                 and blue_only_free_slot(cap2,read_compact_queue_icons(second,cap2)))
+
+
+def gathering_pair_free(first, second, cap1, cap2):
+    """Complete, stable rows of blue icons or explicitly identified gatherers."""
+    if not (cap1 and cap2 and cap1.evidence == cap2.evidence == 'numeric'
+            and (cap1.used,cap1.total) == (cap2.used,cap2.total)
+            and 0 < cap1.used < cap1.total
+            and match_beast_rally_world_search(first)[0]
+            and match_beast_rally_world_search(second)[0]):
+        return False
+    first_rows = read_compact_queue_icons(first,cap1)
+    second_rows = read_compact_queue_icons(second,cap2)
+    return bool(len(first_rows) == len(second_rows) == cap1.used
+                and all(a.owner in ('blue','gathering') and a.owner == b.owner
+                        and a.point == b.point for a,b in zip(first_rows,second_rows))
+                and any(a.owner == 'gathering' for a in first_rows))
+
+
+@dataclass(frozen=True)
+class ConcurrentRallySnapshot:
+    used: int
+    total: int
+    evidence: str
+    phases: tuple[str, ...]
+
+    @property
+    def rallies(self):
+        return self.phases.count('rallying')
+
+    @property
+    def green(self):
+        return self.rallies + self.phases.count('marching')
+
+    @property
+    def free(self):
+        return self.evidence == 'hidden_idle' or self.used < self.total
+
+
+def confirms_new_concurrent_rally(before, after):
+    """Prove one new rally even if previously tracked green marches returned."""
+    if before is None or after is None:
+        return False
+    if before.total and after.total != before.total:
+        return False
+    if after.rallies != before.rallies + 1:
+        return False
+    if not 1 <= after.green <= before.green + 1:
+        return False
+    # Non-owned rows cannot be used as evidence of our new dispatch or silently
+    # disappear while its acknowledgement is being reconciled.
+    if any(before.phases.count(phase) != after.phases.count(phase)
+           for phase in ('blue', 'gathering')):
+        return False
+    returned = before.green + 1 - after.green
+    return after.used == before.used + 1 - returned
+
+
+def classify_concurrent_rows(capacity, icons, rallies, marches):
+    """Classify a complete compact list; all coordinates are normalized."""
+    if not capacity:
+        return None
+    if capacity.evidence == 'hidden_idle':
+        return ConcurrentRallySnapshot(0, 0, 'hidden_idle', ()) if capacity.used == 0 and not icons and not rallies and not marches else None
+    if capacity.evidence != 'numeric' or not 0 <= capacity.used <= capacity.total or capacity.total <= 0:
+        return None
+    if len(icons) != capacity.used or len({r.point for r in icons}) != len(icons):
+        return None
+    phases = []
+    used_matches = set()
+    for icon in icons:
+        if icon.owner in ('blue', 'gathering'):
+            phases.append(icon.owner)
+            continue
+        if icon.owner != 'own':
+            return None
+        matches = [(kind, i) for kind, rows in (('rallying', rallies), ('marching', marches))
+                   for i, row in enumerate(rows)
+                   if row.owner == 'own' and abs(row.point[0] - icon.point[0]) <= 60
+                   and abs(row.point[1] - icon.point[1]) <= 55]
+        if len(matches) != 1 or matches[0] in used_matches:
+            return None
+        used_matches.add(matches[0])
+        phases.append(matches[0][0])
+    if any(row.owner == 'unknown' for row in rallies):
+        return None
+    if sum(r.owner == 'own' for r in rallies) + len(marches) != len(used_matches):
+        return None
+    return ConcurrentRallySnapshot(capacity.used, capacity.total, capacity.evidence, tuple(phases))
+
+
+def read_concurrent_snapshot(image):
+    if not match_beast_rally_world_search(image)[0]:
+        return None
+    capacity = read_compact_capacity(image)
+    if not capacity:
+        return None
+    viewport = content_viewport(image)
+    def normalized(row):
+        x, y = row.point
+        return CompactRallyRow(row.owner, (round((x-viewport.left)*1440/viewport.width),
+                                            round((y-viewport.top)*2560/viewport.height)), row.seconds, row.phase)
+    return classify_concurrent_rows(capacity, read_compact_queue_icons(image, capacity),
+                                    tuple(map(normalized, read_compact_rally_rows(image))),
+                                    tuple(map(normalized, read_compact_marching_rows(image))))
 
 
 @lru_cache(maxsize=1)
@@ -464,6 +651,44 @@ def match_hunt_formation(image: Image.Image, *, selected: bool = False) -> Beast
     point = map_content_point((cx, cy-25), BUILTIN_DAILY_TASK_REFERENCE_SIZE, image)
     return BeastRallyMatch(BeastRallyState.FORMATION, controls.point, score,
                           (("hunt", point), ("dispatch", controls.point)))
+
+
+@lru_cache(maxsize=1)
+def soldier_type_templates():
+    with Image.open(resource_path('assets/beast_soldier_types.png')) as source:
+        image = source.convert('RGB')
+        return tuple(np.asarray(image.crop((0, i * 50, 56, (i + 1) * 50))) for i in range(3))
+
+
+def beast_soldier_rows(image: Image.Image):
+    """Prove row types and read centered counts; unknown is never zero."""
+    if match_beast_rally_formation_controls(image).state is not BeastRallyState.FORMATION:
+        return None
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9 / 16) > .008:
+        return None
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560)).convert('RGB')
+    templates = soldier_type_templates()
+    values = []
+    for index, y in enumerate((1298, 1578, 1858)):
+        icon = np.asarray(frame.crop((52, y, 108, y + 50)))
+        scores = [float(cv2.matchTemplate(icon, t, cv2.TM_CCOEFF_NORMED)[0, 0]) for t in templates]
+        if scores[index] < .94 or scores[index] < max(s for i, s in enumerate(scores) if i != index) + .08:
+            return None
+        glyphs = _daily_white_numeric_components(frame.crop((840, y - 3, 1065, y + 38)))
+        if not 1 <= len(glyphs) <= 6:
+            values.append(None)
+            continue
+        digits = [_read_daily_numeric_glyph(g[4]) for g in glyphs]
+        start, end = glyphs[0][0], glyphs[-1][0] + glyphs[-1][2]
+        if (not 94 <= (start + end) / 2 <= 131
+                or any(not (8 <= g[2] <= 40 and 27 <= g[3] <= 40) for g in glyphs)
+                or any(d is None or d[1] < .82 for d in digits)
+                or any(glyphs[i+1][0] - (glyphs[i][0]+glyphs[i][2]) > 18 for i in range(len(glyphs)-1))):
+            values.append(None)
+        else:
+            values.append(int(''.join(str(d[0]) for d in digits)))
+    return tuple(values)
 
 
 @dataclass
