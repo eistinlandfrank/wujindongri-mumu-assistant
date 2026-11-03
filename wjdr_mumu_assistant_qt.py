@@ -1828,12 +1828,16 @@ class MainWindow(ScheduleUI, QMainWindow):
             self.signals.status.emit("●  正在扫描", "busy")
             adb = MuMuADB()
             preferred = self.adb.device if self.adb and self.adb.device else self.preferred_device
-            devices = adb.connect(preferred)
+            devices = adb.connect(preferred, allow_unavailable=True)
             summaries = [adb.device_summary(device) for device in devices]
-            self.adb = adb
+            self._discovery_adb = adb
+            self.adb = adb if adb.device else None
             self.signals.devices.emit(summaries, adb.device)
-            self.log(f"MuMu 连接成功，共发现 {len(devices)} 个运行中实例。")
-            self._capture_job()
+            if adb.device:
+                self.log(f"MuMu 连接成功，共发现 {len(devices)} 个运行中实例。")
+                self._capture_job()
+            else:
+                self.log(f"原绑定实例 {preferred} 已离线；发现 {len(devices)} 个在线实例，请手动选择。")
         except Exception as exc:
             self.signals.status.emit("●  连接失败", "error")
             self.log(str(exc))
@@ -1846,15 +1850,23 @@ class MainWindow(ScheduleUI, QMainWindow):
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
         selected_index = 0
+        if not selected:
+            self.device_combo.addItem("原绑定实例已离线，请选择在线实例", None)
         for index, item in enumerate(summaries):
             label = f"#{item['index']}  {item['name']}   ·   {item['device']}"
             self.device_combo.addItem(label, item)
             if item["device"] == selected:
-                selected_index = index
+                selected_index = index + (0 if selected else 1)
         self.device_combo.setCurrentIndex(selected_index)
         self.device_combo.blockSignals(False)
         self._show_device_info(self.device_combo.currentData())
         self._load_log_tail()
+        if not selected:
+            self.current_image = None
+            self.selected_point = self.selected_region = self.selected_source_size = None
+            self.screenshot.set_pil_image(Image.new("RGB", (720, 1280), "#E8EDF5"))
+            self.signals.status.emit("●  请选择在线实例", "error")
+            return
         self.signals.status.emit("●  已就绪", "ready")
         if self.all_auto_daily_requested:
             self.all_auto_daily_requested = False
@@ -1883,6 +1895,10 @@ class MainWindow(ScheduleUI, QMainWindow):
 
     def _show_device_info(self, item: dict[str, Any] | None) -> None:
         if not item:
+            self.instance_name.setText("未选择在线实例")
+            self.instance_meta.setText("请从上方列表选择")
+            self.instance_state.setText("未连接")
+            self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · 未绑定")
             self._update_mining_level_button(None)
             self._update_beast_rally_settings(None)
             return
@@ -2009,23 +2025,38 @@ class MainWindow(ScheduleUI, QMainWindow):
             f"每日体力消耗上限 {limit}。"
         )
     def _device_changed(self, index: int) -> None:
-        if index < 0 or not self.adb:
+        if index < 0:
             return
+        item = self.device_combo.itemData(index)
+        if not item:
+            if self.adb:
+                current = next((i for i in range(self.device_combo.count())
+                                if (self.device_combo.itemData(i) or {}).get("device") == self.adb.device), 0)
+                self.device_combo.blockSignals(True)
+                self.device_combo.setCurrentIndex(current)
+                self.device_combo.blockSignals(False)
+            return
+        if not self.adb:
+            if getattr(self, "_connecting", False) or not getattr(self, "_discovery_adb", None):
+                self.device_combo.blockSignals(True)
+                self.device_combo.setCurrentIndex(0)
+                self.device_combo.blockSignals(False)
+                return
+            self.adb = self._discovery_adb
         if getattr(self, "_connecting", False):
             current = next((i for i in range(self.device_combo.count())
-                            if self.device_combo.itemData(i)["device"] == self.adb.device), 0)
+                            if (self.device_combo.itemData(i) or {}).get("device") == self.adb.device), 0)
             self.device_combo.blockSignals(True)
             self.device_combo.setCurrentIndex(current)
             self.device_combo.blockSignals(False)
             return
         if self.worker and self.worker.is_alive():
-            current = next((i for i in range(self.device_combo.count()) if self.device_combo.itemData(i)["device"] == self.adb.device), 0)
+            current = next((i for i in range(self.device_combo.count()) if (self.device_combo.itemData(i) or {}).get("device") == self.adb.device), 0)
             self.device_combo.blockSignals(True)
             self.device_combo.setCurrentIndex(current)
             self.device_combo.blockSignals(False)
             QMessageBox.information(self, APP_NAME, "当前任务正在运行。请用“独立窗口”控制另一实例。")
             return
-        item = self.device_combo.itemData(index)
         self.adb.set_device(item["device"])
         self.preferred_device = item["device"]
         self._show_device_info(item)

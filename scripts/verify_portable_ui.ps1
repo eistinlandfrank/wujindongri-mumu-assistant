@@ -1,10 +1,10 @@
-param([string]$OutputRoot = 'release_v5_70', [string]$Device = '')
+param([string]$OutputRoot = 'release_v5_71', [string]$Device = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $release = [IO.Path]::GetFullPath((Join-Path $repo $OutputRoot))
-$exe = Join-Path $release 'WJDRMuMuAssistant_v5.70.0_Portable.exe'
+$exe = Join-Path $release 'WJDRMuMuAssistant_v5.71.0_Portable.exe'
 $digest = (Get-Content -LiteralPath (Join-Path $release 'portable_payload/payload.sha256') -Raw).Trim()
-$runtime = Join-Path $env:LOCALAPPDATA ("WJDRMuMuAssistant/portable/5.70.0-" + $digest.Substring(0,12))
+$runtime = Join-Path $env:LOCALAPPDATA ("WJDRMuMuAssistant/portable/5.71.0-" + $digest.Substring(0,12))
 $env:WJDR_QA_PAGE = '4'
 $evidenceDir = Join-Path $repo 'evidence/milestone-186-beast-compact-shift'
 [void][IO.Directory]::CreateDirectory($evidenceDir)
@@ -22,7 +22,7 @@ $deadline = [DateTime]::UtcNow.AddSeconds(20)
 while ([DateTime]::UtcNow -lt $deadline) {
     $launcher.Refresh()
     $windows = @(Get-Process -Name WJDRMuMuAssistant -ErrorAction SilentlyContinue | Where-Object {
-        $_.Path -eq (Join-Path $runtime 'WJDRMuMuAssistant.exe') -and $_.MainWindowTitle -like '*5.70.0*127.0.0.1:*' -and
+        $_.Path -eq (Join-Path $runtime 'WJDRMuMuAssistant.exe') -and $_.MainWindowTitle -like '*5.71.0*127.0.0.1:*' -and
         ((-not $Device) -or ($_.Id -eq $launcher.Id -and $_.MainWindowTitle.EndsWith($Device)))
     })
     if ($windows.Count -gt 0) {

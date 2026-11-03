@@ -1,6 +1,8 @@
-# 无尽冬日 MuMu 助手 5.70.0
+# 无尽冬日 MuMu 助手 5.71.0
 
-5.70.0 便携版双击直接使用，无需安装 Python 或执行安装向导；需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。MuMu 2 号已实测保留四支采集队、两支同时集结及结束后补位，并完成自建集结、行军返回和下一轮出征的连续验收。其他账号、机器及编组出征尚需分别实测。
+5.71.0 便携版双击直接使用，无需安装 Python 或执行安装向导；需要 Windows 10/11 和已启用 ADB 的 MuMu 实例。MuMu 2 号已实测保留四支采集队、两支同时集结及结束后补位，并完成自建集结、行军返回和下一轮出征的连续验收。其他账号、机器及编组出征尚需分别实测。
+
+5.71.0 修复原绑定实例离线时扫描列表不更新的问题：在线实例会重新显示，需手动选择后才切换绑定。
 
 5.70 的巨兽等级、出征配置和同时集结上限按账号设置：可手动设置盾兵、矛兵与射手数量，或选择游戏内已保存的“打野”编组。默认手动出征 1 个盾兵。首轮通过图像定位，后续复用首轮位置并对常规页面单帧复核。完整队列和归属仍需双帧确认；已有采集队会保留。自建集结数低于上限且存在真实空槽时自动补开，其他已确认的集结或行军无需全部结束。
 
@@ -76,7 +78,7 @@ py wjdr_mumu_assistant_qt.py --device 127.0.0.1:16448 --auto-beast-rally
 python scripts/run_bounded.py --seconds 25 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_portable.ps1
 ```
 
-默认输出为 `release_v5_70/WJDRMuMuAssistant_v5.70.0_Portable.exe`；运行目录位于 `release_v5_70/dist/WJDRMuMuAssistant`。长构建必须拆分成有界步骤，不得放大看门狗；已有源代码一致的运行目录时可加 `-SkipRuntime` 仅重新封装。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
+默认输出为 `release_v5_71/WJDRMuMuAssistant_v5.71.0_Portable.exe`；运行目录位于 `release_v5_71/dist/WJDRMuMuAssistant`。长构建必须拆分成有界步骤，不得放大看门狗；已有源代码一致的运行目录时可加 `-SkipRuntime` 仅重新封装。公开发布前必须验证 Portable.exe 的真实解压与窗口启动路径，不得以 Setup.exe 代替。
 
 ## 项目文件
 

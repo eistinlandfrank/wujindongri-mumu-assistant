@@ -29,7 +29,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.70.0"
+APP_VERSION = "5.71.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -2650,7 +2650,7 @@ class MuMuADB:
                         pass
         return sorted(ports)
 
-    def connect(self, preferred_device: str | None = None) -> list[str]:
+    def connect(self, preferred_device: str | None = None, *, allow_unavailable: bool = False) -> list[str]:
         self._run(["start-server"], timeout=10)
         for port in self._candidate_ports():
             try:
@@ -2694,11 +2694,14 @@ class MuMuADB:
             # A saved/CLI serial may itself be an alias which was filtered
             # out above.  Accept it only when ADB currently reported it, then
             # select the safe canonical serial for that same Android ID.
-            if preferred_device not in connected_devices:
-                raise AdbError(f"指定的 MuMu 实例未连接：{preferred_device}")
-            preferred_identity = self.device_identity(preferred_device)
-            selected = canonical_by_identity.get(preferred_identity)
+            selected = None
+            if preferred_device in connected_devices:
+                preferred_identity = self.device_identity(preferred_device)
+                selected = canonical_by_identity.get(preferred_identity)
             if not selected:
+                if allow_unavailable:
+                    self.device = ""
+                    return devices
                 raise AdbError(f"指定的 MuMu 实例未连接：{preferred_device}")
             self.device = selected
         else:
