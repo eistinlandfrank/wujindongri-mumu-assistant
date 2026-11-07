@@ -340,6 +340,7 @@ def bounded_step_timeout(seconds: float) -> float:
 
 
 class UiSignals(QObject):
+    score_ocr = Signal(object)
     schedule_verified = Signal(object, str)
     log = Signal(str)
     status = Signal(str, str)
@@ -665,7 +666,9 @@ class BeastRallySettingsDialog(LightSettingsDialog):
         )
 
 
-class MainWindow(ScheduleUI, QMainWindow):
+from wjdr_scoreboard_ui import ScoreboardUI
+
+class MainWindow(ScoreboardUI, ScheduleUI, QMainWindow):
     def __init__(
         self,
         preferred_device: str | None,
@@ -747,6 +750,7 @@ class MainWindow(ScheduleUI, QMainWindow):
         self.signals.daily_task_state.connect(lambda text: self.daily_task_state_label.setText(text))
         self.signals.beast_rally_state.connect(lambda text: self.beast_rally_state_label.setText(text))
         self.signals.alert.connect(self._show_alert)
+        self.signals.score_ocr.connect(self._score_show_ocr)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -788,6 +792,7 @@ class MainWindow(ScheduleUI, QMainWindow):
             ("☷", "任务编排"),
             ("≡", "运行日志"),
             ("i", "关于与安全"),
+            ("▤", "备战积分"),
         ]
         for index, (glyph, text) in enumerate(nav_items):
             button = QPushButton(f"{glyph}    {text}")
@@ -861,6 +866,7 @@ class MainWindow(ScheduleUI, QMainWindow):
         self.stack.addWidget(self._build_tasks_page())
         self.stack.addWidget(self._build_log_page())
         self.stack.addWidget(self._build_about_page())
+        self.stack.addWidget(self._build_scoreboard_page())
         # Every page remains accessible on short/high-DPI displays. Never let
         # a long status or title silently enlarge the native window.
         for label in main.findChildren(QLabel) + self.stack.findChildren(QLabel):
@@ -1702,6 +1708,7 @@ class MainWindow(ScheduleUI, QMainWindow):
             ("任务编排", "组合点击、等待、返回和识图步骤"),
             ("运行日志", "每条记录都标注绑定的 ADB 端口"),
             ("关于与安全", "版本、兼容范围与账号风险"),
+            ("备战积分", "录入榜单 · 账号快照 · 积分异动对比"),
         ]
         self.stack.setCurrentIndex(index)
         self.page_title.setText(titles[index][0])
@@ -11708,7 +11715,7 @@ class MainWindow(ScheduleUI, QMainWindow):
 
         self._start_worker(target.device, job)
 
-    def _start_worker(self, device: str, callback: Callable[[], None]) -> None:
+    def _start_worker(self, device: str, callback: Callable[[], None], *, expected_identity: str | None = None) -> None:
         scheduled = getattr(self, "_launching_schedule", None)
         def schedule_state(state: str, note: str) -> bool:
             if not scheduled:
@@ -11725,7 +11732,8 @@ class MainWindow(ScheduleUI, QMainWindow):
         # already cached Android IDs; the defensive fallback keeps a worker
         # usable if a device disappears between scanning and start.
         try:
-            lease_key = self.adb.device_identity(device) if self.adb else f"adb:{device.lower()}"
+            lease_key = (expected_identity if expected_identity is not None else
+                         self.adb.device_identity(device) if self.adb else f"adb:{device.lower()}")
         except Exception:
             lease_key = f"adb:{device.lower()}"
 
@@ -11738,6 +11746,13 @@ class MainWindow(ScheduleUI, QMainWindow):
                 self.signals.alert.emit(APP_NAME, f"{device} 已在另一个助手窗口运行。\n为防止重复点击，本窗口未启动任务。")
                 return
             try:
+                if expected_identity is not None:
+                    from wjdr_scoreboard_identity import verify_bound_identity
+                    if not self.adb or not verify_bound_identity(self.adb, device, expected_identity):
+                        self.log(f"实例 {device} 实时身份与启动账号不符或无法确认；未执行游戏操作。")
+                        return
+                if self.stop_event.is_set():
+                    return
                 if not schedule_state("running", "已核验手机并取得独占权限；仅触发一次"):
                     return
                 self.signals.running.emit(True, "运行中")
