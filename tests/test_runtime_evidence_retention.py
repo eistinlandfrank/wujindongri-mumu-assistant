@@ -31,7 +31,7 @@ def main() -> None:
         assert remaining[-1] == "frame-29.png"
         assert note.read_text(encoding="utf-8") == "keep"
 
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     # Helper definition plus gather, training, documented-task and Intel
     # countdown call sites must all remain on rolling storage.
     assert source.count("prune_saved_runtime_evidence(") == 5

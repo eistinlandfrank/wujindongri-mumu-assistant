@@ -32,7 +32,7 @@ def test_reviewed_welcome_back_sheet_requires_both_exact_anchors() -> None:
 
 
 def test_controller_double_confirms_and_taps_only_once_before_daily_scan() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     guard = source.index("welcome_back_point = match_daily_welcome_back_confirm")
     scan = source.index("page = detect_daily_task_state(image, threshold)", guard)
     block = source[guard:scan]

@@ -39,10 +39,8 @@ def test_identical_task_viewports_are_a_top_boundary_observation() -> None:
 
 
 def test_reset_fast_path_precedes_whole_page_classification() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
-    start = source.index("def _start_daily_rewards_flow")
-    end = source.index("def _start_red_packet_flow", start)
-    daily_flow = source[start:end]
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
+    daily_flow = (ROOT / "wjdr_daily_controller.py").read_text(encoding="utf-8")
     fast_path = daily_flow.index(
         "if daily_list_reset_pending and daily_list_reset_before_image is not None:"
     )
@@ -61,7 +59,7 @@ def test_reset_fast_path_precedes_whole_page_classification() -> None:
 
 
 def test_transient_anchor_miss_falls_back_without_input_or_worker_stop() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     start = source.index("if daily_list_fast_anchor_miss_streak >= 2:")
     end = source.index("continue", start) + len("continue")
     branch = source[start:end]

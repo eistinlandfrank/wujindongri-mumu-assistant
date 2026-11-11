@@ -5,15 +5,16 @@ from pathlib import Path
 from PIL import Image
 
 from wjdr_backend import match_daily_warehouse_supply_mission
+from wjdr_runtime_config import DAILY_WAREHOUSE_SUPPLY_FAILURE_RETRY_SECONDS
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
 def test_warehouse_uses_account_scoped_three_minute_recheck() -> None:
     assert "DAILY_WAREHOUSE_SUPPLY_RETRY_SECONDS = 3 * 60" in SOURCE
-    assert "DAILY_WAREHOUSE_SUPPLY_FAILURE_RETRY_SECONDS = 30" in SOURCE
+    assert DAILY_WAREHOUSE_SUPPLY_FAILURE_RETRY_SECONDS == 10
     assert 'f"daily_warehouse_supply_{donation_identity}.json"' in SOURCE
     assert "def warehouse_supply_is_deferred" in SOURCE
     assert "if warehouse_supply_is_deferred()" in SOURCE

@@ -52,7 +52,7 @@ def main() -> None:
     assert exit_point[0] < result.width * 0.10
     assert exit_point[1] < result.height * 0.16
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     warehouse_plan = controller[
         controller.index("def run_warehouse_supply_plan") : controller.index(
             "def defer_active_training_and_reopen_daily"

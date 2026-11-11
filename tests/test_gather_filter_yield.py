@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     start = source.index("def yield_gather_selector_stage(")
     end = source.index("def recover_gather_world_from_task_hub", start)
     helper = source[start:end]

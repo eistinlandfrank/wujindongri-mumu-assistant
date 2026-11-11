@@ -5,11 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 
 from wjdr_backend import (
     _DAILY_NUMERIC_PROTOTYPES,
     BeastRallyState,
+    beast_rally_beast_target_point,
     beast_rally_new_busy_queue_indexes,
     match_beast_rally_active_panel,
     match_beast_rally_formation,
@@ -18,6 +19,7 @@ from wjdr_backend import (
     match_beast_rally_progress_sidebar_collapsed,
     match_beast_rally_progress_wilderness_tab,
     match_beast_rally_selector,
+    match_beast_rally_search_drawer,
     match_beast_rally_world_search,
     match_beast_rally_sheet,
     match_beast_rally_sheet_controls,
@@ -166,6 +168,20 @@ class BeastRallyRecognitionTests(unittest.TestCase):
         paste_asset(image, "beast_rally_search_button.png", (430, 2310))
         self.assertIs(match_beast_rally_selector(image).state, BeastRallyState.UNKNOWN)
 
+    def test_left_edge_card_and_offscreen_drawer_are_distinguished(self):
+        image = Image.new("RGB", (1440, 2560), (36, 75, 110))
+        paste_asset(image, "beast_rally_search_button.png", (430, 2310))
+        self.assertIsNone(match_beast_rally_search_drawer(image)[0])
+        paste_asset(image, "beast_rally_level_field_8.png", (1075, 2020))
+        self.assertIsNotNone(match_beast_rally_search_drawer(image)[0])
+        self.assertIs(match_beast_rally_selector(image).state, BeastRallyState.UNKNOWN)
+        self.assertIsNone(beast_rally_beast_target_point(image))
+        paste_asset(image, "beast_rally_beast_target.png", (0, 1660))
+        image = image.copy()
+        match = match_beast_rally_selector(image)
+        self.assertIs(match.state, BeastRallyState.SELECTOR)
+        self.assertEqual(beast_rally_beast_target_point(image), dict(match.anchors)["beast"])
+
     def test_only_orange_rally_control_matches(self):
         image = Image.new("RGB", (1440, 2560), (35, 67, 104))
         button = Image.open(Path("assets/beast_rally_open_button_25.png")).convert("RGB")
@@ -221,6 +237,35 @@ class BeastRallyRecognitionTests(unittest.TestCase):
         self.assertEqual(match.point, (1162, 1035))
         # The yellow purchase control below must never become actionable.
         self.assertLess(match.point[1], 1150)
+
+    def test_live_red_25_requires_formation_and_exact_colour_and_location(self):
+        formation = Image.new("RGB", (1440, 2560), (20, 65, 109))
+        paste_asset(formation, "beast_rally_formation_anchor.png", (105, 26))
+        paste_asset(formation, "beast_rally_first_formation_selected.png", (48, 151))
+        paste_asset(formation, "beast_rally_dispatch_label.png", (925, 2360))
+        with Image.open(ASSETS / "beast_rally_dispatch_stamina_red_25_live.png") as source:
+            red25 = source.convert("RGB")
+        formation.paste(red25, (1085, 2425))
+        self.assertEqual(read_beast_rally_dispatch_stamina_shortfall(formation), 25)
+
+        missing_page = Image.new("RGB", formation.size, (20, 65, 109))
+        missing_page.paste(red25, (1085, 2425))
+        self.assertIsNone(read_beast_rally_dispatch_stamina_shortfall(missing_page))
+        moved = formation.copy()
+        moved.paste((20, 65, 109), (1085, 2425, 1175, 2490))
+        moved.paste(red25, (600, 2425))
+        self.assertIsNone(read_beast_rally_dispatch_stamina_shortfall(moved))
+
+        for altered in (ImageOps.grayscale(red25).convert("RGB"),
+                        ImageEnhance.Brightness(red25).enhance(0.4)):
+            with self.subTest(altered=altered.getpixel((20, 20))):
+                obscured = formation.copy()
+                obscured.paste(altered, (1085, 2425))
+                self.assertIsNone(read_beast_rally_dispatch_stamina_shortfall(obscured))
+
+        old_cost = formation.copy()
+        paste_asset(old_cost, "beast_rally_dispatch_stamina_red_20_live.png", (1085, 2425))
+        self.assertEqual(read_beast_rally_dispatch_stamina_shortfall(old_cost), 20)
 
     def test_rallying_panel_is_passive(self):
         image = Image.new("RGB", (1440, 2560), (45, 76, 115))

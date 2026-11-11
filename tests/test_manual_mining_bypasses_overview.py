@@ -6,9 +6,9 @@ from pathlib import Path
 
 class ManualMiningBypassContractTests(unittest.TestCase):
     def test_manual_profile_sets_level_before_auto_overview_guard(self):
-        source = (
+        source = ((
             Path(__file__).resolve().parents[1] / "wjdr_mumu_assistant_qt.py"
-        ).read_text(encoding="utf-8")
+        ).read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
         load_index = source.index(
             "resource_level = initial_mining_resource_level(mining_level_profile)"
@@ -21,18 +21,18 @@ class ManualMiningBypassContractTests(unittest.TestCase):
         self.assertIn("完全跳过地球、小房子和绿色城堡识图", source[load_index:guard_index])
 
     def test_castle_gate_keeps_manual_level_message_truthful(self):
-        source = (
+        source = ((
             Path(__file__).resolve().parents[1] / "wjdr_mumu_assistant_qt.py"
-        ).read_text(encoding="utf-8")
+        ).read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
         gate = source[source.index("if not level_verified:") :]
 
         self.assertIn('if mining_level_profile.mode == "manual":', gate)
         self.assertIn("本账号采矿固定 Lv.{resource_level}，不执行自动区域判定", gate)
 
     def test_profile_return_has_a_route_specific_passive_deadline(self):
-        source = (
+        source = ((
             Path(__file__).resolve().parents[1] / "wjdr_mumu_assistant_qt.py"
-        ).read_text(encoding="utf-8")
+        ).read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
         gate = source[source.index("if not level_verified:") : source.index("blocked_state =", source.index("if not level_verified:"))]
         profile_return = gate[gate.index("profile_back_point =") : gate.index("if mining_level_profile.mode")]
 

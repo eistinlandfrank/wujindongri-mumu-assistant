@@ -40,7 +40,7 @@ def main() -> None:
     current_point, current_score = match_daily_task_completed_check(completed_at_top, 0.94)
     assert current_point is not None and current_score >= 0.99
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     shortcut = controller[
         controller.index("completed_check, completed_check_score") : controller.index(
             "if daily_list_scan_before_image is not None"

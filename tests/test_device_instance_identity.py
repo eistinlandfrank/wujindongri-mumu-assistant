@@ -3,6 +3,21 @@ from __future__ import annotations
 from wjdr_backend import MuMuADB
 
 
+def test_manager_does_not_inherit_assistant_qt_overrides():
+    from unittest.mock import patch
+    import wjdr_backend
+
+    overrides = {'QT_QPA_PLATFORM': 'offscreen', 'QT_QPA_PLATFORM_PLUGIN_PATH': 'wrong-plugins', 'QT_PLUGIN_PATH': 'wrong-plugins'}
+    with patch.dict(wjdr_backend.os.environ, overrides), patch.object(wjdr_backend.subprocess, 'run') as run:
+        run.return_value.stdout = b'[]'
+        adb = MuMuADB.__new__(MuMuADB)
+        adb.manager_path = 'MuMuManager.exe'
+        assert adb._manager_players() == []
+        env = run.call_args.kwargs['env']
+        assert not any(k.upper().startswith('QT_QPA_') or k.upper() in {'QT_PLUGIN_PATH', 'QT_CONF_PATH'} for k in env)
+        assert env.get('PATH') == wjdr_backend.os.environ.get('PATH')
+
+
 class FakeMuMuADB(MuMuADB):
     def __init__(self) -> None:
         self.adb_path = "fake-adb"

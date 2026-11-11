@@ -39,7 +39,7 @@ def main() -> None:
         assert daily_gather_meat_is_selected(selected_right, 0.90)
         assert match_daily_gather_meat_visible_tab(selected_right, 0.90)[0] is None
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     assert "资源筛选页右侧生肉标签" in controller
     assert "生肉资源标签选中状态" in controller
     assert "未双帧确认中央生肉选中态；未点击搜索" in controller

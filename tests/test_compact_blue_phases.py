@@ -24,6 +24,52 @@ class BluePhaseTest(unittest.TestCase):
                 rows=h.read_compact_queue_icons(im,cap)
                 self.assertTrue(h.blue_only_free_slot(cap,rows), (offset,size,rows))
 
+    def test_anchored_numeric_capacity_does_not_require_complete_icons(self):
+        im = self.shifted_fixture()
+        ImageDraw.Draw(im).rectangle((30, 550, 110, 630), fill=(30, 50, 90))
+        with patch.object(h, 'match_beast_rally_world_search', return_value=((90, 1754), 1)), \
+             patch.object(h, 'match_beast_rally_progress_sidebar_expanded', return_value=(None, 0)):
+            for size in ((720, 1280), (1440, 2560)):
+                cap = h.read_compact_numeric_capacity(im.resize(size))
+                self.assertIsNotNone(cap)
+                self.assertEqual((cap.used, cap.total), (5, 6))
+            missing_title = im.copy()
+            ImageDraw.Draw(missing_title).rectangle((60, 300, 200, 700), fill=(30, 50, 90))
+            self.assertIsNone(h.read_compact_numeric_capacity(missing_title))
+        with patch.object(h, 'match_beast_rally_world_search', return_value=(None, 0)):
+            self.assertIsNone(h.read_compact_numeric_capacity(im))
+        with patch.object(h, 'match_beast_rally_world_search', return_value=((90, 1754), 1)), \
+             patch.object(h, 'match_beast_rally_progress_sidebar_expanded', return_value=((50, 50), 1)):
+            self.assertIsNone(h.read_compact_numeric_capacity(im))
+
+    def test_proven_world_reuses_context_for_anchored_capacity(self):
+        image = self.shifted_fixture()
+        for size in ((720, 1280), (1080, 1920), (1440, 2560)):
+            with self.subTest(size=size), \
+                 patch.object(h, 'match_beast_rally_world_search') as world, \
+                 patch.object(h, 'match_beast_rally_progress_sidebar_expanded') as expanded, \
+                 patch.object(h, 'read_beast_rally_collapsed_march_capacity') as legacy, \
+                 patch.object(h, 'read_compact_queue_icons') as icons:
+                capacity = h.read_compact_capacity(image.resize(size), world_proven=True)
+                self.assertEqual((capacity.used, capacity.total), (5, 6))
+                world.assert_not_called()
+                expanded.assert_not_called()
+                legacy.assert_not_called()
+                icons.assert_not_called()
+        missing_title = image.copy()
+        ImageDraw.Draw(missing_title).rectangle((60, 300, 200, 700), fill=(30, 50, 90))
+        self.assertIsNone(h.read_compact_numeric_capacity(missing_title, world_proven=True))
+
+    def test_proven_world_preserves_hidden_list_fallback(self):
+        for name in ('collapsed_round_world_live_1.png', 'collapsed_round_world_live_2.png'):
+            with self.subTest(name=name), Image.open('tests/fixtures/beast_rally/' + name) as image:
+                with patch.object(h, 'match_beast_rally_world_search') as world, \
+                     patch.object(h, 'match_beast_rally_progress_sidebar_expanded') as expanded:
+                    capacity = h.read_compact_capacity(image.convert('RGB'), world_proven=True)
+                    self.assertEqual(capacity.evidence, 'hidden_idle')
+                    self.assertEqual((capacity.used, capacity.total), (0, 0))
+                    world.assert_not_called()
+                    expanded.assert_not_called()
     def test_shifted_green_missing_or_mismatched_stays_blocked(self):
         im=self.shifted_fixture()
         cap=h.read_compact_header_digits(im)

@@ -99,7 +99,7 @@ def main() -> None:
     assert claim_one is not None and claim_one.target_count == 1
     assert claim_five is not None and claim_five.target_count == 5
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     plan = controller[
         controller.index("def run_arena_plan") : controller.index("def run_warehouse_supply_plan")
     ]

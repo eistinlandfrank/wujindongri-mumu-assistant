@@ -15,7 +15,7 @@ from wjdr_backend import (
 )
 
 
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 EVIDENCE = (
     ROOT
     / "evidence"

@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 from wjdr_backend import content_frame_mean_change
 
 
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
 def test_stable_page_comparison_is_passive_and_resolution_safe() -> None:

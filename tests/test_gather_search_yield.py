@@ -20,7 +20,7 @@ def test_live_timeout_frames_are_safe_selector_without_active_march() -> None:
 
 
 def test_timeout_recovery_is_selector_only_and_defers_one_kind() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     helper = source.split("def yield_gather_search_timeout", 1)[1].split(
         "def yield_gather_selector_stage", 1
     )[0]

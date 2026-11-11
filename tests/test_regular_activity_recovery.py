@@ -8,7 +8,7 @@ from wjdr_backend import match_daily_regular_activity_back
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
 def _synthetic_regular_activity_frame() -> Image.Image:

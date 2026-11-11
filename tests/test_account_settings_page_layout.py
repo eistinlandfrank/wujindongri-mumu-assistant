@@ -45,7 +45,7 @@ class AccountSettingsPageLayoutTests(unittest.TestCase):
 
     def test_selected_account_refreshes_both_page_local_summaries(self) -> None:
         window = self.build_window()
-        item = {"identity": "mumu:2:android:a195ab448b7cd5ab"}
+        item = {"identity": "mumu:2:android:0123456789abcdef"}
         with (
             patch(
                 "wjdr_mumu_assistant_qt.load_mining_level_profile",
@@ -62,9 +62,9 @@ class AccountSettingsPageLayoutTests(unittest.TestCase):
 
         self.assertEqual(window.mining_level_button.text(), "手动采矿 Lv.9")
         self.assertEqual(window.beast_rally_settings_button.text(), "修改巨兽参数")
-        self.assertEqual(window.beast_rally_profile_summary.text(), "9级 · 兵力 1/0/0 · 同时集结 1 · 体力上限 不限 · 今日 40")
-        self.assertIn("账号 …7cd5ab", window.mining_profile_context.text())
-        self.assertIn("账号 …7cd5ab", window.beast_rally_profile_context.text())
+        self.assertEqual(window.beast_rally_profile_summary.text(), "9级 · 兵力 1/0/0 · 同时集结 1 · 普通模式 · 体力上限 不限 · 今日 40")
+        self.assertIn("账号 …abcdef", window.mining_profile_context.text())
+        self.assertIn("账号 …abcdef", window.beast_rally_profile_context.text())
         self.assertIn("仅作用于当前账号", window.mining_profile_context.text())
         self.assertIn("仅作用于当前账号", window.beast_rally_profile_context.text())
 

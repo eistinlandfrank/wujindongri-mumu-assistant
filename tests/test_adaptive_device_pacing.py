@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     assert "MAX_SINGLE_WAIT_SECONDS = 1.5" in source
     assert "self.interval_spin.setRange(0.12, MAX_SINGLE_WAIT_SECONDS)" in source
     assert "self.red_packet_interval_spin.setRange(0.12, MAX_SINGLE_WAIT_SECONDS)" in source

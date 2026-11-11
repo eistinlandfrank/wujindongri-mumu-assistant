@@ -45,7 +45,7 @@ def main() -> None:
         negative = Image.open(negative_path).convert("RGB")
         assert match_daily_world_overview_home_button_fast(negative)[0] is None
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     section = controller.split("def establish_world_resource_level()", 1)[1].split(
         "def confirm_daily_free_march_capacity", 1
     )[0]

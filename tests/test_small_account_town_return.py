@@ -27,7 +27,7 @@ def test_small_account_city_variant_needs_same_frame_city_anchor() -> None:
 
 
 def test_persistent_town_return_uses_native_frames_only() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     start = source.index("def reopen_daily_tasks_from_gather_world")
     end = source.index("def yield_gather_search_timeout", start)
     route = source[start:end]

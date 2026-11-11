@@ -1,6 +1,11 @@
 """Single-shield and one-team Beast lifecycle, separate from Daily."""
 from dataclasses import dataclass
 from functools import lru_cache
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
 import time
 
 import cv2
@@ -10,6 +15,7 @@ from PIL import Image
 from wjdr_backend import (
     BeastRallyMatch, BeastRallyState, BUILTIN_DAILY_TASK_REFERENCE_SIZE,
     content_viewport, map_content_point, match_beast_rally_formation_controls,
+    CONFIG_DIR, APP_VERSION,
     resource_path, AdbError, DailyMarchCapacity,
     read_beast_rally_collapsed_march_capacity,
     read_daily_march_capacity,
@@ -24,7 +30,7 @@ HUNT_NAME_ASSET = "assets/beast_rally_hunt_name.png"
 
 
 class CycleActionPositions:
-    """Session-only positions from cycle one, guarded by identical viewport geometry."""
+    """First-cycle positions guarded by identical viewport geometry."""
     def __init__(self):
         self.positions = {}
 
@@ -51,8 +57,109 @@ class CycleActionPositions:
             return None
         if recognized_point is not None:
             return point if max(abs(a-b) for a,b in zip(point, recognized_point)) <= 4 else None
+        if crop is None:
+            return None  # Persisted coordinates carry no screenshot/pixel proof.
         current = np.asarray(image.crop(box).convert('L'), dtype=np.int16)
         return point if current.shape == crop.shape and np.mean(np.abs(current-crop)) <= 12 else None
+
+    def cached_point(self, name, image):
+        """Reuse a first-cycle position on the identical game viewport."""
+        cached = self.positions.get(name)
+        if not cached or image.size != cached[0] or content_viewport(image).box != cached[1]:
+            return None
+        return cached[2]
+
+    def refresh_recognized(self, name, image, point):
+        """Replace a cached point only after fresh recognition on the same viewport."""
+        cached = self.positions.get(name)
+        if not cached or not point:
+            return None
+        if image.size != cached[0] or content_viewport(image).box != cached[1]:
+            return None
+        return self.remember(name, image, point)
+
+
+_ROUTE_COORDINATE_NAMES = ('world_search', 'beast_card', 'selector_search', 'rally_button',
+                           'launch', 'withdraw_all', 'shield_plus', 'dispatch')
+
+
+def _beast_route_path(identity, directory=None):
+    if not isinstance(identity, str) or not re.fullmatch(r'mumu:\d+:android:[a-zA-Z0-9_-]+', identity):
+        return None
+    root = Path(directory) if directory is not None else CONFIG_DIR / 'beast_route_coordinates'
+    return root / (hashlib.sha256(identity.encode('utf-8')).hexdigest() + '.json')
+
+
+def save_beast_route_coordinates(identity, level, positions, select_three, *, directory=None):
+    """Persist only established points, never screenshots, for one stable identity."""
+    path = _beast_route_path(identity, directory)
+    names = _ROUTE_COORDINATE_NAMES + (('three_minutes',) if select_three else ())
+    if path is None or type(level) is not int or level < 1 or type(select_three) is not bool:
+        return False
+    entries = [positions.positions.get(name) for name in names]
+    if any(not entry for entry in entries):
+        return False
+    size, viewport = entries[0][0], entries[0][1]
+    if any(entry[0] != size or entry[1] != viewport for entry in entries):
+        return False
+    left, top, right, bottom = viewport
+    if any(not (left <= entry[2][0] < right and top <= entry[2][1] < bottom) for entry in entries):
+        return False
+    payload = {'version': 1, 'app_version': APP_VERSION,
+               'identity_hash': hashlib.sha256(identity.encode('utf-8')).hexdigest(),
+               'level': level, 'troops': [1, 0, 0], 'mode': 'manual',
+               'select_three': select_three, 'size': list(size), 'viewport': list(viewport),
+               'points': {name: list(entry[2]) for name, entry in zip(names, entries)}}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.{os.getpid()}.{time.time_ns()}.tmp')
+    try:
+        with temporary.open('w', encoding='utf-8') as stream:
+            json.dump(payload, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return True
+
+
+def load_beast_route_coordinates(identity, level, image, positions, *, directory=None):
+    """Return 3-minute selection flag, or None if identity/config/geometry differs."""
+    path = _beast_route_path(identity, directory)
+    if path is None or type(level) is not int:
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        if (not isinstance(payload, dict) or payload.get('version') != 1
+                or payload.get('app_version') != APP_VERSION
+                or payload.get('identity_hash') != hashlib.sha256(identity.encode('utf-8')).hexdigest()
+                or payload.get('level') != level or payload.get('mode') != 'manual'
+                or payload.get('troops') != [1, 0, 0]
+                or type(payload.get('select_three')) is not bool):
+            return None
+        viewport = content_viewport(image).box
+        if payload.get('size') != list(image.size) or payload.get('viewport') != list(viewport):
+            return None
+        names = _ROUTE_COORDINATE_NAMES + (('three_minutes',) if payload['select_three'] else ())
+        points = payload.get('points')
+        if not isinstance(points, dict):
+            return None
+        left, top, right, bottom = viewport
+        prepared = {}
+        for name in names:
+            point = points.get(name)
+            if (not isinstance(point, list) or len(point) != 2
+                    or any(type(value) is not int for value in point)
+                    or not (left <= point[0] < right and top <= point[1] < bottom)):
+                return None
+            prepared[name] = (image.size, viewport, tuple(point), None, None)
+        positions.positions.update(prepared)
+        return payload['select_three']
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
 
 
 def consume_beast_test_cycle_limit(environ, automatic_start=False):
@@ -106,19 +213,26 @@ def compact_closed_masks():
                      for s in (1., 4/3, 1.5))
 
 
-def read_compact_capacity(image, threshold=.90):
+def read_compact_capacity(image, threshold=.90, *, world_proven=False):
     """Numeric header, or user-confirmed hidden-list idle on a proved world.
 
     total=0 is explicitly unknown capacity, not a fabricated six-slot reading.
     Header/text/bar presence vetoes hidden-idle even if its digits fail OCR.
+    ``world_proven`` is only for the same fresh frame after the caller has
+    verified world search and confirmed the panel is not expanded. It reuses
+    those results and tries the title-anchored numeric header first.
     """
     viewport = content_viewport(image)
     if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
         return None
+    if world_proven:
+        numeric = read_compact_numeric_capacity(image, threshold, world_proven=True)
+        if numeric:
+            return numeric
     numeric = read_beast_rally_collapsed_march_capacity(image, threshold)
     if numeric:
         return numeric
-    if (not match_beast_rally_world_search(image, threshold)[0]
+    if not world_proven and (not match_beast_rally_world_search(image, threshold)[0]
             or match_beast_rally_progress_sidebar_expanded(image, threshold)[0]):
         return None
     # Live0号: clear5/6 and all five opaque circular icons, but translucent
@@ -143,7 +257,7 @@ def read_compact_capacity(image, threshold=.90):
                      for mask in compact_closed_masks())
         if not closed:
             return None
-    if read_compact_rally_rows(image):
+    if read_compact_rally_rows(image, read_timer=False):
         return None
     # A visible countdown bar or the opaque wide header must never become
     # idle merely because the text is blurred. These are vetoes, not actions.
@@ -183,12 +297,28 @@ def read_compact_header_digits(image):
     return DailyMarchCapacity(left[0],right[0],min(left[1],right[1]))
 
 
+def read_compact_numeric_capacity(image, threshold=.90, *, world_proven=False):
+    """Read a title-anchored compact capacity without assuming row identity."""
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
+        return None
+    if not world_proven and (not match_beast_rally_world_search(image, threshold)[0]
+            or match_beast_rally_progress_sidebar_expanded(image, threshold)[0]):
+        return None
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560))
+    if _compact_shifted_header(frame) is None:
+        return None
+    return read_compact_header_digits(image)
+
+
 class GuardedBeastADB:
     """Retry fresh reads only. Never replay input or migrate to another device."""
 
     def __init__(self, adb, stop_event, report, clock=time.monotonic):
         self.adb, self.stop_event, self.report, self.clock = adb, stop_event, report, clock
         self.bound_device = adb.device
+        self.input_gate = None
+        self.input_attempted = False
 
     def __getattr__(self, name):
         return getattr(self.adb, name)
@@ -219,16 +349,22 @@ class GuardedBeastADB:
                 self.report(f"截图暂时失败，立即获取新帧（{attempt + 1}/2）；不重放点击、不切换ADB")
 
     def tap(self, *point):
-        self.check_active()
-        return self.adb.tap(*point)
+        return self._input(lambda: self.adb.tap(*point))
 
     def back(self):
-        self.check_active()
-        return self.adb.back()
+        return self._input(self.adb.back)
 
     def shell(self, *args, **kwargs):
+        return self._input(lambda: self.adb.shell(*args, **kwargs))
+
+    def _input(self, operation):
         self.check_active()
-        return self.adb.shell(*args, **kwargs)
+        # Mark before transport: an exception does not prove it was ignored.
+        self.input_attempted = True
+        def guarded():
+            self.check_active()
+            return operation()
+        return self.input_gate(guarded) if self.input_gate else guarded()
 
 
 @dataclass(frozen=True)
@@ -442,23 +578,143 @@ class ConcurrentRallySnapshot:
         return self.evidence == 'hidden_idle' or self.used < self.total
 
 
+class ConcurrentLineTracker:
+    """Conservatively follow owned rows; ambiguous disappearances retain a slot.
+
+    Rows preserve their displayed order. All compatible matchings are kept, so
+    an unrelated blue row disappearing cannot release an ambiguously matched
+    owned row. An unseen rally-to-march transition remains occupied until the
+    entire compact list is proven idle.
+    """
+    def __init__(self):
+        self.states = None
+        self.last_snapshot = None
+
+    def observe(self, snapshot, new_rally=False):
+        if snapshot is None:
+            return False
+        if not new_rally and snapshot == self.last_snapshot:
+            return True
+        if snapshot.evidence == 'hidden_idle':
+            if new_rally:
+                return False
+            self.states = {((), 0)}
+            self.last_snapshot = snapshot
+            return True
+        if (snapshot.evidence != 'numeric' or len(snapshot.phases) != snapshot.used
+                or any(p not in ('gathering', 'blue', 'rallying', 'marching') for p in snapshot.phases)):
+            return False
+        if self.states is None:
+            if new_rally:
+                return False
+            self.states = {(tuple((p, False) for p in snapshot.phases), 0)}
+            self.last_snapshot = snapshot
+            return True
+        results = set()
+        allowed = {'gathering': ('gathering',), 'rallying': ('rallying', 'marching'),
+                   'marching': ('marching', 'blue'), 'blue': ('blue',)}
+        phases = snapshot.phases
+        for old, phantom in self.states:
+            def visit(i, j, rows, missing, added):
+                if len(results) > 512:
+                    return
+                if i == len(old) and j == len(phases):
+                    if added == int(new_rally):
+                        results.add((tuple(rows), missing))
+                    return
+                if i < len(old):
+                    phase, owned = old[i]
+                    # A vanished rally has no proven march completion.
+                    visit(i + 1, j, rows, missing + int(owned and phase == 'rallying'), added)
+                    if j < len(phases) and phases[j] in allowed[phase]:
+                        visit(i + 1, j + 1, rows + [(phases[j], owned)], missing, added)
+                if j < len(phases):
+                    phase = phases[j]
+                    if phase in ('blue', 'gathering'):
+                        visit(i, j + 1, rows + [(phase, False)], missing, added)
+                    elif new_rally and phase == 'rallying' and not added:
+                        visit(i, j + 1, rows + [(phase, True)], missing, 1)
+            visit(0, 0, [], phantom, 0)
+            if len(results) > 512:
+                break
+        if not results or len(results) > 512:
+            return False
+        self.states = results
+        self.last_snapshot = snapshot
+        return True
+
+    def has_room(self, limit):
+        return bool(self.states is not None and all(
+            phantom + sum(owned for _, owned in rows) < limit
+            for rows, phantom in self.states))
+
+
+def concurrent_dispatch_allowed(snapshot, limit):
+    """Keep every non-gathering row in the limit until it leaves the list.
+
+    Blue icons can be returning troops or unrelated queues; their ownership is
+    not established here, so count them conservatively instead of releasing a
+    slot just because a green rally changed colour.
+    """
+    if snapshot is None or limit < 1 or not snapshot.free:
+        return False
+    if snapshot.evidence == 'hidden_idle':
+        return snapshot.used == 0 and not snapshot.phases
+    if (snapshot.evidence != 'numeric' or len(snapshot.phases) != snapshot.used
+            or any(p not in ('gathering', 'blue', 'rallying', 'marching') for p in snapshot.phases)):
+        return False
+    return sum(p != 'gathering' for p in snapshot.phases) < limit
+
+
 def confirms_new_concurrent_rally(before, after):
-    """Prove one new rally even if previously tracked green marches returned."""
+    """Prove a new rally under every compatible ordered row matching.
+
+    This gate follows an already issued rally dispatch under the account's
+    exclusive worker. Existing rallies may become marches, rows may disappear,
+    and independent gathering/blue rows may change. An unexplained new green
+    marching row is not treated as a new rally.
+    """
     if before is None or after is None:
         return False
     if before.total and after.total != before.total:
         return False
-    if after.rallies != before.rallies + 1:
+    if after.evidence != 'numeric' or not 0 <= after.used <= after.total:
         return False
-    if not 1 <= after.green <= before.green + 1:
+    if before.evidence == 'hidden_idle':
+        if before.used or before.phases:
+            return False
+    elif before.evidence != 'numeric' or not 0 <= before.used <= before.total:
         return False
-    # Non-owned rows cannot be used as evidence of our new dispatch or silently
-    # disappear while its acknowledgement is being reconciled.
-    if any(before.phases.count(phase) != after.phases.count(phase)
-           for phase in ('blue', 'gathering')):
+    allowed = {'gathering': ('gathering',), 'blue': ('blue',),
+               'rallying': ('rallying', 'marching'), 'marching': ('marching', 'blue'),
+               # A partially unreadable baseline can represent any existing
+               # row. It cannot itself prove that a later row is new.
+               'unknown': ('gathering', 'blue', 'rallying', 'marching')}
+    if (len(before.phases) != before.used or len(after.phases) != after.used
+            or any(p not in allowed for p in before.phases)
+            or any(p not in ('gathering', 'blue', 'rallying', 'marching') for p in after.phases)):
         return False
-    returned = before.green + 1 - after.green
-    return after.used == before.used + 1 - returned
+
+    @lru_cache(maxsize=None)
+    def matches(i, j, added):
+        if i == len(before.phases) and j == len(after.phases):
+            return frozenset((added,))
+        outcomes = set()
+        if i < len(before.phases):
+            # A previously visible row can leave the compact list.
+            outcomes.update(matches(i + 1, j, added))
+            if j < len(after.phases) and after.phases[j] in allowed[before.phases[i]]:
+                outcomes.update(matches(i + 1, j + 1, added))
+        if j < len(after.phases):
+            phase = after.phases[j]
+            if phase in ('gathering', 'blue'):
+                outcomes.update(matches(i, j + 1, added))
+            elif phase == 'rallying' and not added:
+                outcomes.update(matches(i, j + 1, True))
+        return frozenset(outcomes)
+
+    # If a matching without the dispatch exists, the new row is ambiguous.
+    return matches(0, 0, False) == frozenset((True,))
 
 
 def classify_concurrent_rows(capacity, icons, rallies, marches):
@@ -506,7 +762,7 @@ def read_concurrent_snapshot(image):
         return CompactRallyRow(row.owner, (round((x-viewport.left)*1440/viewport.width),
                                             round((y-viewport.top)*2560/viewport.height)), row.seconds, row.phase)
     return classify_concurrent_rows(capacity, read_compact_queue_icons(image, capacity),
-                                    tuple(map(normalized, read_compact_rally_rows(image))),
+                                    tuple(map(normalized, read_compact_rally_rows(image, read_timer=False))),
                                     tuple(map(normalized, read_compact_marching_rows(image))))
 
 
@@ -516,7 +772,7 @@ def compact_rally_title() -> np.ndarray:
         return np.asarray(im.convert('L').resize((143,36)))
 
 
-def read_compact_rally_rows(image: Image.Image) -> tuple[CompactRallyRow, ...]:
+def read_compact_rally_rows(image: Image.Image, *, read_timer: bool = True) -> tuple[CompactRallyRow, ...]:
     """Recognise owner by the ICON fill, never the universally green bar.
 
     Restricted to the compact list in a full-screen frame. A blue 返回中
@@ -545,15 +801,16 @@ def read_compact_rally_rows(image: Image.Image) -> tuple[CompactRallyRow, ...]:
         green = ((hsv[:,:,0]>=35)&(hsv[:,:,0]<=85)&(hsv[:,:,1]>110)&(hsv[:,:,2]>100))[circle].mean()
         blue = ((hsv[:,:,0]>=95)&(hsv[:,:,0]<=125)&(hsv[:,:,1]>100)&(hsv[:,:,2]>100))[circle].mean()
         owner = 'own' if green > .30 and blue < .15 else 'joined' if blue > .30 and green < .15 else 'unknown'
-        timer = frame.crop((x-5,y+36,min(x+275,520),y+86))
-        comps = _daily_white_numeric_components(timer)
-        digits = [_read_daily_numeric_glyph(c[4]) for c in comps] if len(comps)==6 else []
         seconds = None
-        if digits and all(d and d[1]>=.80 for d in digits):
-            ds = [d[0] for d in digits]
-            hh,mm,ss = ds[0]*10+ds[1],ds[2]*10+ds[3],ds[4]*10+ds[5]
-            if hh<24 and mm<60 and ss<60:
-                seconds=hh*3600+mm*60+ss
+        if read_timer:
+            timer = frame.crop((x-5,y+36,min(x+275,520),y+86))
+            comps = _daily_white_numeric_components(timer)
+            digits = [_read_daily_numeric_glyph(c[4]) for c in comps] if len(comps)==6 else []
+            if digits and all(d and d[1]>=.80 for d in digits):
+                ds = [d[0] for d in digits]
+                hh,mm,ss = ds[0]*10+ds[1],ds[2]*10+ds[3],ds[4]*10+ds[5]
+                if hh<24 and mm<60 and ss<60:
+                    seconds=hh*3600+mm*60+ss
         rows.append(CompactRallyRow(owner, map_content_point((x-50,y+35), BUILTIN_DAILY_TASK_REFERENCE_SIZE,image), seconds))
         local_y=y-top
         scores[max(0,local_y-50):local_y+65,:]=-1
@@ -689,6 +946,110 @@ def beast_soldier_rows(image: Image.Image):
         else:
             values.append(int(''.join(str(d[0]) for d in digits)))
     return tuple(values)
+
+
+def _beast_total_digits(components):
+    """Read total digits, including a tightly touching pair when unambiguous."""
+    digits = []
+    for _x, _y, width, height, glyph in components:
+        if width < 45:
+            reading = _read_daily_numeric_glyph(glyph)
+            if reading is None or reading[1] < .82:
+                return None
+            digits.append(reading[0])
+            continue
+        if not (width <= 80 and 27 <= height <= 40):
+            return None
+        candidates = set()
+        for split in range(12, width - 11):
+            left = _read_daily_numeric_glyph(glyph[:, :split])
+            right = _read_daily_numeric_glyph(glyph[:, split:])
+            if left is not None and right is not None and min(left[1], right[1]) >= .92:
+                candidates.add((left[0], right[0]))
+        if len(candidates) != 1:
+            return None
+        digits.extend(next(iter(candidates)))
+    return digits if 1 <= len(digits) <= 6 else None
+
+
+def beast_first_visible_shield_row(image: Image.Image):
+    """Locate the uppermost visible shield, proving earlier rows are other types."""
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9 / 16) > .008:
+        return None
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560)).convert('RGB')
+    for index, y in enumerate((1298, 1578, 1858)):
+        area = np.asarray(frame.crop((44, y - 8, 116, y + 58)))
+        scores = [float(cv2.minMaxLoc(cv2.matchTemplate(area, t, cv2.TM_CCOEFF_NORMED))[1])
+                  for t in soldier_type_templates()]
+        best = int(np.argmax(scores))
+        if best == 0 and scores[0] >= .94 and scores[0] >= max(scores[1:]) + .08:
+            return index
+        if best == 0 or scores[best] < .84 or scores[best] < max(scores[i] for i in range(3) if i != best) + .08:
+            return None
+    return None
+
+
+def beast_mixed_single_shield(image: Image.Image):
+    """Read the total and first shield row without assuming one row per type.
+
+    Clear-all is required when enabled; a disabled dispatch and exact zeroes
+    prove the cleared state. An unreadable total or row remains unknown.
+    """
+    viewport = content_viewport(image)
+    if viewport.width < 720 or abs(viewport.width / viewport.height - 9 / 16) > .008:
+        return None
+    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560)).convert('RGB')
+    normal = match_beast_rally_formation_controls(image).state is BeastRallyState.FORMATION
+    # Clearing troops disables dispatch and replaces "withdraw all" with
+    # "quick select".  Prove this distinct state with both the page anchor
+    # and its disabled dispatch label, then require exact zero counts below.
+    if not normal:
+        with Image.open(resource_path('assets/beast_rally_formation_anchor.png')) as source:
+            anchor = np.asarray(source.convert('RGB'))
+        with Image.open(resource_path('assets/beast_rally_dispatch_disabled.png')) as source:
+            disabled = np.asarray(source.convert('RGB'))
+        rgb = np.asarray(frame)
+        region = rgb[:307, :662]
+        if (cv2.minMaxLoc(cv2.matchTemplate(region, anchor, cv2.TM_CCOEFF_NORMED))[1] < .94
+                or disabled.shape != rgb[2353:2429, 927:1247].shape
+                or cv2.matchTemplate(rgb[2353:2429, 927:1247], disabled, cv2.TM_CCOEFF_NORMED)[0, 0] < .94
+                or np.abs(rgb[2353:2429, 927:1247].astype(float) - disabled).mean() > 16):
+            return None
+    row_index = beast_first_visible_shield_row(image)
+    if row_index is None:
+        return None
+    with Image.open(resource_path('assets/beast_withdraw_all.png')) as source:
+        template = np.asarray(source.convert('RGB'))
+    area = np.asarray(frame.crop((50, 2290, 220, 2530)))
+    if normal and (area.shape != template.shape or float(cv2.matchTemplate(area, template, cv2.TM_CCOEFF_NORMED)[0, 0]) < .94):
+        return None
+    components = _daily_white_numeric_components(frame.crop((165, 355, 530, 420)))
+    slashes = [i for i, item in enumerate(components) if _daily_numeric_component_is_slash(item[4])]
+    if len(slashes) != 1:
+        return None
+    digits = components[:slashes[0]]
+    if not 1 <= len(digits) <= 6:
+        return None
+    readings = _beast_total_digits(digits)
+    if readings is None:
+        return None
+    total = int(''.join(str(d) for d in readings))
+    row_y = 1295 + 280 * row_index
+    glyphs = _daily_white_numeric_components(frame.crop((840, row_y, 1065, row_y + 41)))
+    if not 1 <= len(glyphs) <= 6:
+        return None
+    row_digits = [_read_daily_numeric_glyph(g[4]) for g in glyphs]
+    start, end = glyphs[0][0], glyphs[-1][0] + glyphs[-1][2]
+    if (not 94 <= (start + end) / 2 <= 131
+            or any(not (8 <= g[2] <= 40 and 27 <= g[3] <= 40) for g in glyphs)
+            or any(d is None or d[1] < .82 for d in row_digits)
+            or any(glyphs[i+1][0] - (glyphs[i][0]+glyphs[i][2]) > 20 for i in range(len(glyphs)-1))):
+        return None
+    row = int(''.join(str(d[0]) for d in row_digits))
+    if row > total or (not normal and (total, row) != (0, 0)):
+        return None
+    return total, row, map_content_point((135, 2365), (1440, 2560), image)
 
 
 @dataclass

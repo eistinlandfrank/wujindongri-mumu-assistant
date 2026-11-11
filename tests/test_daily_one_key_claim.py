@@ -61,7 +61,7 @@ def main() -> None:
 
     # The same still-visible one-key control must never be clicked twice
     # while the first click is awaiting its correlated settlement.
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     actionable = controller.index(
         "actionable = (DailyTaskState.CLAIM_READY, DailyTaskState.TASK_CLAIM_READY)"
     )

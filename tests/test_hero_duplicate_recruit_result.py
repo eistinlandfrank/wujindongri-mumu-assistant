@@ -42,7 +42,7 @@ def test_dimmed_duplicate_lookalike_and_plain_page_do_not_match() -> None:
 
 
 def test_duplicate_variant_has_no_standalone_exit_coordinate() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     start = source.index("def wait_for_correlated_hero_result")
     end = source.index('"免费招募后的英雄招募页"', start)
     route = source[start:end]

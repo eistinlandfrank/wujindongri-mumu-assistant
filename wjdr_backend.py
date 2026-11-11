@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import inspect
+import hashlib
 import json
 import os
 import re
@@ -12,11 +13,13 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 if os.name == "nt":
     import ctypes
@@ -29,7 +32,7 @@ from PIL import Image, ImageChops, ImageStat
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.71.0"
+APP_VERSION = "5.78.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -40,6 +43,7 @@ LOCK_DIR = CONFIG_DIR / "device_locks"
 MINING_LEVEL_PROFILES_FILE = CONFIG_DIR / "mining_level_profiles.json"
 BEAST_RALLY_PROFILES_FILE = CONFIG_DIR / "beast_rally_profiles.json"
 BEAST_RALLY_STAMINA_LEDGER_FILE = CONFIG_DIR / "beast_rally_stamina_ledger.json"
+BEAST_RALLY_ITEM_TRANSACTION_FILE = CONFIG_DIR / "beast_rally_item_transactions.json"
 BUILTIN_ALL_HELP_TEMPLATE_ASSET = "alliance_all_help_builtin.png"
 BUILTIN_ALL_HELP_TEMPLATE_NAME = "内置_全部帮助_实测.png"
 BUILTIN_HELP_TEMPLATE_ASSET = "alliance_help_builtin.png"
@@ -114,6 +118,7 @@ BUILTIN_BEAST_RALLY_WORLD_TOWN_DENSE_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_ral
 BUILTIN_BEAST_RALLY_BEAST_TARGET_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_beast_target.png"
 BUILTIN_BEAST_RALLY_LEVEL_FIELD_EIGHT_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_level_field_8.png"
 BUILTIN_BEAST_RALLY_SEARCH_BUTTON_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_search_button.png"
+BUILTIN_BEAST_EXPLORATION_HEADER_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_exception_exploration_header.png"
 BUILTIN_BEAST_RALLY_OPEN_BUTTON_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_open_button_25.png"
 BUILTIN_BEAST_RALLY_OPEN_LABEL_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_open_label.png"
 BUILTIN_BEAST_RALLY_SHEET_HEADER_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_sheet_header.png"
@@ -125,6 +130,7 @@ BUILTIN_BEAST_RALLY_STAMINA_MORE_TITLE_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_r
 BUILTIN_BEAST_RALLY_STAMINA_RESTORE10_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_stamina_restore10_live.png"
 BUILTIN_BEAST_RALLY_STAMINA_USE_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_stamina_use_label_live.png"
 BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED20_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_dispatch_stamina_red_20_live.png"
+BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED25_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_dispatch_stamina_red_25_live.png"
 BUILTIN_BEAST_RALLY_FIRST_FORMATION_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_first_formation_selected.png"
 BUILTIN_BEAST_RALLY_DISPATCH_LABEL_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_dispatch_label.png"
 BUILTIN_BEAST_RALLY_PROGRESS_ICON_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_progress_icon.png"
@@ -158,6 +164,7 @@ BUILTIN_BEAST_RALLY_PROGRESS_IDLE_ASSET = (
 )
 BUILTIN_BEAST_RALLY_STATE_RALLYING_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_state_rallying.png"
 BEAST_RALLY_BUILTIN_ASSETS: tuple[str, ...] = (
+    BUILTIN_BEAST_EXPLORATION_HEADER_ASSET,
     "assets/beast_rally_compact_rallying_title.png",
     "assets/beast_rally_hunt_name.png",
     BUILTIN_BEAST_RALLY_WORLD_SEARCH_ASSET,
@@ -178,6 +185,7 @@ BEAST_RALLY_BUILTIN_ASSETS: tuple[str, ...] = (
     BUILTIN_BEAST_RALLY_STAMINA_RESTORE10_ASSET,
     BUILTIN_BEAST_RALLY_STAMINA_USE_ASSET,
     BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED20_ASSET,
+    BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED25_ASSET,
     BUILTIN_BEAST_RALLY_FIRST_FORMATION_ASSET,
     BUILTIN_BEAST_RALLY_DISPATCH_LABEL_ASSET,
     BUILTIN_BEAST_RALLY_PROGRESS_ICON_ASSET,
@@ -1249,6 +1257,38 @@ DAILY_BUILTIN_TEMPLATES: tuple[tuple[str, str], ...] = (
         BUILTIN_DAILY_ALLIANCE_TECH_TERRITORY_TAB_STRIP_TEMPLATE_NAME,
     ),
     (BUILTIN_DAILY_ALLIANCE_FOOD_DONATE_DISABLED_ASSET, BUILTIN_DAILY_ALLIANCE_FOOD_DONATE_DISABLED_TEMPLATE_NAME),
+    ("assets/daily_carnival_sale_title.png", "daily_carnival_sale_title.png"),
+    ("assets/daily_carnival_sale_close.png", "daily_carnival_sale_close.png"),
+    ("assets/daily_alliance_relocate_title.png", "daily_alliance_relocate_title.png"),
+    ("assets/daily_alliance_relocate_close.png", "daily_alliance_relocate_close.png"),
+    ("assets/daily_alliance_relocate_button.png", "daily_alliance_relocate_button.png"),
+    ("assets/daily_sustain_locked_title.png", "daily_sustain_locked_title.png"),
+    ("assets/daily_sustain_locked_requirement.png", "daily_sustain_locked_requirement.png"),
+    ("assets/daily_sustain_locked_go.png", "daily_sustain_locked_go.png"),
+    ("assets/daily_troop_life_title.png", "daily_troop_life_title.png"),
+    ("assets/daily_troop_life_requirement.png", "daily_troop_life_requirement.png"),
+    ("assets/daily_shield_life_title.png", "daily_shield_life_title.png"),
+    ("assets/daily_shield_life_requirement.png", "daily_shield_life_requirement.png"),
+    ("assets/daily_tech_modal_close.png", "daily_tech_modal_close.png"),
+    ("assets/daily_intel_tutorial_bubble.png", "daily_intel_tutorial_bubble.png"),
+    ("assets/daily_intel_tutorial_hand.png", "daily_intel_tutorial_hand.png"),
+    ("assets/daily_pet_treasure_task.png", "daily_pet_treasure_task.png"),
+    *((f"assets/daily_{name}", f"daily_{name}") for name in (
+        "pet_map_title.png", "pet_map_first_check.png", "pet_chest_paw.png",
+        "pet_completed_title.png", "pet_completed_text.png", "pet_completed_chest.png",
+        "pet_completed_x.png", "pet_new_node_context.png", "pet_new_detail_title.png",
+        "pet_new_dispatch.png", "pet_dispatch_select_title.png", "pet_selected_left.png",
+        "pet_selected_right.png", "pet_dispatch_start_cost10.png", "pet_active_title.png",
+        "pet_active_x_final.png", "pet_map_back.png",
+    )),
+    ("assets/daily_arena_wan_unit.png", "daily_arena_wan_unit.png"),
+    ("assets/daily_arena_guard_fight.png", "daily_arena_guard_fight.png"),
+    ("assets/daily_arena_result_exit_alt.png", "daily_arena_result_exit_alt.png"),
+    ("assets/daily_arena_victory_banner.png", "daily_arena_victory_banner.png"),
+    ("assets/daily_arena_result_rank.png", "daily_arena_result_rank.png"),
+    ("assets/daily_arena_list_close.png", "daily_arena_list_close.png"),
+    ("assets/daily_arena_wan_small_green.png", "daily_arena_wan_small_green.png"),
+    ("assets/daily_arena_wan_small_red.png", "daily_arena_wan_small_red.png"),
 )
 DAILY_BUILTIN_TEMPLATE_FILENAMES = frozenset(
     [name for _asset, name in DAILY_BUILTIN_TEMPLATES]
@@ -1414,6 +1454,7 @@ class DailyMissionKind(str, Enum):
     WAREHOUSE_SUPPLY = "warehouse_supply"
     HERO_RECRUIT = "hero_recruit"
     ALLIANCE_DONATE = "alliance_donate"
+    PET_TREASURE = "pet_treasure"
 
 
 class CastleLevelGate(str, Enum):
@@ -1569,6 +1610,7 @@ class BeastRallyProfile:
     bow_count: int = 0
     formation_name: str = "打野"
     max_concurrent_rallies: int = 1
+    run_mode: str = "normal"
 
     def __post_init__(self) -> None:
         if not 1 <= int(self.beast_level) <= 30:
@@ -1585,6 +1627,8 @@ class BeastRallyProfile:
             raise ValueError("unsupported formation name")
         if not 1 <= int(self.max_concurrent_rallies) <= 10:
             raise ValueError("concurrent rally limit must be between 1 and 10")
+        if self.run_mode not in ("normal", "fast"):
+            raise ValueError("invalid beast run mode")
 
 
 def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
@@ -1631,6 +1675,7 @@ def load_beast_rally_profile(
             bow_count=int(entry.get("bow_count", 0)),
             formation_name=str(entry.get("formation_name", "打野")),
             max_concurrent_rallies=int(entry.get("max_concurrent_rallies", 1)),
+            run_mode=str(entry.get("run_mode", "normal")),
         )
     except FileNotFoundError:
         return BeastRallyProfile()
@@ -1684,6 +1729,253 @@ def _serialized_account_write(function):
     return guarded
 
 
+def _load_beast_item_transactions(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"version": 1, "accounts": {}}
+    if (not isinstance(payload, dict) or payload.get("version") != 1
+            or not isinstance(payload.get("accounts"), dict)):
+        raise ValueError("invalid item transaction ledger; preserve and stop")
+    for entry in payload["accounts"].values():
+        if isinstance(entry, dict) and entry.get("mode") == "fast":
+            if (not isinstance(entry.get("id"), str) or not entry["id"]
+                    or type(entry.get("count")) is not int or entry["count"] not in (1, 3, 4)
+                    or entry.get("phase") not in ("prepared", "sent")):
+                raise ValueError("invalid fast item batch; preserve and stop")
+            continue
+        if (not isinstance(entry, dict) or not isinstance(entry.get("id"), str)
+                or not entry["id"] or type(entry.get("inventory")) is not int
+                or entry["inventory"] < 1 or type(entry.get("stamina")) is not int
+                or entry["stamina"] < 0):
+            raise ValueError("invalid item transaction entry; preserve and stop")
+        if "count" in entry and (type(entry["count"]) is not int or entry["count"] != 3 or entry["inventory"] < 3):
+            raise ValueError("invalid item batch; preserve and stop")
+        if "observed_count" in entry and (entry.get("count") != 3 or type(entry["observed_count"]) is not int
+                                           or not 1 <= entry["observed_count"] <= 2):
+            raise ValueError("invalid partial item observation; preserve and stop")
+    return payload
+
+
+def _durable_beast_item_write(path: Path, payload: dict[str, Any]) -> None:
+    """Flush the pre-input journal before replacing the shared ledger."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _valid_beast_item_observation(observation: tuple[int, int]) -> bool:
+    return (isinstance(observation, tuple) and len(observation) == 2
+            and all(type(value) is int and value >= 0 for value in observation))
+
+
+@_serialized_account_write
+def begin_beast_stamina_item_use(identity: str, first: tuple[int, int], second: tuple[int, int],
+                                 *, path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> str:
+    """Journal one use before input; caller holds the account lease.
+
+    Observations are (inventory, stamina) from two fresh, independently read,
+    exact same-account restore-10 inventory-page frames. No OCR implementation
+    is implied by this API; unknown or ambiguous readings must never be passed.
+    Pending entries are independent of the daily stamina budget and survive
+    both midnight and restarts. A crash before the input is intentionally
+    indistinguishable from an unknown acknowledgement and requires inspection.
+    """
+    key = str(identity).strip()
+    if (not key or not _valid_beast_item_observation(first)
+            or not _valid_beast_item_observation(second) or first != second
+            or first[0] < 1):
+        raise ValueError("two matching known inventory/stamina observations required")
+    payload = _load_beast_item_transactions(path)
+    if key in payload["accounts"]:
+        raise ValueError("unresolved item use; do not repeat input")
+    token = uuid.uuid4().hex
+    payload["accounts"][key] = {"id": token, "inventory": first[0], "stamina": first[1]}
+    _durable_beast_item_write(path, payload)
+    return token
+
+
+@_serialized_account_write
+def begin_beast_stamina_fast_batch(identity: str, *, count: int = 1, path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> str:
+    """Record the maximum authorized uses before any input."""
+    key = str(identity).strip()
+    if not key or count not in (1, 3, 4):
+        raise ValueError("device identity is required")
+    payload = _load_beast_item_transactions(path)
+    if key in payload["accounts"]:
+        raise ValueError("unresolved item use; do not repeat input")
+    token = uuid.uuid4().hex
+    payload["accounts"][key] = {"id": token, "mode": "fast", "count": count, "phase": "prepared"}
+    _durable_beast_item_write(path, payload)
+    return token
+
+
+@_serialized_account_write
+def update_beast_stamina_fast_batch(identity: str, token: str, *, complete: bool = False,
+                                    path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> None:
+    """Mark the recorded input sent, or finish after returning to the intended formation.
+
+    Completion does not claim a particular number of items was consumed. The
+    caller must own the lease and verify the same account's formation page.
+    """
+    key = str(identity).strip()
+    payload = _load_beast_item_transactions(path)
+    entry = payload["accounts"].get(key)
+    if not key or not token or not entry or entry.get("id") != token or entry.get("mode") != "fast":
+        raise ValueError("fast item transaction missing or changed")
+    if complete:
+        if entry["phase"] != "sent":
+            raise ValueError("item batch not fully sent")
+        del payload["accounts"][key]
+    elif entry["phase"] == "prepared":
+        entry["phase"] = "sent"
+    else:
+        raise ValueError("item batch already sent")
+    _durable_beast_item_write(path, payload)
+
+
+@_serialized_account_write
+def archive_beast_stamina_fast_batch_uncertain(identity: str, token: str, *,
+                                                path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> None:
+    """Archive a sent batch without claiming its outcome or replaying input.
+
+    The caller holds the account lease, confirms no dispatch reservation, and
+    verifies either the item overlay was closed to the same formation or two
+    fresh frames show the world with no pending dispatch. Prepared or mismatched
+    transactions cannot be reconciled by this operation.
+    """
+    key = str(identity).strip()
+    payload = _load_beast_item_transactions(path)
+    entry = payload["accounts"].get(key)
+    if (not key or not token or not entry or entry.get("id") != token
+            or entry.get("mode") != "fast" or entry.get("phase") != "sent"):
+        raise ValueError("sent fast item transaction missing or changed")
+    history = payload.setdefault("uncertain_history", [])
+    if not isinstance(history, list):
+        raise ValueError("invalid uncertain item history; preserve and stop")
+    history.append({"identity": key, "id": token, "mode": "fast",
+                    "count": entry["count"], "outcome": "unknown", "archived_at": time.time()})
+    del payload["accounts"][key]
+    _durable_beast_item_write(path, payload)
+
+
+@_serialized_account_write
+def archive_beast_prepared_item_world_uncertain(identity: str, token: str, *,
+                                                 path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> None:
+    """Archive a prepared action after the caller proves it has left its page.
+
+    The account lease, fresh world proof and absence of reservations are the
+    caller's responsibility.  This never claims or repeats the item input.
+    """
+    key = str(identity).strip()
+    payload = _load_beast_item_transactions(path)
+    entry = payload["accounts"].get(key)
+    if (not key or not token or not entry or entry.get("id") != token
+            or entry.get("mode") != "fast" or entry.get("phase") != "prepared"):
+        raise ValueError("prepared fast item transaction missing or changed")
+    history = payload.setdefault("uncertain_history", [])
+    if not isinstance(history, list):
+        raise ValueError("invalid uncertain item history; preserve and stop")
+    history.append({"identity": key, "id": token, "mode": "fast",
+                    "phase": "prepared", "count": entry["count"],
+                    "outcome": "unknown", "archived_at": time.time()})
+    del payload["accounts"][key]
+    _durable_beast_item_write(path, payload)
+
+
+@_serialized_account_write
+def begin_beast_stamina_item_batch(identity: str, first: tuple[int, int], second: tuple[int, int],
+                                   *, path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> str:
+    """Reserve the entire three-tap batch durably before any input."""
+    key = str(identity).strip()
+    if (not key or not _valid_beast_item_observation(first)
+            or not _valid_beast_item_observation(second) or first != second
+            or first[0] < 3 or first[1] > 170):
+        raise ValueError("two matching observations and three available items required")
+    payload = _load_beast_item_transactions(path)
+    if key in payload["accounts"]:
+        raise ValueError("unresolved item use; do not repeat input")
+    token = uuid.uuid4().hex
+    payload["accounts"][key] = {"id": token, "inventory": first[0], "stamina": first[1], "count": 3}
+    _durable_beast_item_write(path, payload)
+    return token
+
+
+@_serialized_account_write
+def load_beast_stamina_item_pending(identity: str, *, path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> dict[str, Any] | None:
+    key = str(identity).strip()
+    if not key:
+        raise ValueError("device identity is required")
+    entry = _load_beast_item_transactions(path)["accounts"].get(key)
+    return dict(entry) if entry is not None else None
+
+
+@_serialized_account_write
+def record_beast_stamina_batch_partial(identity: str, token: str, first: tuple[int, int],
+                                       second: tuple[int, int], *,
+                                       path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> int | None:
+    """Record evidenced partial consumption while retaining the unknown batch.
+
+    A partial observation cannot prove that previously submitted inputs will
+    never take effect later. It is not permission to retry or clear the batch.
+    The caller owns the account lease and supplies fresh same-page observations.
+    """
+    key = str(identity).strip()
+    payload = _load_beast_item_transactions(path)
+    entry = payload["accounts"].get(key)
+    if not key or entry is None or not token or entry["id"] != token or entry.get("count") != 3 or entry.get("mode") == "fast":
+        raise ValueError("batch transaction missing or changed")
+    if not _valid_beast_item_observation(first) or first != second:
+        return None
+    count = entry["inventory"] - first[0]
+    if count not in (1, 2) or first[1] < entry["stamina"] + 10 * count:
+        return None
+    if count < entry.get("observed_count", 0):
+        return None
+    if entry.get("observed_count") != count:
+        entry["observed_count"] = count
+        _durable_beast_item_write(path, payload)
+    return count
+
+
+@_serialized_account_write
+def confirm_beast_stamina_item_use(identity: str, token: str, first: tuple[int, int], second: tuple[int, int],
+                                   *, path: Path = BEAST_RALLY_ITEM_TRANSACTION_FILE) -> bool:
+    """Clear only on two fresh, consistent, trusted post-input observations.
+
+    Require the journaled item count consumed AND stamina up by 10 per item. Callers
+    must ensure no other actor can use/change inventory and own the account
+    lease; a return of False leaves the transaction pending without retry.
+    """
+    key = str(identity).strip()
+    if not key or not isinstance(token, str) or not token:
+        raise ValueError("device identity and transaction token required")
+    payload = _load_beast_item_transactions(path)
+    entry = payload["accounts"].get(key)
+    if entry is None or entry["id"] != token:
+        raise ValueError("item transaction missing or changed")
+    if entry.get("mode") == "fast":
+        return False
+    count = entry.get("count", 1)
+    if (not _valid_beast_item_observation(first)
+            or not _valid_beast_item_observation(second) or first != second
+            or first[0] != entry["inventory"] - count or first[1] < entry["stamina"] + 10 * count):
+        return False
+    del payload["accounts"][key]
+    _durable_beast_item_write(path, payload)
+    return True
+
+
 @_serialized_account_write
 def save_beast_rally_profile(
     identity: str,
@@ -1714,6 +2006,7 @@ def save_beast_rally_profile(
         "bow_count": int(profile.bow_count),
         "formation_name": profile.formation_name,
         "max_concurrent_rallies": int(profile.max_concurrent_rallies),
+        "run_mode": profile.run_mode,
     }
     _atomic_json_write(path, {"version": 1, "profiles": profiles})
 
@@ -1808,6 +2101,7 @@ def reconcile_beast_rally_idle_reservation(
         return 0
     account["uncertain"] = max(0, int(account.get("uncertain", 0))) + reserved
     account["reserved"] = 0
+    account.pop("reserved_estimated", None)
     account["last_recovery"] = {"reason": "fresh_double_empty_compact" if compact_idle else "fresh_double_six_idle", "amount": reserved,
                                 "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     _atomic_json_write(path, payload)
@@ -1833,9 +2127,39 @@ def reconcile_beast_rally_gathering_reservation(identity, first, second, *, day=
     if reserved:
         account['uncertain'] = max(0, int(account.get('uncertain', 0))) + reserved
         account['reserved'] = 0
+        account.pop('reserved_estimated', None)
         account['last_recovery'] = {'reason': 'fresh_double_gathering_only', 'amount': reserved,
                                     'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
         _atomic_json_write(path, payload)
+    return reserved
+
+
+@_serialized_account_write
+def load_beast_rally_stamina_reserved_any_day(
+    identity: str, *, path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
+) -> int:
+    """Read this account's outstanding dispatch regardless of ledger day.
+
+    Call while holding the account lease, before any game inputs. Corruption
+    must not be interpreted as an empty reservation.
+    """
+    key = str(identity).strip()
+    if not key:
+        raise ValueError("device identity is required")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError("cannot read stamina ledger; preserve it and stop") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("accounts"), dict):
+        raise ValueError("invalid stamina ledger; preserve it and stop")
+    account = payload["accounts"].get(key, {})
+    if not isinstance(account, dict):
+        raise ValueError("invalid stamina account; preserve it and stop")
+    reserved = account.get("reserved", 0)
+    if type(reserved) is not int or reserved < 0:
+        raise ValueError("invalid stamina reservation; preserve it and stop")
     return reserved
 
 
@@ -1844,35 +2168,210 @@ def reserve_beast_rally_stamina(
     identity: str,
     cost: int,
     *,
+    estimated: bool = False,
     day: str | None = None,
     path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE,
 ) -> int:
     """Persist one cost before the final dispatch input."""
     key = str(identity).strip()
     debit = int(cost)
-    if not key:
+    if not key or type(estimated) is not bool:
         raise ValueError("device identity is required")
     if debit <= 0 or debit > 999:
         raise ValueError("reserved stamina cost must be between 1 and 999")
     active_day = str(day or _beast_rally_ledger_day())
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            payload = {}
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        payload = {}
-    accounts = payload.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
+    except FileNotFoundError:
+        payload = {"version": 2, "accounts": {}}
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError("cannot read stamina ledger; preserve it and stop") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("accounts"), dict):
+        raise ValueError("invalid stamina ledger; preserve it and stop")
+    accounts = payload["accounts"]
     previous = accounts.get(key, {})
+    if not isinstance(previous, dict):
+        raise ValueError("invalid stamina account; preserve it and stop")
+    old_reserved = previous.get("reserved", 0)
+    if type(old_reserved) is not int or old_reserved < 0:
+        raise ValueError("invalid stamina reservation; preserve it and stop")
+    # A reservation is a possible already-sent dispatch, not a daily budget.
+    # Never erase it merely because the local date rolled over.
+    if old_reserved:
+        raise ValueError("an unresolved beast-rally stamina reservation already exists")
+    if previous.get("submitted_pending") is not None:
+        raise ValueError("a submitted dispatch still needs page recovery")
+    if previous.get("submitted_debit") is not None:
+        raise ValueError("an orphaned submitted debit needs recovery")
     same_day = isinstance(previous, dict) and str(previous.get("day", "")) == active_day
     spent = max(0, int(previous.get("spent", 0))) if same_day else 0
-    reserved = max(0, int(previous.get("reserved", 0))) if same_day else 0
-    if reserved:
-        raise ValueError("an unresolved beast-rally stamina reservation already exists")
     accounts[key] = {**(previous if same_day else {}), "day": active_day, "spent": spent, "reserved": debit}
+    if estimated:
+        accounts[key]["reserved_estimated"] = True
+    else:
+        accounts[key].pop("reserved_estimated", None)
     _atomic_json_write(path, {"version": 2, "accounts": accounts})
     return debit
+
+
+@_serialized_account_write
+def archive_beast_rally_unconfirmed_reservation(identity: str, expected_cost: int, *,
+                                                record_uncertain: bool = True,
+                                                day: str | None = None,
+                                                path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> int:
+    """Move one matching submitted reservation to uncertain without claiming success.
+
+    The caller holds the account lease and has already submitted the old input.
+    This does not prove its result, and the old action must not be replayed.
+    """
+    key = str(identity).strip()
+    if not key or type(expected_cost) is not int or expected_cost <= 0:
+        raise ValueError('identity and expected reservation are required')
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    account = payload.get('accounts', {}).get(key, {})
+    if account.get('day') != (day or _beast_rally_ledger_day()) or account.get('reserved') != expected_cost:
+        raise ValueError('reservation changed; preserve it')
+    if account.get('submitted_pending') is not None:
+        raise ValueError('another submitted dispatch is still pending')
+    if account.get('submitted_debit') is not None:
+        raise ValueError('orphaned submitted debit; preserve it')
+    if record_uncertain:
+        account['uncertain'] = max(0, int(account.get('uncertain', 0))) + expected_cost
+    account['reserved'] = 0
+    account.pop('reserved_estimated', None)
+    account['submitted_pending'] = uuid.uuid4().hex
+    if record_uncertain:
+        account['submitted_debit'] = {'token': account['submitted_pending'], 'amount': expected_cost,
+                                      'day': account['day']}
+        account['last_recovery'] = {'reason': 'unconfirmed_submitted_dispatch', 'amount': expected_cost,
+                                    'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    _durable_beast_item_write(path, payload)
+    return expected_cost
+
+
+@_serialized_account_write
+def reconcile_beast_overlapping_dispatches(identity: str, expected_cost: int, token: str, *,
+                                           path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> None:
+    """Archive overlapping unknown dispatches after caller proves a fresh world under lease."""
+    if not identity or type(expected_cost) is not int or expected_cost <= 0 or not token:
+        raise ValueError('invalid reconciliation request')
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    account = payload.get('accounts', {}).get(identity)
+    if not isinstance(account, dict) or account.get('reserved') != expected_cost or account.get('submitted_pending') != token:
+        raise ValueError('dispatch records changed; preserve them')
+    uncertain = account.get('uncertain', 0)
+    debit = account.get('submitted_debit')
+    if type(uncertain) is not int or uncertain < 0 or (debit is not None and
+            (not isinstance(debit, dict) or debit.get('token') != token
+             or type(debit.get('amount')) is not int or debit['amount'] <= 0
+             or debit['amount'] > uncertain or debit.get('day') != account.get('day'))):
+        raise ValueError('invalid pending debit; preserve records')
+    account['uncertain'] = uncertain + expected_cost
+    account['reserved'] = 0
+    account.pop('reserved_estimated', None)
+    account.pop('submitted_pending')
+    account.pop('submitted_debit', None)
+    account['last_recovery'] = {'reason': 'overlapping_dispatches_unknown',
+                                'reservation': expected_cost, 'submitted_token': token,
+                                'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    _durable_beast_item_write(path, payload)
+
+
+@_serialized_account_write
+def load_beast_rally_submitted_pending(identity: str, *,
+                                       path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> str | None:
+    """Read a submitted-but-not-yet-navigated dispatch without inferring its result."""
+    key = str(identity).strip()
+    if not key:
+        raise ValueError('device identity is required')
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None
+    account = payload.get('accounts', {}).get(key, {})
+    token = account.get('submitted_pending')
+    if token is not None and (not isinstance(token, str) or not token):
+        raise ValueError('invalid submitted dispatch marker; preserve and stop')
+    return token
+
+
+@_serialized_account_write
+def clear_beast_rally_submitted_pending(identity: str, token: str, *,
+                                        path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> None:
+    """Consume a matching marker only after world proof or a durable item guard."""
+    key = str(identity).strip()
+    if not key or not token:
+        raise ValueError('device identity and marker required')
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    account = payload.get('accounts', {}).get(key, {})
+    if account.get('submitted_pending') != token:
+        raise ValueError('submitted dispatch marker changed; preserve and stop')
+    linked = account.get('submitted_debit')
+    if linked is not None and (not isinstance(linked, dict) or linked.get('token') != token):
+        raise ValueError('submitted debit marker changed; preserve and stop')
+    del account['submitted_pending']
+    account.pop('submitted_debit', None)
+    _durable_beast_item_write(path, payload)
+
+
+@_serialized_account_write
+def cancel_beast_rally_submitted_conflict(identity: str, token: str, *,
+                                          cancelled_and_formation_restored: bool = False,
+                                          day: str | None = None,
+                                          path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> int | None:
+    """Reverse only the token-linked debit, once, after the proven conflict cancellation.
+
+    Legacy markers have no trustworthy association with the aggregate uncertain
+    total: leave them and all totals untouched. The account lease is held by the caller.
+    """
+    key = str(identity).strip()
+    if not key or not isinstance(token, str) or not token or cancelled_and_formation_restored is not True:
+        raise ValueError('matching token and verified cancellation are required')
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    accounts = payload.get('accounts')
+    if not isinstance(accounts, dict) or not isinstance(accounts.get(key), dict):
+        raise ValueError('invalid stamina account; preserve it')
+    account = accounts[key]
+    if account.get('submitted_pending') != token:
+        raise ValueError('submitted dispatch marker changed; preserve it')
+    linked = account.get('submitted_debit')
+    if linked is None:
+        return None
+    if not isinstance(linked, dict) or linked.get('token') != token:
+        raise ValueError('submitted debit marker changed; preserve it')
+    amount = linked.get('amount')
+    uncertain = account.get('uncertain')
+    if (type(amount) is not int or amount <= 0 or type(uncertain) is not int
+            or uncertain < amount or linked.get('day') != account.get('day')
+            or account.get('day') != (day or _beast_rally_ledger_day())):
+        raise ValueError('submitted debit amount or day changed; preserve it')
+    if account.get('reserved', 0) != 0:
+        raise ValueError('unexpected reservation; preserve it')
+    account['uncertain'] = uncertain - amount
+    del account['submitted_pending']
+    del account['submitted_debit']
+    account['last_conflict_reversal'] = {'token': token, 'amount': amount,
+                                          'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    _durable_beast_item_write(path, payload)
+    return amount
+
+
+@_serialized_account_write
+def load_beast_rally_last_unconfirmed(identity: str, *,
+                                      path: Path = BEAST_RALLY_STAMINA_LEDGER_FILE) -> dict[str, Any] | None:
+    """Read the last unknown-dispatch record, not proof of a current page."""
+    key = str(identity).strip()
+    if not key:
+        raise ValueError('identity is required')
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None
+    account = payload.get('accounts', {}).get(key, {})
+    recovery = account.get('last_recovery') if isinstance(account, dict) else None
+    if not isinstance(recovery, dict) or recovery.get('reason') != 'unconfirmed_submitted_dispatch':
+        return None
+    return dict(recovery)
 
 
 @_serialized_account_write
@@ -1891,6 +2390,7 @@ def cancel_beast_rally_conflict_reservation(identity: str, expected_cost: int, *
     if account.get('day')!=_beast_rally_ledger_day() or account.get('reserved')!=expected_cost:
         raise ValueError('reservation changed; preserve it')
     account['reserved']=0
+    account.pop('reserved_estimated', None)
     account['last_recovery']={'reason':'verified_same_target_cancel','amount':expected_cost,
                               'at':time.strftime('%Y-%m-%dT%H:%M:%S')}
     _atomic_json_write(path,payload)
@@ -1924,8 +2424,14 @@ def confirm_beast_rally_stamina_reservation(
     reserved = max(0, int(previous.get("reserved", 0))) if same_day else 0
     if not reserved:
         return spent
-    spent += reserved
-    accounts[key] = {**previous, "day": active_day, "spent": spent, "reserved": 0}
+    account = {**previous, "day": active_day, "spent": spent, "reserved": 0}
+    if previous.get("reserved_estimated") is True:
+        account["uncertain"] = max(0, int(previous.get("uncertain", 0))) + reserved
+    else:
+        spent += reserved
+        account["spent"] = spent
+    account.pop("reserved_estimated", None)
+    accounts[key] = account
     _atomic_json_write(path, {"version": 2, "accounts": accounts})
     return spent
 
@@ -2417,14 +2923,21 @@ def prune_runtime_evidence(directory: Path, keep_latest: int = 24) -> int:
     directory after saving a new account-free crop.
     """
     keep = max(1, int(keep_latest))
-    screenshots = sorted(
-        directory.glob("*.png"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
+    # Other account workers save and prune this shared directory concurrently.
+    # A file can disappear between glob and stat, or still be open on Windows.
+    screenshots = []
+    for path in directory.glob("*.png"):
+        try:
+            screenshots.append((path.stat().st_mtime, path))
+        except (FileNotFoundError, PermissionError):
+            continue
+    screenshots.sort(key=lambda item: item[0], reverse=True)
     removed = 0
-    for stale_path in screenshots[keep:]:
-        stale_path.unlink()
+    for _, stale_path in screenshots[keep:]:
+        try:
+            stale_path.unlink()
+        except (FileNotFoundError, PermissionError):
+            continue
         removed += 1
     return removed
 
@@ -2525,6 +3038,81 @@ class DeviceLease:
             self.handle = None
 
 
+class PetDispatchLedger:
+    """One durable Pet dispatch intent per account/day; caller holds its lease."""
+
+    def __init__(self, identity: str, day: str, directory: Path | None = None) -> None:
+        if not re.fullmatch(r"mumu:[^:]+:android:[^:]+", identity):
+            raise ValueError("pet dispatch requires manager index and Android ID")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            raise ValueError("invalid pet dispatch date")
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+        self.path = (directory or CONFIG_DIR) / f"daily_pet_dispatch_{digest}.json"
+        self.day = day
+        self._token: str | None = None
+
+    def _read(self) -> dict[str, Any] | None:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        if (not isinstance(data, dict) or data.get("status") not in ("pending", "confirmed")
+                or not isinstance(data.get("day"), str)
+                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["day"])
+                or not isinstance(data.get("token"), str) or not data["token"]):
+            raise ValueError("invalid pet dispatch record")
+        return data
+
+    def available(self) -> bool:
+        try:
+            data = self._read()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+        if data is None:
+            return True
+        # Never retry an unknown acknowledgement, even after a date change.
+        # A confirmed past-day dispatch is independent of today's quota.
+        return data["status"] == "confirmed" and data["day"] < self.day
+
+    def _write(self, data: dict[str, str]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(data, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(self.path)
+
+    def reserve(self) -> bool:
+        if not self.available():
+            return False
+        token = uuid.uuid4().hex
+        try:
+            self._write({"day": self.day, "status": "pending", "token": token})
+        except OSError:
+            return False
+        self._token = token
+        return True
+
+    def confirm(self) -> bool:
+        if not self._token:
+            return False
+        try:
+            data = self._read()
+            if not data or data.get("status") != "pending" or data.get("token") != self._token:
+                return False
+            self._write({"day": data["day"], "status": "confirmed", "token": self._token})
+            return True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+
+
+def fast_capture_is_blank(image: Image.Image) -> bool:
+    """Reject GDI success with an all-black render surface, including minimized MuMu."""
+    sample = image.convert("RGB").resize((32, 32), Image.Resampling.BILINEAR)
+    return max(channel[1] for channel in sample.getextrema()) <= 3
+
+
 class MuMuADB:
     def __init__(self, adb_path: str | None = None) -> None:
         self.adb_path = adb_path or self._find_adb()
@@ -2589,6 +3177,13 @@ class MuMuADB:
     def _manager_players(self) -> list[dict[str, Any]]:
         if not self.manager_path:
             return []
+        # MuMuManager is a separate Qt application with its own plugins.
+        # Do not pass this process's Qt platform/plugin overrides to it.
+        manager_env = {
+            key: value for key, value in os.environ.items()
+            if not key.upper().startswith("QT_QPA_")
+            and key.upper() not in {"QT_PLUGIN_PATH", "QT_CONF_PATH"}
+        }
         try:
             proc = subprocess.run(
                 [self.manager_path, "info", "-v", "all"],
@@ -2596,6 +3191,7 @@ class MuMuADB:
                 stderr=subprocess.STDOUT,
                 timeout=12,
                 creationflags=CREATE_NO_WINDOW,
+                env=manager_env,
             )
             output = proc.stdout.decode("utf-8", "replace")
         except (OSError, subprocess.TimeoutExpired):
@@ -2652,17 +3248,37 @@ class MuMuADB:
 
     def connect(self, preferred_device: str | None = None, *, allow_unavailable: bool = False) -> list[str]:
         self._run(["start-server"], timeout=10)
-        for port in self._candidate_ports():
+        candidate_ports = self._candidate_ports()
+        def online_devices(output: str) -> list[str]:
+            return [columns[0] for line in output.splitlines()[1:]
+                    if len(columns := line.split()) >= 2 and columns[1] == "device"]
+
+        devices = online_devices(str(self._run(["devices"], timeout=10)))
+        # Manager is authoritative about its currently running instances. Avoid
+        # connecting every historical VM config: a closed port commonly takes
+        # two seconds to fail, even when every live device is already online.
+        running_ports = set()
+        for player in self.players:
+            try:
+                if player.get("is_process_started") or player.get("is_android_started"):
+                    running_ports.add(int(player["adb_port"]))
+            except (ValueError, TypeError, KeyError):
+                pass
+        ports = sorted(running_ports) if running_ports else candidate_ports
+        missing_ports = [port for port in ports if f"127.0.0.1:{port}" not in devices
+                         and f"localhost:{port}" not in devices]
+
+        def connect_port(port: int) -> None:
             try:
                 self._run(["connect", f"127.0.0.1:{port}"], timeout=4)
             except AdbError:
                 pass
-        output = str(self._run(["devices"], timeout=10))
-        devices = []
-        for line in output.splitlines()[1:]:
-            columns = line.split()
-            if len(columns) >= 2 and columns[1] == "device":
-                devices.append(columns[0])
+        if missing_ports:
+            # The manager can be unavailable, in which case configuration ports
+            # remain a fallback. Probe them concurrently with bounded ADB calls.
+            with ThreadPoolExecutor(max_workers=min(8, len(missing_ports))) as executor:
+                list(executor.map(connect_port, missing_ports))
+            devices = online_devices(str(self._run(["devices"], timeout=10)))
         connected_devices = list(devices)
         if not devices:
             raise AdbError("没有连接到 MuMu。请启动模拟器并允许 ADB 调试。")
@@ -2989,9 +3605,10 @@ class MuMuADB:
         )
         previous = gdi32.SelectObject(memory_dc, bitmap)
         try:
-            # PW_CLIENTONLY | PW_RENDERFULLCONTENT captures an occluded render
-            # child without bringing the emulator to the foreground.
-            if not user32.PrintWindow(hwnd, memory_dc, 3):
+            # PW_CLIENTONLY captures the render child client area. Unlike
+            # PW_RENDERFULLCONTENT it still succeeds when the emulator window
+            # is minimized or off-screen, which is the common background case.
+            if not user32.PrintWindow(hwnd, memory_dc, 1):
                 raise AdbError("MuMu 渲染窗口快速截图失败。")
             header = BitmapInfoHeader(
                 ctypes.sizeof(BitmapInfoHeader),
@@ -3036,6 +3653,8 @@ class MuMuADB:
             user32.ReleaseDC(hwnd, source_dc)
         if reference_size and image.size != reference_size:
             image = image.resize(reference_size, Image.Resampling.BILINEAR)
+        if fast_capture_is_blank(image):
+            raise AdbError("MuMu 快速截图返回黑屏，不能用于识别。")
         return image
 
     def tap(self, x: int, y: int) -> None:
@@ -3925,6 +4544,240 @@ def _match_user_document_daily_mission(
     return DailyMissionMatch(kind, task_point, go_point, min(task_score, go_score))
 
 
+def match_daily_pet_treasure_mission(
+    screenshot: Image.Image,
+    threshold: float,
+) -> DailyMissionMatch | None:
+    """Pair the exact unfinished pet-treasure title with its own blue Go."""
+    return _match_user_document_daily_mission(
+        screenshot,
+        kind=DailyMissionKind.PET_TREASURE,
+        asset="assets/daily_pet_treasure_task.png",
+        template_name="daily_pet_treasure_task.png",
+        title_threshold=max(0.985, float(threshold)),
+        go_threshold=max(0.95, float(threshold)),
+        go_specs=_DAILY_MISSION_GO_SPECS,
+    )
+
+
+def _pet_anchor(
+    screenshot: Image.Image,
+    name: str,
+    box: tuple[int, int, int, int],
+    threshold: float = 0.95,
+) -> tuple[int, int] | None:
+    """Match one reviewed Pet anchor in Android content coordinates."""
+    asset = f"assets/daily_{name}.png"
+    template_name = f"daily_{name}.png"
+    x1, y1, x2, y2 = box
+    region = _relative_region(screenshot, x1 / 1440, y1 / 2560, x2 / 1440, y2 / 2560)
+    point, _score = _match_daily_task_template(screenshot, asset, template_name, threshold, region)
+    if not point or not _daily_template_integrity_is_valid(
+        screenshot, asset, template_name, point,
+        min_luma_ratio=0.88, max_colour_distance=0.12, strict_action=True,
+    ):
+        return None
+    return point
+
+
+def _pet_map_is_visible(screenshot: Image.Image) -> bool:
+    return bool(_pet_anchor(screenshot, "pet_map_title", (130, 0, 520, 150), 0.97))
+
+
+def match_pet_checked_treasure(screenshot: Image.Image) -> tuple[int, int] | None:
+    """The reviewed completed treasure at the upper-left map location."""
+    if not _pet_map_is_visible(screenshot):
+        return None
+    check = _pet_anchor(screenshot, "pet_map_first_check", (530, 480, 730, 700), 0.93)
+    chest = _pet_anchor(screenshot, "pet_chest_paw", (370, 520, 670, 800), 0.93)
+    if not check or not chest:
+        return None
+    viewport = content_viewport(screenshot)
+    if not (60 / 1440 * viewport.width <= check[0] - chest[0] <= 180 / 1440 * viewport.width
+            and -150 / 2560 * viewport.height <= check[1] - chest[1] <= 0):
+        return None
+    return chest
+
+
+def match_pet_completed_chest(screenshot: Image.Image) -> tuple[int, int] | None:
+    title = _pet_anchor(screenshot, "pet_completed_title", (480, 390, 950, 550), 0.96)
+    completed = _pet_anchor(screenshot, "pet_completed_text", (520, 500, 920, 680), 0.90)
+    chest = _pet_anchor(screenshot, "pet_completed_chest", (500, 1300, 1000, 1900), 0.90)
+    if not (title and completed and chest):
+        return None
+    return map_content_point((720, 1620), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+
+
+def match_pet_completed_close(screenshot: Image.Image) -> tuple[int, int] | None:
+    if not _pet_anchor(screenshot, "pet_completed_title", (480, 390, 950, 550), 0.96):
+        return None
+    return _pet_anchor(screenshot, "pet_completed_x", (1190, 400, 1360, 560), 0.96)
+
+
+def match_pet_unassigned_treasure(screenshot: Image.Image) -> tuple[int, int] | None:
+    if not _pet_map_is_visible(screenshot):
+        return None
+    return _pet_anchor(screenshot, "pet_new_node_context", (520, 300, 1100, 850), 0.96)
+
+
+def match_pet_dispatch_entry(screenshot: Image.Image) -> tuple[int, int] | None:
+    if not _pet_anchor(screenshot, "pet_new_detail_title", (480, 320, 950, 490), 0.96):
+        return None
+    return _pet_anchor(screenshot, "pet_new_dispatch", (400, 1900, 1050, 2250), 0.96)
+
+
+def match_pet_start_ten_stamina(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Only the reviewed selected-pet panel and blue 10-stamina control."""
+    if not _pet_anchor(screenshot, "pet_dispatch_select_title", (500, 350, 950, 510), 0.96):
+        return None
+    left = _pet_anchor(screenshot, "pet_selected_left", (80, 1100, 220, 1250), 0.90)
+    right = _pet_anchor(screenshot, "pet_selected_right", (330, 1100, 480, 1250), 0.90)
+    viewport = content_viewport(screenshot)
+    if not left or not right or not (220 / 1440 * viewport.width <= right[0] - left[0] <= 280 / 1440 * viewport.width
+                                     and abs(right[1] - left[1]) <= 5 / 2560 * viewport.height):
+        return None
+    return _pet_anchor(screenshot, "pet_dispatch_start_cost10", (400, 1850, 1050, 2150), 0.96)
+
+
+def match_pet_active_close(screenshot: Image.Image) -> tuple[int, int] | None:
+    """A just-started treasure must show its yellow natural countdown bar."""
+    if not _pet_anchor(screenshot, "pet_active_title", (480, 450, 950, 600), 0.94):
+        return None
+    crop = np.asarray(_daily_reference_crop(screenshot, (240, 1110, 500, 1180)))
+    if crop.size == 0:
+        return None
+    yellow = ((crop[:, :, 0] > 190) & (crop[:, :, 1] > 130) & (crop[:, :, 2] < 100))
+    if float(np.mean(yellow)) < 0.50:
+        return None
+    return _pet_anchor(screenshot, "pet_active_x_final", (1190, 450, 1360, 650), 0.96)
+
+
+def match_pet_map_back(screenshot: Image.Image) -> tuple[int, int] | None:
+    if not _pet_map_is_visible(screenshot):
+        return None
+    return _pet_anchor(screenshot, "pet_map_back", (0, 0, 200, 170), 0.96)
+
+
+def run_pet_treasure_cycle(
+    capture: Callable[[], Image.Image],
+    tap: Callable[[int, int], None],
+    stopped: Callable[[], bool],
+    wait: Callable[[float], bool],
+    reserve_dispatch: Callable[[], bool],
+    confirm_dispatch: Callable[[], bool],
+    log: Callable[[str], None],
+    *,
+    timeout: float = 24.0,
+) -> str:
+    """Run one correlated Pet Daily route with one durable dispatch intent.
+
+    The caller owns the per-account lease and has just sent a double-checked
+    Pet Daily Go.  A state transition is recorded before each input; an
+    unacknowledged input is never repeated.  Return values are ``dispatched``,
+    ``skipped``, ``unconfirmed`` or ``stopped``.  The game countdown is never
+    waited out here.  Capture and input callbacks must each have a short
+    transport timeout so the 24-second deadline remains bounded.
+    """
+    deadline = time.monotonic() + min(24.0, max(0.1, float(timeout)))
+    stage = "map_find"
+    stage_started = time.monotonic()
+    skipped = False
+    checked_used = False
+
+    def pair(matcher: Callable[[Image.Image], tuple[int, int] | None],
+             first: Image.Image, second: Image.Image, tolerance: int = 8) -> tuple[int, int] | None:
+        a, b = matcher(first), matcher(second)
+        if not a or not b or max(abs(x - y) for x, y in zip(a, b)) > tolerance:
+            return None
+        return b
+
+    while not stopped() and time.monotonic() < deadline:
+        first = capture()
+        if stopped() or time.monotonic() >= deadline:
+            break
+        second = capture()
+        if stopped() or time.monotonic() >= deadline:
+            break
+        point: tuple[int, int] | None = None
+        next_stage = stage
+        if stage == "map_find":
+            point = pair(match_pet_unassigned_treasure, first, second, 20)
+            if point:
+                next_stage = "detail"
+            elif not checked_used:
+                point = pair(match_pet_checked_treasure, first, second, 25)
+                if point:
+                    checked_used = True
+                    next_stage = "completed"
+            if not point and time.monotonic() - stage_started >= 3.0:
+                # No matching free point: return only via the exact Pet map
+                # back control. This does not infer a successful dispatch.
+                if pair(match_pet_map_back, first, second):
+                    skipped = True
+                    stage = "map_back"
+                    continue
+                daily_states = (DailyTaskState.DAILY_PAGE, DailyTaskState.DAILY_LOGIN_COMPLETED,
+                                DailyTaskState.CLAIM_READY, DailyTaskState.TASK_CLAIM_READY)
+                if (detect_daily_task_state(first, 0.90).state in daily_states
+                        and detect_daily_task_state(second, 0.90).state in daily_states):
+                    return "skipped"
+        elif stage == "completed":
+            point = pair(match_pet_completed_chest, first, second)
+            next_stage = "reward"
+        elif stage == "reward":
+            first_title, _ = match_daily_reward_result(first, 0.90)
+            second_title, _ = match_daily_reward_result(second, 0.90)
+            first_exit = diagnose_daily_abnormal_exit(first, 0.90)
+            second_exit = diagnose_daily_abnormal_exit(second, 0.90)
+            if (first_title and second_title
+                    and first_exit.kind is DailyAbnormalExitKind.REWARD_TAP_ANYWHERE
+                    and second_exit.kind is first_exit.kind and first_exit.point and second_exit.point
+                    and max(abs(x - y) for x, y in zip(first_exit.point, second_exit.point)) <= 8):
+                point, next_stage = second_exit.point, "completed_close"
+        elif stage == "completed_close":
+            point = pair(match_pet_completed_close, first, second)
+            next_stage = "map_find"
+        elif stage == "detail":
+            point = pair(match_pet_dispatch_entry, first, second)
+            next_stage = "selection"
+        elif stage == "selection":
+            point = pair(match_pet_start_ten_stamina, first, second)
+            if point:
+                if not reserve_dispatch():
+                    log("宠物寻宝派遣记录不可用或存在未确认派遣；未点击开始。")
+                    return "unconfirmed"
+                next_stage = "active"
+        elif stage == "active":
+            point = pair(match_pet_active_close, first, second)
+            if point:
+                if not confirm_dispatch():
+                    log("宠物寻宝已显示自然倒计时，但确认记录写入失败；未继续输入。")
+                    return "unconfirmed"
+                next_stage = "map_back"
+        elif stage == "map_back":
+            point = pair(match_pet_map_back, first, second)
+            next_stage = "city"
+        elif stage == "city":
+            def city(image: Image.Image) -> tuple[int, int] | None:
+                return match_daily_city_entry(image, 0.90)[0]
+            point = pair(city, first, second)
+            next_stage = "done"
+        if point:
+            prior = stage
+            # Advance before input. A delayed or missing acknowledgement can
+            # never cause the same control to be pressed again.
+            stage = next_stage
+            stage_started = time.monotonic()
+            tap(*point)
+            log(f"宠物寻宝：{prior} 已确认并执行一次输入。")
+            if stage == "done":
+                return "skipped" if skipped else "dispatched"
+            continue
+        if wait(0.10):
+            return "stopped"
+    return "stopped" if stopped() else "unconfirmed"
+
+
 def match_daily_intel_mission(
     screenshot: Image.Image,
     threshold: float,
@@ -4167,6 +5020,25 @@ def match_daily_intel_map_page(
         _relative_region(screenshot, 0.0, 0.0, 0.34, 0.12),
     )
     return live_header is not None, max(score, live_score)
+
+
+def match_daily_intel_tutorial_station(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Recognize the centred Intel portrait after this worker's Daily Go.
+
+    The tutorial hand is animated and is not a stable template.  The precise
+    portrait, its reviewed position and the city anchor are independent
+    proofs; the caller also requires two fresh frames and the preceding Go.
+    """
+    asset = "assets/daily_intel_tutorial_bubble.png"
+    name = Path(asset).name
+    point, _ = _match_daily_task_template(screenshot, asset, name, 0.92,
+            _relative_region(screenshot, 0.43, 0.37, 0.57, 0.46))
+    if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+            min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+        return None
+    if match_daily_city_entry(screenshot, 0.90)[0] is None:
+        return None
+    return map_content_point((720, 1430), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
 
 
 def match_daily_intel_station_bubble(
@@ -5737,6 +6609,83 @@ def match_world_control_interiors(screenshot: Image.Image) -> tuple[bool, bool, 
     return town_ok, lens_ok, min(max(0.0, 1-error/255), lens_score)
 
 
+def match_daily_deep_tech_locked_close(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Recognise the reviewed locked shield-tech page and its close control."""
+    anchors = (
+        ("assets/daily_shield_life_title.png", (0.35, 0.13, 0.65, 0.18)),
+        ("assets/daily_shield_life_requirement.png", (0.19, 0.45, 0.53, 0.50)),
+        ("assets/daily_tech_modal_close.png", (0.84, 0.13, 0.94, 0.18)),
+    )
+    points = []
+    for asset, region in anchors:
+        name = Path(asset).name
+        point, _ = _match_daily_task_template(screenshot, asset, name, 0.99, _relative_region(screenshot, *region))
+        if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+                min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+            return None
+        points.append(point)
+    expected = map_content_point((1277, 395), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    return points[2] if max(abs(points[2][0]-expected[0]), abs(points[2][1]-expected[1])) <= 12 else None
+
+
+def match_daily_sustain_prerequisite_go(screenshot: Image.Image, *, troop_life: bool = False) -> tuple[int, int] | None:
+    """Identify the exact ordinary-technology prerequisite navigation button."""
+    anchors = (
+        ("assets/daily_troop_life_title.png" if troop_life else "assets/daily_sustain_locked_title.png", (0.35, 0.13, 0.65, 0.18)),
+        ("assets/daily_troop_life_requirement.png" if troop_life else "assets/daily_sustain_locked_requirement.png", (0.19, 0.45, 0.53, 0.50)),
+        ("assets/daily_sustain_locked_go.png", (0.69, 0.45, 0.90, 0.51)),
+    )
+    points = []
+    for asset, region in anchors:
+        name = Path(asset).name
+        point, _ = _match_daily_task_template(screenshot, asset, name, 0.99, _relative_region(screenshot, *region))
+        if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+                min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+            return None
+        points.append(point)
+    expected = map_content_point((1145, 1220), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    return points[2] if max(abs(points[2][0]-expected[0]), abs(points[2][1]-expected[1])) <= 12 else None
+
+
+def match_daily_relocate_prompt_close(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Recognise only the exact three-control relocation prompt; never its button."""
+    anchors = (
+        ("assets/daily_alliance_relocate_title.png", (0.42, 0.10, 0.58, 0.15)),
+        ("assets/daily_alliance_relocate_close.png", (0.88, 0.10, 0.98, 0.15)),
+        ("assets/daily_alliance_relocate_button.png", (0.40, 0.82, 0.60, 0.89)),
+    )
+    points = []
+    for asset, region in anchors:
+        name = Path(asset).name
+        point, _ = _match_daily_task_template(screenshot, asset, name, 0.99, _relative_region(screenshot, *region))
+        if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+                min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+            return None
+        points.append(point)
+    expected = map_content_point((1330, 315), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    if max(abs(points[1][0]-expected[0]), abs(points[1][1]-expected[1])) > 12:
+        return None
+    return points[1]
+
+
+def match_daily_carnival_sale_close(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Match the reviewed sale title and its exact close control, never its offer."""
+    title_asset = "assets/daily_carnival_sale_title.png"
+    close_asset = "assets/daily_carnival_sale_close.png"
+    title, _ = _match_daily_task_template(screenshot, title_asset, Path(title_asset).name, 0.99,
+                                           _relative_region(screenshot, 0.10, 0.10, 0.40, 0.17))
+    close, _ = _match_daily_task_template(screenshot, close_asset, Path(close_asset).name, 0.99,
+                                           _relative_region(screenshot, 0.78, 0.10, 0.90, 0.18))
+    expected = map_content_point((1215, 350), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    if not title or not close or max(abs(close[0]-expected[0]), abs(close[1]-expected[1])) > 12:
+        return None
+    if not all(_daily_template_integrity_is_valid(screenshot, asset, Path(asset).name, point,
+                 min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True)
+               for asset, point in ((title_asset, title), (close_asset, close))):
+        return None
+    return close
+
+
 def match_daily_world_town_entry(
     screenshot: Image.Image,
     threshold: float,
@@ -6684,9 +7633,9 @@ def match_beast_rally_selector(
 ) -> BeastRallyMatch:
     fixture = screenshot.height < 1000 and screenshot.width > screenshot.height
     beast_region = (
-        _relative_region(screenshot, 0.16, 0.00, 0.75, 0.32)
+        _relative_region(screenshot, 0.00, 0.00, 0.75, 0.32)
         if fixture
-        else _relative_region(screenshot, 0.16, 0.62, 0.75, 0.80)
+        else _relative_region(screenshot, 0.00, 0.62, 0.75, 0.80)
     )
     search_region = (
         _relative_region(screenshot, 0.20, 0.62, 0.78, 1.00)
@@ -6725,7 +7674,7 @@ def beast_rally_beast_target_point(screenshot: Image.Image) -> tuple[int, int] |
         0.90,
         _relative_region(
             screenshot,
-            0.16,
+            0.00,
             0.00 if fixture else 0.62,
             0.75,
             0.32 if fixture else 0.80,
@@ -6767,6 +7716,78 @@ def read_beast_rally_selector_level(screenshot: Image.Image) -> int | None:
             return None
         value = value * 10 + digit
     return value if 1 <= value <= 30 else None
+
+
+def match_beast_exception_exploration_header(screenshot: Image.Image) -> bool:
+    """Recognize the exploration map header solely for an exceptional Back.
+
+    Both the arrow and the title must independently match at their fixed
+    normalized game-content coordinates. No battle or reward action follows.
+    """
+    if screenshot.width < 500 or screenshot.height < 1000:
+        return False
+    try:
+        with Image.open(resource_path(BUILTIN_BEAST_EXPLORATION_HEADER_ASSET)) as asset:
+            reference = np.asarray(asset.convert('RGB'))
+    except (OSError, ValueError):
+        return False
+    if reference.shape != (145, 340, 3):
+        return False
+    crop = _daily_reference_crop(screenshot, (0, 0, 340, 145))
+    if crop.size != (340, 145):
+        crop = crop.resize((340, 145), Image.Resampling.BILINEAR)
+    actual = np.asarray(crop)
+    for left, right in ((0, 150), (150, 340)):
+        current = actual[:, left:right]
+        expected = reference[:, left:right]
+        difference = np.abs(current.astype(np.int16) - expected.astype(np.int16)).mean()
+        score = cv2.matchTemplate(current, expected, cv2.TM_CCOEFF_NORMED)[0, 0]
+        if difference > 12.0 or not np.isfinite(score) or score < 0.96:
+            return False
+    return True
+
+
+def match_beast_rally_search_drawer_without_level(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Identify the search drawer by controls, without reading its level digit.
+
+    This is only a page anchor for the reviewed Back recovery path.  It does
+    not establish a selected target or authorize tapping the search button.
+    """
+    if screenshot.height < 1000:
+        return None
+    search, _ = _match_beast_rally_template(
+        screenshot, BUILTIN_BEAST_RALLY_SEARCH_BUTTON_ASSET, 0.94,
+        _relative_region(screenshot, 0.20, 0.86, 0.78, 1.00),
+    )
+    if not search or not _beast_rally_template_integrity_is_valid(
+        screenshot, BUILTIN_BEAST_RALLY_SEARCH_BUTTON_ASSET, search
+    ):
+        return None
+    # Require both blank ends of the white rounded level field.  These crops
+    # deliberately exclude its centre digit, so no OCR/number read is needed.
+    for box in ((1095, 2045, 1155, 2095), (1290, 2045, 1350, 2095)):
+        rgb = np.asarray(_daily_reference_crop(screenshot, box))
+        if rgb.size == 0:
+            return None
+        light = (rgb[:, :, 0] > 180) & (rgb[:, :, 1] > 195) & (rgb[:, :, 2] > 205)
+        if float(light.mean()) < 0.60:
+            return None
+    return search
+
+
+def match_beast_rally_search_drawer(screenshot: Image.Image) -> tuple[tuple[int, int] | None, int | None]:
+    """Recognize the search drawer even when the beast card is off-screen."""
+    fixture = screenshot.height < 1000 and screenshot.width > screenshot.height
+    region = _relative_region(screenshot, 0.20, 0.62 if fixture else 0.86, 0.78, 1.00)
+    point, _ = _match_beast_rally_template(
+        screenshot, BUILTIN_BEAST_RALLY_SEARCH_BUTTON_ASSET, 0.94, region
+    )
+    level = read_beast_rally_selector_level(screenshot) if point else None
+    if point and level is not None and _beast_rally_template_integrity_is_valid(
+        screenshot, BUILTIN_BEAST_RALLY_SEARCH_BUTTON_ASSET, point
+    ):
+        return point, level
+    return None, None
 
 
 def beast_rally_level_is_configured(
@@ -7007,7 +8028,7 @@ def read_beast_rally_dispatch_stamina(screenshot: Image.Image, *, formation_prov
 
 
 def read_beast_rally_dispatch_stamina_shortfall(screenshot: Image.Image, *, formation_proven: bool = False) -> int | None:
-    """Return the reviewed red 20 debit; never authorize a purchase control."""
+    """Read only the reviewed red 20/25 debit, never a purchase control."""
     if not formation_proven and match_beast_rally_formation(screenshot).state is not BeastRallyState.FORMATION:
         return None
     point, score = _match_beast_rally_template(
@@ -7016,7 +8037,39 @@ def read_beast_rally_dispatch_stamina_shortfall(screenshot: Image.Image, *, form
         0.985,
         _relative_region(screenshot, 0.70, 0.91, 0.86, 1.00),
     )
-    return 20 if point and score >= 0.985 else None
+    if point and score >= 0.985:
+        return 20
+    point, score = _match_beast_rally_template(
+        screenshot,
+        BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED25_ASSET,
+        0.985,
+        _relative_region(screenshot, 0.70, 0.91, 0.86, 1.00),
+    )
+    if point and score >= 0.985 and _beast_rally_template_integrity_is_valid(
+        screenshot, BUILTIN_BEAST_RALLY_DISPATCH_STAMINA_RED25_ASSET, point
+    ):
+        return 25
+    return None
+
+
+def beast_stamina_paid_only_page(screenshot: Image.Image, threshold: float = 0.90) -> bool:
+    """Identify the reviewed paid-only restore-10 row; never expose its button as an action."""
+    if screenshot is None:
+        return False
+    title, _ = _match_beast_rally_template(
+        screenshot, BUILTIN_BEAST_RALLY_STAMINA_MORE_TITLE_ASSET,
+        max(0.985, float(threshold)), _relative_region(screenshot, 0.25, 0.04, 0.62, 0.16))
+    if not title:
+        return False
+    icon, _ = match_template(
+        screenshot, resource_path("assets/beast_rally_stamina_item10_icon_live.png"),
+        0.985, (1440, 2560), _relative_region(screenshot, 0.09, 0.36, 0.21, 0.43))
+    if not icon:
+        return False
+    paid, _ = match_template(
+        screenshot, resource_path("assets/beast_stamina_paid_label_live.png"),
+        0.985, (1440, 2560), _relative_region(screenshot, 0.63, 0.34, 0.97, 0.47))
+    return bool(title and icon and paid and abs(icon[1] - paid[1]) < 100)
 
 
 def match_beast_rally_stamina_more(
@@ -7048,6 +8101,22 @@ def match_beast_rally_stamina_more(
         max(0.985, float(threshold)),
         _relative_region(screenshot, 0.63, 0.34, 0.97, 0.47),
     )
+    # A reviewed long-press bubble may cover the description, while leaving
+    # the ordinary single-use button fully visible.  Accept only this exact
+    # bubble together with the independent +10 icon, never its clickable area.
+    if title and not restore and use and content_viewport(screenshot).width == 1440 and content_viewport(screenshot).height == 2560:
+        bubble, bubble_score = match_template(
+            screenshot, resource_path("assets/beast_stamina_batch_overlay18_live.png"),
+            0.985, (1440, 2560), _relative_region(screenshot, 0.38, 0.36, 0.69, 0.45),
+        )
+        icon, icon_score = match_template(
+            screenshot, resource_path("assets/beast_rally_stamina_item10_icon_live.png"),
+            0.985, (1440, 2560), _relative_region(screenshot, 0.09, 0.36, 0.21, 0.43),
+        )
+        if bubble and icon and abs(icon[1] - use[1]) < 100 and bubble[0] < use[0] - 180:
+            return BeastRallyMatch(BeastRallyState.STAMINA_MORE, use,
+                                   min(title_score, use_score, bubble_score, icon_score),
+                                   (("title", title), ("restore10_icon", icon), ("use", use), ("bubble", bubble)))
     if title and restore and use:
         return BeastRallyMatch(
             BeastRallyState.STAMINA_MORE,
@@ -7087,6 +8156,112 @@ def match_beast_rally_stamina_more_controls(
             (("title", title), ("use", use)),
         )
     return BeastRallyMatch(BeastRallyState.UNKNOWN, None, max(title_score, use_score))
+
+
+def read_beast_stamina_item_observation(
+    screenshot: Image.Image,
+) -> tuple[int, int] | None:
+    """Read (restore-10 inventory, current stamina) on the verified item page.
+
+    The row icon provides an independent identity anchor when a transient
+    success toast hides the description. This function is read-only; callers
+    must also verify the full page before pressing Use and must compare two
+    fresh observations for every transaction. Unreviewed layouts fail closed.
+    """
+    viewport = content_viewport(screenshot)
+    if (viewport.width, viewport.height) != (1440, 2560):
+        return None
+    if match_beast_rally_stamina_more_controls(screenshot).state != BeastRallyState.STAMINA_MORE:
+        return None
+    icon, _score = match_template(
+        screenshot,
+        resource_path("assets/beast_rally_stamina_item10_icon_live.png"),
+        0.985,
+        (1440, 2560),
+        _relative_region(screenshot, 0.09, 0.36, 0.21, 0.43),
+    )
+    if not icon:
+        return None
+    inventory = _daily_white_numeric_components(
+        _daily_reference_crop(screenshot, (135, 1098, 300, 1135))
+    )
+    if not 1 <= len(inventory) <= 6:
+        return None
+    if any(not (21 <= h <= 30 and 0 <= y <= 6) for _x, y, _w, h, _g in inventory):
+        return None
+    if inventory[0][0] < 5 or inventory[-1][0] + inventory[-1][2] < 145:
+        return None
+    # Four or more digits contain a thousands separator.  Accept the wider
+    # gap only when the reviewed comma glyph is present in that exact gap.
+    gaps = [b[0] - (a[0] + a[2]) for a, b in zip(inventory, inventory[1:])]
+    wide = [i for i, gap in enumerate(gaps) if gap > 10]
+    crop = np.asarray(_daily_reference_crop(screenshot, (135, 1098, 300, 1135)))
+    mask = ((crop[:, :, 0] > 180) & (crop[:, :, 1] > 180) &
+            (crop[:, :, 2] > 180) & (np.ptp(crop.astype(np.int16), axis=2) < 55)).astype(np.uint8)
+    count, labels, stats, _centres = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    commas_reviewed = [
+        np.asarray(Image.open(resource_path(path)).convert('L')) > 0
+        for path in ('assets/beast_stamina_inventory_comma_live.png',
+                     'assets/beast_stamina_inventory_comma_after_live.png',
+                     'assets/beast_stamina_inventory_comma_1424_live.png',
+                     'assets/beast_stamina_inventory_comma_1405_live.png',
+                     'assets/beast_stamina_inventory_comma_1404_live.png',
+                     'assets/beast_stamina_inventory_comma_1227_live.png')
+    ]
+    commas = [
+        (x, y, w, h) for i in range(1, count)
+        for x, y, w, h, _area in [map(int, stats[i])]
+        if 20 <= y <= 26 and 40 <= x <= 150
+        and any((h, w) == reference.shape and
+                np.mean((labels[y:y+h, x:x+w] == i) == reference) >= 0.98
+                for reference in commas_reviewed)
+    ]
+    if wide:
+        if len(inventory) < 4 or wide != [len(inventory) - 4] or gaps[wide[0]] > 16:
+            return None
+        left = inventory[wide[0]][0] + inventory[wide[0]][2]
+        right = inventory[wide[0] + 1][0]
+        if len(commas) != 1 or not (commas[0][0] >= left and commas[0][0] + commas[0][2] <= right):
+            return None
+    elif commas or len(inventory) > 3:
+        return None
+    values = []
+    for _x, _y, _w, _h, glyph in inventory:
+        digit = _read_daily_numeric_glyph(glyph)
+        if digit is None:
+            return None
+        if digit[1] < 0.90:
+            if digit[0] not in (1, 2, 5):
+                return None
+            paths = ([f'assets/beast_stamina_inventory_digit{digit[0]}_live.png']
+                     if digit[0] in (1, 2) else ['assets/beast_stamina_inventory_digit5_585_live.png'])
+            if digit[0] == 1:
+                paths.append('assets/beast_stamina_inventory_digit1_after_live.png')
+                paths.append('assets/beast_stamina_inventory_digit1_1424_live.png')
+                paths.append('assets/beast_stamina_inventory_digit1_1404_live.png')
+            references = [np.asarray(Image.open(resource_path(path)).convert('L')) > 0
+                          for path in paths]
+            if not any(glyph.shape == reference.shape and np.mean(glyph == reference) >= 0.98
+                       for reference in references):
+                return None
+        values.append(str(digit[0]))
+    parsed_inventory = int(''.join(values))
+    stamina = _daily_white_numeric_components(
+        _daily_reference_crop(screenshot, (620, 500, 930, 580))
+    )
+    slashes = [i for i, c in enumerate(stamina) if _daily_numeric_component_is_slash(c[4])]
+    if len(slashes) != 1:
+        return None
+    index = slashes[0]
+    if not (1 <= index <= 3 and len(stamina) - index - 1 == 3):
+        return None
+    current = _read_daily_numeric_components(stamina[:index])
+    maximum = _read_daily_numeric_components(stamina[index + 1 :])
+    if current is None or maximum is None or min(current[1], maximum[1]) < 0.90:
+        return None
+    if maximum[0] != 200 or current[0] > 200:
+        return None
+    return parsed_inventory, current[0]
 
 
 def match_beast_rally_active_panel(
@@ -7442,28 +8617,22 @@ def _daily_white_numeric_components(
     count, labels, stats, _centres = cv2.connectedComponentsWithStats(
         neutral_white, connectivity=8
     )
-    raw: list[tuple[int, int, int, int, int]] = []
+    raw: list[tuple[int, int, int, int, int, int]] = []
     for index in range(1, count):
         x, y, width, height, area = (int(value) for value in stats[index])
         if width >= 2 and height >= 7 and area >= 12:
-            raw.append((x, y, width, height, area))
+            raw.append((x, y, width, height, area, index))
     if not raw:
         return []
     max_height = max(item[3] for item in raw)
     minimum_height = max(7, round(max_height * 0.60))
     components: list[tuple[int, int, int, int, np.ndarray]] = []
-    for x, y, width, height, area in raw:
+    for x, y, width, height, area, label_value in raw:
         if height < minimum_height or area < max(12, round(height * 2.5)):
             continue
-        glyph = labels[y : y + height, x : x + width] > 0
-        # Keep only the current label rather than neighbouring white glyphs.
-        label_value = int(labels[y, x])
-        if not label_value:
-            values = labels[y : y + height, x : x + width]
-            nonzero = values[values > 0]
-            if nonzero.size == 0:
-                continue
-            label_value = int(np.bincount(nonzero).argmax())
+        # The bounding-box corner may belong to a different component, e.g.
+        # the thousands separator overlapping the next digit's bounding box.
+        # Preserve the exact label returned for this component.
         glyph = labels[y : y + height, x : x + width] == label_value
         components.append((x, y, width, height, glyph))
     components.sort(key=lambda item: item[0])
@@ -7518,6 +8687,221 @@ def _read_daily_numeric_components(
         value = value * 10 + digit
         confidences.append(confidence)
     return value, min(confidences)
+
+
+# Activity score digit prototypes: 12x16 binary patterns measured from the
+# actual game font.  Digit "1" is unusually narrow (~7px) while "8" and "0"
+# are the widest (~25px).  Store prototypes in the bundled assets directory
+# so source runs and the portable executable use the same recognition data.
+_ACTIVITY_PROTOTYPES_PATH = resource_path("assets/activity_digit_prototypes_full.npz")
+try:
+    with np.load(_ACTIVITY_PROTOTYPES_PATH, allow_pickle=False) as _prototype_data:
+        _ACTIVITY_PROTOTYPES = {
+            int(k.split("_")[1]): _prototype_data[k]
+            for k in _prototype_data.files
+        }
+except (OSError, ValueError, KeyError, IndexError):
+    _ACTIVITY_PROTOTYPES = {}
+
+# The fixed 23-pixel score ROI clips the lower half of this glyph in the
+# current game font.  Preserve the reviewed live sample alongside the older
+# prototypes; the independent bar check below still gates every reading.
+_ACTIVITY_THREE_ALT = np.array(
+    [[pixel == "#" for pixel in row] for row in (
+        "..#######...", ".##########.", "###########.", "###########.",
+        "############", "###.....####", "#.......####", ".........###",
+        ".........###", ".........###", "........####", "........###.",
+        "......#####.", "....#######.", "....#######.", "....########",
+    )], dtype=np.uint8,
+)
+
+_ACTIVITY_FULL_GLYPHS: dict[int, list[tuple[np.ndarray, float]]] = {}
+try:
+    with np.load(resource_path("assets/daily_activity_full_glyphs.npz"), allow_pickle=False) as _glyph_data:
+        for _name in _glyph_data.files:
+            _parts = _name.split("_")
+            if len(_parts) < 3 or _parts[0] != "digit" or not _parts[1].isdigit():
+                continue
+            _raw = np.asarray(_glyph_data[_name], dtype=np.uint8)
+            if _raw.ndim != 2 or min(_raw.shape) < 8 or max(_raw.shape) > 60:
+                continue
+            _normal = cv2.resize(_raw, (24, 32), interpolation=cv2.INTER_AREA) > 0.35
+            _ACTIVITY_FULL_GLYPHS.setdefault(int(_parts[1]), []).append(
+                (_normal, _raw.shape[1] / _raw.shape[0])
+            )
+except (OSError, ValueError, KeyError):
+    pass
+
+
+def _read_daily_activity_full_glyphs(screenshot: Image.Image) -> tuple[int, float] | None:
+    """Read the complete score glyphs; ambiguity never authorizes a score."""
+    if len(_ACTIVITY_FULL_GLYPHS) < 10:
+        return None
+    crop = _daily_reference_crop(screenshot, (105, 755, 220, 810))
+    if crop.size != (115, 55):
+        crop = crop.resize((115, 55), Image.Resampling.BILINEAR)
+    rgb = np.asarray(crop)
+    mask = ((rgb[:, :, 0] > 220) & (rgb[:, :, 1] > 220) & (rgb[:, :, 2] > 220)
+            & (np.ptp(rgb.astype(np.int16), axis=2) < 30)).astype(np.uint8)
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    large = sorted(
+        (int(x), int(y), int(w), int(h))
+        for index, (x, y, w, h, area) in enumerate(stats)
+        if index and y >= 6 and 8 <= w <= 40 and 20 <= h <= 45 and area >= 60
+    )
+    groups: list[list[int]] = []
+    for x, y, width, height in large:
+        if groups and x < groups[-1][2]:
+            group = groups[-1]
+            group[1] = min(group[1], y)
+            group[2] = max(group[2], x + width)
+            group[3] = max(group[3], y + height)
+        else:
+            groups.append([x, y, x + width, y + height])
+    if not 1 <= len(groups) <= 3:
+        return None
+
+    digits: list[int] = []
+    confidences: list[float] = []
+    for x1, y1, x2, y2 in groups:
+        members = [index for index, (x, y, w, h, area) in enumerate(stats)
+                   if index and y >= 6 and 3 <= area < 1500
+                   and x < x2 and x + w > x1 and y < y2 and y + h > y1]
+        glyph = np.isin(labels[y1:y2, x1:x2], members).astype(np.uint8)
+        if glyph.size == 0:
+            return None
+        normal = cv2.resize(glyph, (24, 32), interpolation=cv2.INTER_AREA) > 0.35
+        aspect = (x2 - x1) / (y2 - y1)
+        scores = []
+        for digit, prototypes in _ACTIVITY_FULL_GLYPHS.items():
+            best = max(
+                2.0 * np.count_nonzero(normal & proto)
+                / max(1, np.count_nonzero(normal) + np.count_nonzero(proto))
+                - 0.12 * abs(aspect - proto_aspect)
+                for proto, proto_aspect in prototypes
+            )
+            scores.append((float(best), digit))
+        scores.sort(reverse=True)
+        if len(scores) < 2 or scores[0][0] < 0.85 or scores[0][0] - scores[1][0] < 0.05:
+            return None
+        confidences.append(scores[0][0])
+        digits.append(scores[0][1])
+    if len(digits) > 1 and digits[0] == 0:
+        return None
+    value = int("".join(str(digit) for digit in digits))
+    if not 0 <= value <= 999:
+        return None
+    return value, min(confidences)
+
+
+def _daily_score_agrees_with_bar(score: int, progress: DailyActivityProgress) -> bool:
+    """The bar saturates at 325 even when the printed score is higher."""
+    if progress.confidence < 0.90:
+        return False
+    if score >= 325:
+        return progress.fill_right is not None and progress.points >= 322.0
+    return abs(progress.points - score) <= 5.0
+
+
+def read_daily_activity_score(
+    screenshot: Image.Image,
+) -> tuple[int, float] | None:
+    """Read the Daily Tasks activity score via OCR and verify its bar.
+
+    The number sits below the star icon on the Daily Tasks page at reference
+    coordinates ~(125--210, 762--785) in the 1440x2560 layout.  Returns
+    ``(score, confidence)`` or ``None`` when the reading is unreliable.
+    """
+    full_reading = _read_daily_activity_full_glyphs(screenshot)
+    if full_reading is not None:
+        progress = estimate_daily_activity_progress(screenshot)
+        if _daily_score_agrees_with_bar(full_reading[0], progress):
+            return full_reading
+        return None
+    if not _ACTIVITY_PROTOTYPES:
+        return None
+
+    crop = _daily_reference_crop(screenshot, (125, 762, 210, 785))
+    rgb = np.asarray(crop.convert("RGB"))
+
+    # Strict white threshold isolates the digit pixels from the dark
+    # background.  The game renders digits as near-white (#FFFFFF) on a
+    # dark blue-grey panel.
+    white_mask = (
+        (rgb[:, :, 0] > 220)
+        & (rgb[:, :, 1] > 220)
+        & (rgb[:, :, 2] > 220)
+        & (np.ptp(rgb.astype(np.int16), axis=2) < 30)
+    ).astype(np.uint8)
+
+    if np.sum(white_mask) < 50:
+        return None
+
+    count, labels, stats, _centres = cv2.connectedComponentsWithStats(
+        white_mask, connectivity=8
+    )
+
+    # Filter components: real digits sit at y>=3 (artifacts from the star
+    # icon can appear at y=0), have reasonable aspect ratios, and sufficient
+    # area.  The activity number is 1--3 digits wide.
+    components: list[tuple[int, int, int, int, np.ndarray]] = []
+    for index in range(1, count):
+        x, y, width, height, area = (int(v) for v in stats[index])
+        if y < 3 or width < 5 or height < 10 or width > 30 or area < 50:
+            continue
+        glyph = labels[y : y + height, x : x + width] == index
+        components.append((x, y, width, height, glyph))
+
+    if not components:
+        return None
+
+    components.sort(key=lambda item: item[0])
+
+    # Recognise each digit against the prototypes.
+    digits: list[int] = []
+    confidences: list[float] = []
+    for _x, _y, _w, _h, glyph in components:
+        resized = cv2.resize(
+            glyph.astype(np.uint8), (12, 16), interpolation=cv2.INTER_AREA
+        )
+        resized_binary = (resized > 0.35).astype(np.uint8)
+
+        scores = sorted(
+            (
+                (max(float(np.mean(resized_binary == proto)),
+                     float(np.mean(resized_binary == _ACTIVITY_THREE_ALT)) if digit == 3 else 0.0), digit)
+                for digit, proto in _ACTIVITY_PROTOTYPES.items()
+            ),
+            reverse=True,
+        )
+        best_score, best_digit = scores[0]
+        second_score = scores[1][0] if len(scores) > 1 else 0.0
+
+        # Require high confidence and clear margin over the next candidate.
+        if best_score < 0.70 or (best_score - second_score) < 0.05:
+            return None
+
+        digits.append(best_digit)
+        confidences.append(best_score)
+
+    if not digits:
+        return None
+
+    value = 0
+    for d in digits:
+        value = value * 10 + d
+
+    # A visually plausible digit can still be misclassified (for example 3
+    # as 8).  Never use OCR alone to authorise a milestone chest or the 325
+    # stop condition: its reading must agree with the independently measured
+    # gold progress bar on this same fresh frame.
+    if not (0 <= value <= 999):
+        return None
+    progress = estimate_daily_activity_progress(screenshot)
+    if not _daily_score_agrees_with_bar(value, progress):
+        return None
+
+    return value, float(np.mean(confidences))
 
 
 def _arena_numeric_reading(
@@ -7619,7 +9003,7 @@ def match_arena_home(
     )
 
 
-def match_arena_opponent_list(
+def _match_arena_opponent_list_legacy(
     screenshot: Image.Image,
     threshold: float = 0.90,
 ) -> ArenaOpponentListState | None:
@@ -7678,6 +9062,98 @@ def match_arena_opponent_list(
     )
 
 
+def _match_arena_opponent_list_guard_layout(
+    screenshot: Image.Image, threshold: float, *, player_layout: bool = False,
+) -> ArenaOpponentListState | None:
+    """Read the reviewed guard list with mixed integer and 万 power formats."""
+    title_asset = BUILTIN_DAILY_ARENA_LIST_TITLE_ASSET
+    label_asset = BUILTIN_DAILY_ARENA_REMAINING_LABEL_ASSET
+    title, ts = _match_arena_anchor(screenshot, title_asset, BUILTIN_DAILY_ARENA_LIST_TITLE_TEMPLATE_NAME, (0.20,0.05,0.80,0.18), threshold)
+    label, ls = _match_arena_anchor(screenshot, label_asset, BUILTIN_DAILY_ARENA_REMAINING_LABEL_TEMPLATE_NAME, (0.20,0.68,0.75,0.86), threshold)
+    expected_title = map_content_point((715,391), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    expected_label = map_content_point((629,1925), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    if not title or not label or max(abs(title[0]-expected_title[0]), abs(title[1]-expected_title[1])) > 15 or max(abs(label[0]-expected_label[0]), abs(label[1]-expected_label[1])) > 15:
+        return None
+    if not all(_daily_template_integrity_is_valid(screenshot, asset, name, point, min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True)
+               for asset, name, point in ((title_asset, BUILTIN_DAILY_ARENA_LIST_TITLE_TEMPLATE_NAME, title), (label_asset, BUILTIN_DAILY_ARENA_REMAINING_LABEL_TEMPLATE_NAME, label))):
+        return None
+    mine = _arena_numeric_reading(screenshot, (740,480,1060,580), 'dark')
+    attempts = _arena_numeric_reading(screenshot, (830,1880,910,2000), 'dark')
+    if mine is None or attempts is None or mine[0] <= 0 or not 0 <= attempts[0] <= 5:
+        return None
+    opponents = []
+    scores = [ts, ls, mine[1], attempts[1]]
+    row_tops = (670,930,1185,1440,1695) if player_layout else (720,980,1235,1490,1745)
+    for top, centre in zip(row_tops, (714,972,1230,1489,1746)):
+        fight_asset = 'assets/daily_arena_guard_fight.png'
+        fight, fight_score = _match_daily_task_template(screenshot, fight_asset, Path(fight_asset).name, 0.97,
+            _relative_region(screenshot, 0.80, (centre-95)/2560, 0.94, (centre+95)/2560))
+        expected_fight = map_content_point((1250,centre), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+        if not fight or max(abs(fight[0]-expected_fight[0]), abs(fight[1]-expected_fight[1])) > 12:
+            return None
+        if not _daily_template_integrity_is_valid(screenshot, fight_asset, Path(fight_asset).name, fight,
+                min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+            return None
+        box = (300, top, 590, top + 115)
+        number = _arena_numeric_reading(screenshot, box, 'opponent')
+        if number is None:
+            return None
+        crop = np.asarray(_daily_reference_crop(screenshot, box).convert('RGB'))
+        hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
+        mask = (((hsv[:,:,0] < 12) | (hsv[:,:,0] > 170)) & (hsv[:,:,1] > 120) & (hsv[:,:,2] > 100)) | ((hsv[:,:,0] > 35) & (hsv[:,:,0] < 90) & (hsv[:,:,1] > 100) & (hsv[:,:,2] > 80))
+        count, _labels, stats, _centres = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+        components = [tuple(int(v) for v in stats[j]) for j in range(1,count) if int(stats[j,4]) >= 30]
+        wide = [x for x in components if x[2] >= 38 and x[3] >= 25]
+        unit, unit_score = None, 0.0
+        for wan_asset in ('assets/daily_arena_wan_unit.png', 'assets/daily_arena_wan_small_green.png', 'assets/daily_arena_wan_small_red.png'):
+            candidate, candidate_score = _match_daily_task_template(screenshot, wan_asset, Path(wan_asset).name, 0.95, _relative_region(screenshot, box[0]/1440,box[1]/2560,box[2]/1440,box[3]/2560))
+            if candidate and _daily_template_integrity_is_valid(screenshot, wan_asset, Path(wan_asset).name, candidate, min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+                unit, unit_score = candidate, candidate_score
+                break
+        if unit:
+            dots = [c for c in components if 5 <= c[2] <= 14 and 5 <= c[3] <= 13]
+            if len(dots) != 1:
+                return None
+            power = number[0] * 1000
+            scores.append(unit_score)
+        else:
+            # An unrecognised suffix must never be mistaken for a small plain
+            # integer. This variant admits only a five-digit comma-formatted
+            # value with no wide coloured suffix.
+            commas = [c for c in components if 6 <= c[2] <= 14 and 14 <= c[3] <= 22]
+            if wide or len(str(number[0])) != 5 or len(commas) != 1:
+                return None
+            power = number[0]
+        scores.extend((number[1], fight_score))
+        opponents.append(ArenaOpponent(power, map_content_point((1250,centre), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)))
+    return ArenaOpponentListState(mine[0], attempts[0], tuple(opponents),
+        map_content_point((1335,380), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), min(scores))
+
+
+def match_arena_list_close(screenshot: Image.Image, threshold: float = 0.90) -> tuple[int, int] | None:
+    """Recognise the list close without interpreting opponents or attempts."""
+    items = (
+        (BUILTIN_DAILY_ARENA_LIST_TITLE_ASSET, BUILTIN_DAILY_ARENA_LIST_TITLE_TEMPLATE_NAME, (0.20,0.05,0.80,0.18)),
+        (BUILTIN_DAILY_ARENA_REMAINING_LABEL_ASSET, BUILTIN_DAILY_ARENA_REMAINING_LABEL_TEMPLATE_NAME, (0.20,0.68,0.75,0.86)),
+        ('assets/daily_arena_list_close.png', 'daily_arena_list_close.png', (0.88,0.12,0.97,0.18)),
+    )
+    points = []
+    for asset, name, region in items:
+        point, _ = _match_daily_task_template(screenshot, asset, name, 0.97, _relative_region(screenshot,*region))
+        if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+                min_luma_ratio=0.95, max_colour_distance=0.08, strict_action=True):
+            return None
+        points.append(point)
+    expected = map_content_point((1330,380), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+    return points[-1] if max(abs(points[-1][0]-expected[0]), abs(points[-1][1]-expected[1])) <= 12 else None
+
+
+def match_arena_opponent_list(screenshot: Image.Image, threshold: float = 0.90) -> ArenaOpponentListState | None:
+    return (_match_arena_opponent_list_legacy(screenshot, threshold)
+            or _match_arena_opponent_list_guard_layout(screenshot, threshold)
+            or _match_arena_opponent_list_guard_layout(screenshot, threshold, player_layout=True))
+
+
 def match_arena_setup(
     screenshot: Image.Image,
     threshold: float = 0.90,
@@ -7729,6 +9205,22 @@ def match_arena_setup(
     )
 
 
+def match_arena_reviewed_victory_exit(screenshot: Image.Image) -> tuple[int, int] | None:
+    """Recognise the reviewed ranking victory result, not a generic popup."""
+    anchors = (
+        ("assets/daily_arena_victory_banner.png", (0.34,0.29,0.66,0.40)),
+        ("assets/daily_arena_result_rank.png", (0.29,0.40,0.43,0.45)),
+        ("assets/daily_arena_result_exit_alt.png", (0.34,0.93,0.66,0.98)),
+    )
+    for asset, region in anchors:
+        name = Path(asset).name
+        point, _ = _match_daily_task_template(screenshot, asset, name, 0.985, _relative_region(screenshot, *region))
+        if not point or not _daily_template_integrity_is_valid(screenshot, asset, name, point,
+                min_luma_ratio=0.93, max_colour_distance=0.10, strict_action=True):
+            return None
+    return map_content_point((120, 2200), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
+
+
 def match_arena_result_exit(
     screenshot: Image.Image,
     threshold: float = 0.90,
@@ -7756,7 +9248,8 @@ def match_arena_result_exit(
         threshold,
     )
     if dedicated_point is None:
-        return None, dedicated_score
+        reviewed = match_arena_reviewed_victory_exit(screenshot)
+        return (reviewed, 1.0) if reviewed is not None else (None, dedicated_score)
     return (
         map_content_point(
             (120, 2200), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot

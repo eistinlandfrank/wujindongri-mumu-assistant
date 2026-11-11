@@ -129,7 +129,7 @@ def test_setup_and_victory_are_multi_anchor_gates() -> None:
 
 
 def test_controller_drains_reviewed_intel_before_reopening_daily() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     start = source.index("def run_intel_rescue_plan")
     end = source.index("def defer_active_training_and_reopen_daily", start)
     route = source[start:end]

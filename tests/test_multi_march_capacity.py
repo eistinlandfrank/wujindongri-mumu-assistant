@@ -113,7 +113,7 @@ def test_right_side_compact_march_indicator_blocks_duplicate_dispatch() -> None:
 
 
 def test_hidden_header_bootstrap_is_consumed_only_by_dispatch() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     capacity_helper = source.split("def confirm_daily_free_march_capacity", 1)[1].split(
         "def wait_for_natural_gather_return", 1
     )[0]

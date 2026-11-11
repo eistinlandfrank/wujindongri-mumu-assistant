@@ -2,6 +2,7 @@
 import ast
 import threading
 import unittest
+from functools import lru_cache
 from typing import Callable, Any
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,18 +64,29 @@ class ReadRecoveryTest(unittest.TestCase):
         self.raw.screenshot.assert_not_called()
 
 
-def nested(name, env):
-    source = ast.parse(Path('wjdr_mumu_assistant_qt.py').read_text(encoding='utf-8'))
-    fn = next(n for n in ast.walk(source) if isinstance(n, ast.FunctionDef) and n.name == name)
+@lru_cache(maxsize=1)
+def _controller_ast():
+    return ast.parse(Path('wjdr_mumu_assistant_qt.py').read_text(encoding='utf-8'))
+
+
+@lru_cache(maxsize=None)
+def _nested_code(name):
+    fn = next(n for n in ast.walk(_controller_ast()) if isinstance(n, ast.FunctionDef) and n.name == name)
     # Preserve the real nonlocal state as this isolated fixture's global.
     class Bind(ast.NodeTransformer):
         def visit_Nonlocal(self, node):
             return ast.copy_location(ast.Global(names=node.names), node)
+    fn = Bind().visit(fn)
+    return compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), name, 'exec')
+
+
+def nested(name, env):
     env.setdefault('blue_pair_free', lambda *_: False)
     env.setdefault('gathering_pair_free', lambda *_: False)
     env.setdefault('troop_label', '手动兵力 (1, 0, 0)')
-    fn = Bind().visit(fn)
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), name, 'exec'), env)
+    env.setdefault('reconcile_unconfirmed_hidden_idle', lambda *_: False)
+    env.setdefault('recover_receipt_stamina', lambda *_: None)
+    exec(_nested_code(name), env)
     return env[name]
 
 
@@ -152,6 +164,77 @@ class CompactRecoveryTest(unittest.TestCase):
         env['open_wilderness_queue_panel'].assert_not_called()
         env['recover_pending_reservation'].assert_not_called()
 
+    def test_late_single_rally_is_confirmed_without_a_second_dispatch(self):
+        frames = iter(['unknown', 'unknown', 'own', 'own', 'idle', 'idle'])
+        confirm, pause = Mock(return_value=20), Mock(return_value=False)
+        env = dict(baseline_march_capacity=(0, 6), SingleBeastCycle=SingleBeastCycle,
+                   profile=SimpleNamespace(beast_level=8),
+                   match_same_target_conflict=lambda _: None,
+                   daily_network_dialog_is_visible=lambda *_: False,
+                   time=SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 25, 25, 26, 27])),
+                   capture=lambda: next(frames),
+                   read_compact_rally_rows=lambda im: (CompactRallyRow('own', (80, 500), 60),) if im == 'own' else (),
+                   read_compact_marching_rows=lambda _: (),
+                   read_beast_rally_collapsed_march_capacity=lambda *_: DailyMarchCapacity(0, 6, 1.),
+                   blue_pair_free=lambda first, *_: first == 'idle',
+                   stable=lambda p, q: p == q, threshold=.9, identity='test',
+                   confirm_beast_rally_stamina_reservation=confirm,
+                   self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock()),
+                   target=SimpleNamespace(device='new-adb', tap=Mock()), set_state=Mock(), save_evidence=Mock(),
+                   pause=pause, recover_pending_reservation=Mock())
+        self.assertTrue(nested('monitor_single_team', env)())
+        confirm.assert_called_once_with('test')
+        env['target'].tap.assert_not_called()
+        env['recover_pending_reservation'].assert_not_called()
+        self.assertGreaterEqual(pause.call_count, 1)
+
+    def test_late_single_rally_stops_on_network_error_with_reservation_intact(self):
+        env = dict(baseline_march_capacity=(0, 6), SingleBeastCycle=SingleBeastCycle,
+                   match_same_target_conflict=lambda _: None,
+                   daily_network_dialog_is_visible=lambda *_: True,
+                   time=SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 25])),
+                   capture=lambda: 'unknown', read_compact_rally_rows=lambda _: (),
+                   stable=lambda p, q: p == q, threshold=.9, identity='test',
+                   confirm_beast_rally_stamina_reservation=Mock(),
+                   self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock()),
+                   target=SimpleNamespace(device='new-adb', tap=Mock()), set_state=Mock())
+        self.assertFalse(nested('monitor_single_team', env)())
+        env['confirm_beast_rally_stamina_reservation'].assert_not_called()
+        env['target'].tap.assert_not_called()
+
+    def test_single_unknown_receipt_can_be_conservatively_reconciled(self):
+        idle = DailyMarchCapacity(0, 0, .99, 'hidden_idle')
+        reconcile = Mock(return_value=True)
+        env = dict(baseline_march_capacity=(0, 0), SingleBeastCycle=SingleBeastCycle,
+                   match_same_target_conflict=lambda _: None,
+                   daily_network_dialog_is_visible=lambda *_: False,
+                   time=SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 25])),
+                   capture=Mock(return_value=idle), read_compact_rally_rows=lambda _: (),
+                   stable=lambda p, q: p == q, threshold=.9,
+                   reconcile_unconfirmed_hidden_idle=reconcile,
+                   self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock()),
+                   target=SimpleNamespace(device='new-adb', tap=Mock()),
+                   confirm_beast_rally_stamina_reservation=Mock())
+        self.assertEqual(nested('monitor_single_team', env)(), 'idle_reconciled')
+        reconcile.assert_called_once_with(idle, idle)
+        env['confirm_beast_rally_stamina_reservation'].assert_not_called()
+        env['target'].tap.assert_not_called()
+
+    def test_late_single_rally_respects_stop_without_input(self):
+        env = dict(baseline_march_capacity=(0, 6), SingleBeastCycle=SingleBeastCycle,
+                   match_same_target_conflict=lambda _: None,
+                   daily_network_dialog_is_visible=lambda *_: False,
+                   time=SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 25, 25])),
+                   capture=Mock(return_value='unknown'), read_compact_rally_rows=lambda _: (),
+                   stable=lambda p, q: p == q, threshold=.9,
+                   self=SimpleNamespace(stop_event=threading.Event(), _log_for_device=Mock()),
+                   target=SimpleNamespace(device='new-adb', tap=Mock()), set_state=Mock(),
+                   pause=Mock(return_value=True), confirm_beast_rally_stamina_reservation=Mock())
+        self.assertFalse(nested('monitor_single_team', env)())
+        self.assertEqual(env['capture'].call_count, 2)
+        env['confirm_beast_rally_stamina_reservation'].assert_not_called()
+        env['target'].tap.assert_not_called()
+
     def test_owned_march_finishes_with_only_joined_rally_remaining(self):
         frames=iter(['own','own','march','march','joined','joined'])
         env=dict(baseline_march_capacity=(0,6),SingleBeastCycle=SingleBeastCycle,
@@ -175,7 +258,7 @@ class CompactRecoveryTest(unittest.TestCase):
         target=Mock(device='test')
         release=Mock()
         env=dict(match_same_target_conflict=lambda _: (420,1580),stable=lambda p,q:bool(p and q and p==q),
-                 profile=SimpleNamespace(beast_level=8),
+                 profile=SimpleNamespace(beast_level=8,troop_mode='manual'), wanted_troops=(1,0,0),
                  target_conflicts=0,retry_target_requested=False,target=target,
                  self=SimpleNamespace(_log_for_device=Mock(),stop_event=threading.Event()),save_evidence=Mock(),
                  wait_for_double=Mock(return_value=('formation',(1,2),None)),
@@ -186,6 +269,7 @@ class CompactRecoveryTest(unittest.TestCase):
                  BeastRallyState=b.BeastRallyState,identity='account-a',
                  load_beast_rally_stamina_reserved=Mock(return_value=20),
                  cancel_beast_rally_conflict_reservation=release,
+                 beast_shield_plus_pending=Mock(return_value=False), beast_shield_plus_confirm=Mock(),
                  match_beast_rally_open_button=Mock(return_value=(None,0)),threshold=.9,
                  ensure_wilderness=Mock(return_value=True))
         self.assertTrue(nested('resolve_target_conflict',env)('warning','warning'))

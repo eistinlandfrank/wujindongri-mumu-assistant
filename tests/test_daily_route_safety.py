@@ -48,7 +48,7 @@ from wjdr_backend import (  # noqa: E402
 
 
 def main() -> None:
-    source = Path("wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = (Path("wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     backend_source = Path("wjdr_backend.py").read_text(encoding="utf-8")
     assert DAILY_GATHER_SAFE_RESOURCE_LEVEL == 5
     assert DAILY_TASK_LIST_MAX_SCAN_SWIPES == 12
@@ -118,16 +118,16 @@ def main() -> None:
     assert "DAILY_DONATION_WINDOW_CAP = 25" in source
     assert "DAILY_DONATION_WINDOW_RETRY_SECONDS = DAILY_RETRY_LOCK_MAX_SECONDS" in source
     assert "DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS = DAILY_RETRY_LOCK_MAX_SECONDS" in source
-    assert '"1200",' in source
-    assert '"10000",' not in source
-    assert "timeout=3" in source
-    assert "1200ms 长按" in source
+    assert '"10000",' in source
+    assert '"1200",' not in source
+    assert "timeout=12" in source
+    assert "10000ms 长按" in source
     assert "disabled_streak >= 2" in source
     assert "post_blue_streak >= 2" in source
     assert "alliance_donation_window_clicks = DAILY_DONATION_WINDOW_CAP" in source
     assert "for index in range(batch_remaining) if stage else ():" not in source
     assert "alliance_donation_batches" not in source
-    assert "段后两帧仍蓝且无法证明联盟币变化时绝不连按" in source
+    assert "长按后立即双帧确认灰色状态且绝不连按" in source
     assert "alliance_donation_confirmed_clicks >= DAILY_DONATION_TASK_TARGET" in source
     assert "具体增长由每日任务页复核" in source
     assert source.count("training_route_attempted = True") == 2
@@ -220,7 +220,7 @@ def main() -> None:
     assert "formation.selected_troops <= 0" in source
     assert "formation.carrying_capacity < required_amount" in source
     assert "if item.kind not in dispatched_gather_kinds" in source
-    assert "gather_recheck_candidates" in source
+    assert '"sent_kinds"' in source
     assert "DailyTaskState.TASK_CLAIM_READY" in source
     assert "等待关联奖励页或已知每日页稳定显示" in source
     assert "活跃度宝箱已双帧识图为打开状态；跳过重复打开内容页。" in source

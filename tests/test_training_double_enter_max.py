@@ -50,7 +50,7 @@ def main() -> None:
     assert read_daily_training_progress(daily, DailyMissionKind.TRAIN_SPEAR, 0.90) == (10, 30)
     assert read_daily_training_progress(daily, DailyMissionKind.TRAIN_ARCHER, 0.90) == (10, 30)
 
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     helper_start = source.index("def finish_training_camp_double_enter")
     helper_end = source.index("def run_shield_training_plan", helper_start)
     helper = source[helper_start:helper_end]

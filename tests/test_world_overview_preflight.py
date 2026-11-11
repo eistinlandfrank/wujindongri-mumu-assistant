@@ -126,7 +126,7 @@ def main() -> None:
     # The matcher returns ``(point, score)``.  The controller must unpack it;
     # passing the outer tuple to a coordinate-stability test subtracts
     # ``None - None`` on a missing point and caused the live v4.96 stop.
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     overview_flow = controller.split("def establish_world_resource_level()", 1)[1].split(
         "def confirm_daily_free_march_capacity", 1
     )[0]

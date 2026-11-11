@@ -15,7 +15,7 @@ def main() -> None:
     assert "abs(source_ratio - reference_ratio) <= 0.01" in method
     assert "self.screenshot()" not in method
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     section = controller.split("fast_home_deadline", 1)[1].split(
         "deadline = time.monotonic() + AUTOMATION_STEP_TIMEOUT_SECONDS", 1
     )[0]

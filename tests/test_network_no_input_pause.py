@@ -42,7 +42,7 @@ def main() -> None:
         0.90,
     )
 
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     assert source.count("if daily_network_dialog_is_visible(image, threshold):") >= 2
     start = source.rindex("if daily_network_dialog_is_visible(image, threshold):")
     end = source.index(

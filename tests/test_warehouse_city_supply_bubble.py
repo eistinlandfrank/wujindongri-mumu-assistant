@@ -11,7 +11,7 @@ NIGHT_ASSETS = tuple(
     ROOT / "assets" / f"daily_warehouse_city_supply_bubble_night_pose_{index}_live.png"
     for index in range(1, 6)
 )
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
 def test_warehouse_city_supply_bubble_requires_exact_tight_asset() -> None:

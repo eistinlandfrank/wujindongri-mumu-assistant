@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
 def test_gather_yield_is_account_scoped_and_survives_a_safe_restart() -> None:
@@ -13,7 +13,8 @@ def test_gather_yield_is_account_scoped_and_survives_a_safe_restart() -> None:
     state = SOURCE[start:end]
 
     assert 'daily_gather_defer_{donation_identity}.json' in state
-    assert 'state.get("date") != donation_day' in state
+    assert 'same_day = state.get("date") == donation_day' in state
+    assert 'if not same_day:' in state
     assert "retry_epoch <= epoch_now" in state
     assert "monotonic_now + retry_epoch - epoch_now" in state
     assert "temporary.replace(gather_deferral_state_path)" in state
@@ -38,7 +39,7 @@ def test_gather_yield_is_account_scoped_and_survives_a_safe_restart() -> None:
     countdown_end = SOURCE.index("def record_active_training_countdown", countdown_start)
     countdown = SOURCE[countdown_start:countdown_end]
     assert "dispatched_gather_kinds.add(kind)" in countdown
-    assert "DAILY_GATHER_PASSIVE_WAIT_CAP_SECONDS" in countdown
+    assert "DAILY_GATHER_FULL_NODE_MIN_RETURN_SECONDS" in countdown
     assert "natural_queue=True" in countdown
     assert countdown.index("defer_gather_kind") < countdown.index(
         "daily_gather_remaining_time_crop"

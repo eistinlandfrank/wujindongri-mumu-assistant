@@ -28,7 +28,7 @@ class BeastConfirmationFramesTests(unittest.TestCase):
         return nested("wait_for_double", env)(label, matcher), capture, matcher
 
     def test_first_cycle_uses_two_frames_and_later_routine_uses_one(self):
-        for label in ("确认橙色集结按钮", "确认冰原巨兽搜索页", "确认等级为 9",
+        for label in ("确认橙色集结按钮", "确认发起集结页面", "确认3分钟已选中", "确认冰原巨兽搜索页", "确认等级为 9",
                       "确认第 1 行兵力为 1", "复核出征配置与普通出征"):
             with self.subTest(label=label):
                 first, captures, _ = self.confirm(label, 0)

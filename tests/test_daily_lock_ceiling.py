@@ -1,4 +1,4 @@
-"""Daily failure/yield/retry locks must never hide work for over 30 seconds."""
+"""Daily failure retry locks use the user-requested ten-second ceiling."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+SOURCE = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
 
 
-def test_one_shared_thirty_second_lock_ceiling_covers_retry_policies() -> None:
-    assert "DAILY_RETRY_LOCK_MAX_SECONDS = 30.0" in SOURCE
+def test_one_shared_ten_second_lock_ceiling_covers_retry_policies() -> None:
+    assert "DAILY_RETRY_LOCK_MAX_SECONDS = 10.0" in SOURCE
+    assert "DAILY_WAREHOUSE_SUPPLY_FAILURE_RETRY_SECONDS = 10" in SOURCE
     for assignment in (
         "DAILY_DONATION_WINDOW_RETRY_SECONDS = DAILY_RETRY_LOCK_MAX_SECONDS",
         "DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS = DAILY_RETRY_LOCK_MAX_SECONDS",
@@ -93,7 +94,7 @@ def test_business_expiry_deadlines_remain_distinct_from_failure_locks() -> None:
             "def record_active_training_countdown"
         )
     ]
-    assert "DAILY_GATHER_PASSIVE_WAIT_CAP_SECONDS" in countdown
+    assert "DAILY_GATHER_FULL_NODE_MIN_RETURN_SECONDS" in countdown
     assert "natural_queue=True" in countdown
 
     insufficient = SOURCE[
@@ -104,12 +105,20 @@ def test_business_expiry_deadlines_remain_distinct_from_failure_locks() -> None:
     assert "DAILY_RETRY_LOCK_MAX_SECONDS" in insufficient
     assert "DAILY_GATHER_PASSIVE_WAIT_CAP_SECONDS" not in insufficient
 
+def test_failed_building_and_training_yield_until_scan_boundary() -> None:
+    assert 'if building_upgrade_unavailable or building_failed_scan' in SOURCE
+    assert SOURCE.count('building_failed_scan = True') >= 2
+    assert SOURCE.count('building_failed_scan = False') >= 3
+    assert SOURCE.count('training_failed_scan_kinds.clear()') >= 2
+    assert 'training_failed_scan_kinds.add(kind)' in SOURCE
+
 
 def main() -> None:
-    test_one_shared_thirty_second_lock_ceiling_covers_retry_policies()
+    test_one_shared_ten_second_lock_ceiling_covers_retry_policies()
     test_process_lifetime_failure_flags_have_expiring_deadlines()
     test_persisted_legacy_failure_epochs_are_migrated_not_renewed()
     test_business_expiry_deadlines_remain_distinct_from_failure_locks()
+    test_failed_building_and_training_yield_until_scan_boundary()
     print("daily lock ceiling regression checks: PASS")
 
 

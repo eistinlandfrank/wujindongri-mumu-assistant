@@ -29,8 +29,8 @@ def test_one_action_timeout_is_hard_capped_at_thirty_seconds() -> None:
 
 
 def test_daily_idle_policy_uses_chunked_no_input_deadline() -> None:
-    source = SOURCE.read_text(encoding="utf-8")
-    assert MAX_SINGLE_WAIT_SECONDS == 1.5
+    source = (SOURCE.read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
+    assert MAX_SINGLE_WAIT_SECONDS == 0.2
     assert "idle_no_input_until =" in source
     assert "self.stop_event.wait(min(MAX_SINGLE_WAIT_SECONDS, remaining))" in source
     assert "min(AUTOMATION_STEP_TIMEOUT_SECONDS, remaining)" not in source
@@ -38,7 +38,7 @@ def test_daily_idle_policy_uses_chunked_no_input_deadline() -> None:
 
 
 def test_route_and_manual_step_timeouts_use_the_shared_cap() -> None:
-    source = SOURCE.read_text(encoding="utf-8")
+    source = (SOURCE.read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     assert "time.monotonic() + bounded_step_timeout(timeout)" in source
     assert "bounded_step_timeout(float(step[\"seconds\"]))" in source
     assert re.search(

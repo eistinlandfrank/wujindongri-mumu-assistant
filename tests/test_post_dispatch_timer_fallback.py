@@ -25,7 +25,7 @@ def test_live_late_gather_card_is_recognised() -> None:
 
 
 def test_dispatch_lock_precedes_timer_observation_and_timeout_continues() -> None:
-    source = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    source = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     section = source.split("def record_active_gather_countdown", 1)[1].split(
         "def record_active_training_countdown", 1
     )[0]

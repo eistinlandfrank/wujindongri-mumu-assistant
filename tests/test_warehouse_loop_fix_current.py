@@ -53,7 +53,7 @@ def main() -> None:
         0.94,
     )[0]
 
-    controller = (ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8")
+    controller = ((ROOT / "wjdr_mumu_assistant_qt.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_daily_controller.py").read_text(encoding="utf-8") + (Path(__file__).resolve().parents[1] / "wjdr_runtime_config.py").read_text(encoding="utf-8"))
     assert "DAILY_WAREHOUSE_SUPPLY_RETRY_SECONDS = 3 * 60" in controller
     assert "DAILY_WAREHOUSE_SUPPLY_FAILURE_RETRY_SECONDS = 30" in controller
     assert "bounded_step_timeout(8.0)" in controller

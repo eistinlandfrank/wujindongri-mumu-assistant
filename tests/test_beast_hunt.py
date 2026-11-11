@@ -191,6 +191,29 @@ class HuntTests(unittest.TestCase):
         self.assertEqual(rows[0].owner,'own')
         self.assertEqual(rows[0].seconds,89)
 
+    def test_rally_rows_without_timer_keep_ownership_and_coordinates(self):
+        # Concurrent slot classification does not use countdowns. Exercise
+        # its fast path with real owner assets, including a negative and a
+        # right-hand overlay, at the supported content scales.
+        for joined, returning in ((False, False), (True, False), (False, True)):
+            frame = self.compact_frame(joined=joined, returning=returning)
+            frame.paste(frame.crop((35, 620, 391, 705)), (1000, 620))
+            for size in ((720, 1280), (1080, 1920), (1440, 2560)):
+                full = read_compact_rally_rows(frame.resize(size))
+                fast = read_compact_rally_rows(frame.resize(size), read_timer=False)
+                self.assertEqual([(r.owner, r.point, r.phase) for r in fast],
+                                 [(r.owner, r.point, r.phase) for r in full])
+                self.assertTrue(all(r.seconds is None for r in fast))
+
+    def test_right_side_rally_does_not_create_or_change_left_queue_rows(self):
+        left = self.compact_frame()
+        right_only = Image.new('RGB', left.size, (30, 50, 90))
+        right_only.paste(left.crop((35, 620, 391, 705)), (1000, 620))
+        self.assertEqual(read_compact_rally_rows(right_only), ())
+        both = left.copy()
+        both.paste(right_only.crop((1000, 620, 1356, 705)), (1000, 620))
+        self.assertEqual(read_compact_rally_rows(both), read_compact_rally_rows(left))
+
     def test_blue_icon_with_green_bar_is_joined(self):
         rows=read_compact_rally_rows(self.compact_frame(joined=True))
         self.assertEqual(len(rows),1)

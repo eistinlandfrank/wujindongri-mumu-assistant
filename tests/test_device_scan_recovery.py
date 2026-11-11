@@ -32,6 +32,50 @@ class DeviceScanRecoveryTests(unittest.TestCase):
         self.assertEqual(devices, ["127.0.0.1:16448"])
         self.assertEqual(adb.device, "")
 
+    def test_running_manager_instances_skip_offline_configs_and_existing_connections(self):
+        adb = self.fake_backend()
+        adb._candidate_ports = lambda: [7555, 16384, 16448, 16480]
+        calls = []
+        def run(args, **kw):
+            calls.append(args)
+            if args == ['devices']:
+                return 'List of devices attached\n127.0.0.1:16448\tdevice\n'
+            return ''
+        adb._run = run
+        self.assertEqual(adb.connect(), ['127.0.0.1:16448'])
+        self.assertFalse(any(args[0] == 'connect' for args in calls))
+
+    def test_missing_running_instance_is_connected_and_rescanned(self):
+        adb = self.fake_backend()
+        adb._candidate_ports = lambda: [16448, 16480]
+        adb.players.append({'index': 3, 'adb_port': 16480, 'is_android_started': True})
+        scans = iter(['List of devices attached\n127.0.0.1:16448\tdevice\n',
+                      'List of devices attached\n127.0.0.1:16448\tdevice\n127.0.0.1:16480\tdevice\n'])
+        calls = []
+        adb.device_identity = lambda serial: serial
+        def run(args, **kw):
+            calls.append(args)
+            return next(scans) if args == ['devices'] else ''
+        adb._run = run
+        self.assertEqual(adb.connect(), ['127.0.0.1:16448', '127.0.0.1:16480'])
+        self.assertIn(['connect', '127.0.0.1:16480'], calls)
+        self.assertNotIn(['connect', '127.0.0.1:16448'], calls)
+
+    def test_manager_unavailable_keeps_config_fallback(self):
+        adb = self.fake_backend()
+        adb.players = []
+        adb._candidate_ports = lambda: [16448, 16480]
+        scans = iter(['List of devices attached\n',
+                      'List of devices attached\n127.0.0.1:16480\tdevice\n'])
+        calls = []
+        def run(args, **kw):
+            calls.append(args)
+            return next(scans) if args == ['devices'] else ''
+        adb._run = run
+        self.assertEqual(adb.connect(), ['127.0.0.1:16480'])
+        self.assertIn(['connect', '127.0.0.1:16448'], calls)
+        self.assertIn(['connect', '127.0.0.1:16480'], calls)
+
     def test_missing_binding_displays_online_device_without_auto_switch(self):
         window = make_window()
         window.preferred_device = "127.0.0.1:16544"

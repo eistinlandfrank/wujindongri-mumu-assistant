@@ -47,8 +47,8 @@ class MiningLevelProfileTests(unittest.TestCase):
         )
 
     def test_distinct_mumu_instances_with_cloned_android_id_do_not_share_profile(self):
-        stable_identity_from_25600 = "mumu:0:android:a195ab448b7cd5ab"
-        stable_identity_from_25664 = "mumu:2:android:a195ab448b7cd5ab"
+        stable_identity_from_25600 = "mumu:0:android:0123456789abcdef"
+        stable_identity_from_25664 = "mumu:2:android:0123456789abcdef"
 
         save_mining_level_profile(
             stable_identity_from_25600,
@@ -66,8 +66,8 @@ class MiningLevelProfileTests(unittest.TestCase):
         )
 
     def test_manager_scoped_identity_reads_legacy_profile_until_saved(self):
-        legacy = "android:2d003489914050ce"
-        scoped = "mumu:1:android:2d003489914050ce"
+        legacy = "android:fedcba9876543210"
+        scoped = "mumu:1:android:fedcba9876543210"
         save_mining_level_profile(
             legacy,
             MiningLevelProfile("manual", 5),
