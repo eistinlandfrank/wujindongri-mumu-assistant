@@ -15,7 +15,7 @@ from time import monotonic
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import wjdr_fortress as fortress
 import wjdr_fortress_flow as flow

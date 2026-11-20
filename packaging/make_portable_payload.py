@@ -4,12 +4,14 @@ from pathlib import Path
 guard=threading.Timer(25,lambda:os._exit(124));guard.daemon=True;guard.start()
 p=argparse.ArgumentParser();p.add_argument('runtime',type=Path);p.add_argument('output',type=Path);a=p.parse_args()
 a.output.mkdir(parents=True,exist_ok=True)
-documents = ('README.md', '第三方许可说明.txt')
-for name in documents:
-    shutil.copy2(Path(__file__).resolve().parents[1]/name,a.runtime/name)
+repo = Path(__file__).resolve().parents[1]
+documents = (repo / 'README.md', repo / 'docs' / 'third-party-notices.txt')
+for document in documents:
+    shutil.copy2(document, a.runtime / document.name)
+root_files = {'WJDRMuMuAssistant.exe', *(document.name for document in documents)}
 files=sorted(path for path in a.runtime.rglob('*') if path.is_file() and (
     path.relative_to(a.runtime).parts[0]=='_internal' or
-    path.relative_to(a.runtime).as_posix() in ('WJDRMuMuAssistant.exe', *documents)
+    path.relative_to(a.runtime).as_posix() in root_files
 ))
 with zipfile.ZipFile(a.output/'payload.zip','w',zipfile.ZIP_DEFLATED,compresslevel=1) as archive:
     lines=[]

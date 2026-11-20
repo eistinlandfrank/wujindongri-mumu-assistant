@@ -21,18 +21,17 @@
 
 ```powershell
 python -m pip install -r requirements.txt
-python wjdr_mumu_assistant_qt.py
+python src/wjdr_mumu_assistant_qt.py
 ```
 
-运行源码预览时，可用 `scripts/demo_frontend.ps1 -Device <ADB序列号>` 指定在线实例。查找实现可参考[代码模块索引](docs/code-map.md)。识图命令见[快速识图工具](快速识图工具.md)。
+在源码启动命令后加 `--device <ADB序列号>` 可指定在线实例。查找实现可参考[代码模块索引](docs/code-map.md)。识图命令见[快速识图工具](docs/fast-vision.md)。
 
 编译便携版需要 PyInstaller 和 Windows .NET Framework 的 C# 编译器。在仓库目录执行以下命令。
 
 ```powershell
 python -m pip install pyinstaller
-.\build_release.ps1 -OutputRoot release
-python scripts/verify_frozen_source.py release/dist/WJDRMuMuAssistant
+.\packaging\build_release.ps1 -OutputRoot release
 .\packaging\build_portable.ps1 -OutputRoot release -SkipRuntime
 ```
 
-输出为 `release/WJDRMuMuAssistant_v5.8.0_Portable.exe`。在运行目录与当前源码一致后，才能用 `-SkipRuntime` 重新封装。验收用 `scripts/verify_portable_ui.ps1` 检查实际启动。
+输出为 `release/WJDRMuMuAssistant_v5.8.0_Portable.exe`。封装时会校验运行目录中的代码与素材是否和当前源码一致。
