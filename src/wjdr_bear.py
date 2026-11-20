@@ -229,9 +229,10 @@ class Detail:
     join: tuple[int, int] | None
     present: bool
     seconds: int
+    origin: tuple[int, int]
 
 
-def rally_detail(image, items, card, player):
+def rally_detail(image, items, card, player, *, expected_origin=None):
     if not (_in(items, "联盟战争", 70, 270, 10, 90)
             or _detail_title_visible(image)):
         return None
@@ -246,11 +247,16 @@ def rally_detail(image, items, card, player):
         return None
     target_present = any(BEAR_TARGET.fullmatch(row.text) and row.right < 285
                          and 170 < row.y < 530 for row in items)
-    coordinate_present = any(
-        (location := COORDINATES.search(row.text)) and tuple(map(int, location.groups())) == card.coords
-        and row.right > 540 and leader_label.y + 35 < row.y < 460 for row in items
-    )
-    if not (target_present and coordinate_present):
+    coordinate_label = next((row for row in items if row.text.startswith("坐标:")
+                             and 225 <= row.x <= 360 and leader_label.y + 35 < row.y < 460), None)
+    # The card coordinates identify the trap. Alliance War shows the captain's origin.
+    location = next((location for row in items if coordinate_label is not None
+                     and abs(row.y - coordinate_label.y) < 19 and row.right > 540
+                     and (location := COORDINATES.search(row.text))), None)
+    if not target_present or location is None:
+        return None
+    origin = tuple(map(int, location.groups()))
+    if expected_origin is not None and origin != expected_origin:
         return None
     timer = next((row for row in items if row.text.startswith("集结中")
                   and 265 < row.x < 570 and leader_label.y + 75 < row.y < 550), None)
@@ -268,8 +274,8 @@ def rally_detail(image, items, card, player):
         if row.text == JOIN_TEXT and 152 <= row.x <= 290 and 500 < row.y < image.height - 108:
             r, g, b = _color(image, (row.right + 15, row.y))
             if not present and 0 < seconds <= 600 and 75 < r < 180 and g > r + 40 and b > g + 22:
-                return Detail(row.point, False, seconds)
-    return Detail(None, present, seconds)
+                return Detail(row.point, False, seconds, origin)
+    return Detail(None, present, seconds, origin)
 
 
 @dataclass(frozen=True)
@@ -431,9 +437,9 @@ class BearFlow:
 
     def join(self, card, view):
         self.tap(card.point, view)
-        def detail(raw, image):
+        def detail(raw, image, origin=None):
             return self.read(image, lambda current, items:
-                             rally_detail(current, items, card, self.settings["player"]))
+                             rally_detail(current, items, card, self.settings["player"], expected_origin=origin))
 
         try:
             page, view = self.await_page(detail, "同一队长、坐标和巨熊目标", seconds=3)
@@ -472,7 +478,7 @@ class BearFlow:
             raise InterruptedError()
         count = record_dispatch(self.day, card.key, expires=expires, path=self.path)
         self.tap(dispatch)
-        self.await_page(lambda raw, image: (result if (result := detail(raw, image))
+        self.await_page(lambda raw, image: (result if (result := detail(raw, image, page.origin))
                                             and result.present else None), "出征回执（本人进入同一集结名单）")
         record_dispatch(self.day, card.key, expires=expires, confirm=True, path=self.path)
         self.ignored[card.key] = expires
