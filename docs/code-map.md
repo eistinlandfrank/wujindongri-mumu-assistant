@@ -11,6 +11,7 @@
 | 桌面工作流共用的超时和重试常量 | `wjdr_runtime_config.py` |
 | ADB、设备身份、持久化和底层图像识别 | `wjdr_backend.py` |
 | 野兽状态和账本语义 | `wjdr_beast_hunt.py`、`wjdr_beast_supervision.py` |
+| 联盟聊天打熊、出征记账和预约界面 | `wjdr_bear.py`、`wjdr_bear_ui.py` |
 | 每日情报、探险及视觉辅助 | `wjdr_daily_intel.py`、`wjdr_daily_expedition.py`、`wjdr_daily_visuals.py` |
 | 定时计划、战备积分 | `wjdr_schedule*.py`、`wjdr_scoreboard*.py` |
 | 实例视频帧与堡垒跑联盟 | `wjdr_mumu_ipc.py`、`wjdr_fortress*.py` |

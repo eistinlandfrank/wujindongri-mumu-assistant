@@ -45,7 +45,7 @@ class ScheduleUI:
         self.schedule_clock = QLabel("按本机时间触发")
         self.schedule_clock.setObjectName("muted")
         form.addWidget(self.schedule_clock)
-        rules = QLabel("使用该账号巨兽设置：8级 / 3分钟 / 打野编组。\n"
+        rules = QLabel("本页可预约一次巨兽集结。打熊的每两天预约在「打熊」页添加，也可在下方取消。\n"
             "请保持电脑不休眠、MuMu在线，并保持绑定该账号的助手窗口打开。关闭窗口或切到其他账号，不会由后台代为启动。\n"
             "到点已有任务运行则跳过；超过30秒未能触发则标记错过，不延迟补跑。保存预约不会立即出征。F8会取消所有尚未启动的预约。")
         rules.setObjectName("noticeText")
@@ -204,6 +204,8 @@ class ScheduleUI:
             self.log(f"定时已到，账号核验通过，启动{schedules.TASK_NAMES[task]}。")
             if task == "fortress_route":
                 self._fortress_start_flow(scheduled=job)
+            elif task == "bear":
+                self._start_bear_flow(scheduled=job)
             else:
                 self._start_beast_rally_flow()
             if not self.worker or not self.worker.is_alive():

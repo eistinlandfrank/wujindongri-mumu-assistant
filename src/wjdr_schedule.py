@@ -12,7 +12,8 @@ GRACE_SECONDS = 30
 STATES = {"pending": "等待时间", "claimed": "正在核验手机", "running": "已启动",
           "finished": "流程已结束", "cancelled": "已取消", "missed": "已错过",
           "skipped": "未执行", "failed": "启动失败"}
-TASK_NAMES = {"beast_rally": "巨兽集结", "fortress_route": "堡垒跑联盟"}
+TASK_NAMES = {"beast_rally": "巨兽集结", "fortress_route": "堡垒跑联盟", "bear": "打熊 · 每两天"}
+BEAR_REPEAT_SECONDS = 2 * 24 * 60 * 60
 
 
 def read_jobs(path: Path = SCHEDULE_FILE) -> list[dict]:
@@ -31,6 +32,7 @@ def _write(path, jobs):
 @_serialized_account_write
 def add_job(identity: str, device: str, label: str, run_at: float, *,
             task: str = "beast_rally", route: list[dict] | None = None,
+            bear: dict | None = None,
             now: float | None = None, path: Path = SCHEDULE_FILE) -> dict:
     now = time.time() if now is None else now
     if not identity.startswith("mumu:") or ":android:" not in identity:
@@ -40,6 +42,14 @@ def add_job(identity: str, device: str, label: str, run_at: float, *,
     if task not in TASK_NAMES or (task == "fortress_route" and not route):
         raise ValueError("请确认预约任务及路线")
     jobs = read_jobs(path)
+    if task == "bear":
+        from datetime import datetime, time as clock_time
+        from wjdr_bear import ZONE, roster_settings
+        if not isinstance(bear, dict) or datetime.fromtimestamp(run_at, ZONE).time() != clock_time(20, 30):
+            raise ValueError("请选择首场打熊日期，固定北京时间 20:30 开始")
+        bear = roster_settings(bear.get("names"), bear.get("player"))
+        if any(j["identity"] == identity and j.get("task") == "bear" and j["state"] == "pending" for j in jobs):
+            raise ValueError("该手机已有打熊预约，可在「定时启动」取消后重新设置")
     if any(j["identity"] == identity and j["state"] in {"pending", "claimed"}
            and abs(j["run_at"] - run_at) < GRACE_SECONDS for j in jobs):
         raise ValueError("该手机在此时间附近已有预约，请勿重复添加")
@@ -50,6 +60,8 @@ def add_job(identity: str, device: str, label: str, run_at: float, *,
                state="pending", note="到点核验手机后启动一次；不会唤醒电脑")
     if task == "fortress_route":
         job["route"] = route
+    if task == "bear":
+        job.update(bear=bear, series=job["id"], note="北京时间 20:30，隔两天启动；不会唤醒电脑")
     jobs.append(job)
     _write(path, jobs)
     return dict(job)
@@ -63,6 +75,24 @@ def claim_due(identity: str, *, busy: bool = False, now: float | None = None,
     changed = False
     chosen = None
     for job in sorted(jobs, key=lambda j: j["run_at"]):
+        if job.get("task") == "bear" and job["state"] == "pending" and job["run_at"] <= now:
+            elapsed = int((now - job["run_at"]) // BEAR_REPEAT_SECONDS)
+            current_at = job["run_at"] + elapsed * BEAR_REPEAT_SECONDS
+            if job["identity"] != identity and now <= current_at + GRACE_SECONDS:
+                continue
+            next_at = current_at + BEAR_REPEAT_SECONDS
+            # The current occurrence and its successor are committed together.
+            # Preserve the original two-day cadence across shutdowns.
+            job["run_at"] = current_at
+            history = [entry for entry in jobs if entry.get("series") == job["series"]
+                       and entry["state"] not in {"pending", "claimed", "running"}]
+            for old in sorted(history, key=lambda row: row["run_at"])[:-5]:
+                jobs.remove(old)
+            future = {key: job[key] for key in ("identity", "device", "label", "task", "bear", "series")}
+            future.update(id=os.urandom(16).hex(), run_at=next_at, created_at=now, state="pending",
+                          note="北京时间 20:30，隔两天启动；不会唤醒电脑")
+            jobs.append(future)
+            changed = True
         if job["state"] == "pending" and now > job["run_at"] + GRACE_SECONDS:
             job.update(state="missed", note="超过预约时间30秒；不补跑，请重新预约")
             changed = True

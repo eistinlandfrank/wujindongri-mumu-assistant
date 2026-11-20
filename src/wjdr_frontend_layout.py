@@ -56,10 +56,11 @@ PAGE_HEADERS = (
     ("关于与安全", ""),
     ("备战积分", "采集榜单、保存快照并对比积分"),
     ("堡垒跑联盟", "配置跑盟路线与本站操作"),
+    ("打熊", "从联盟聊天加入指定队长的巨熊集结"),
 )
 NAV_SECTIONS = (
     ("", (0,)),
-    ("自动化", (4, 3, 1, 2, 10)),
+    ("自动化", (4, 11, 3, 1, 2, 10)),
     ("任务管理", (5, 9, 6)),
     ("排查与帮助", (7, 8)),
 )
@@ -233,12 +234,13 @@ class FrontendLayout:
         self.stack.addWidget(self._build_about_page())
         self.stack.addWidget(self._build_scoreboard_page())
         self.stack.addWidget(self._build_fortress_page())
+        self.stack.addWidget(self._build_bear_page())
         # Every page remains accessible on short/high-DPI displays. Never let
         # a long status or title silently enlarge the native window.
         for label in main.findChildren(QLabel) + self.stack.findChildren(QLabel):
             if label.objectName() not in {"statusPill", "statValue", "greenPill"}:
                 label.setWordWrap(True)
-        for index in (0, 6):
+        for index in (0, 6, 11):
             body = self.stack.widget(index)
             self.stack.removeWidget(body)
             scroll = QScrollArea()

@@ -300,6 +300,7 @@ from wjdr_backend import (
 from wjdr_frontend_layout import FrontendLayout
 from wjdr_daily_controller import start_daily_rewards_flow
 from wjdr_schedule_ui import ScheduleUI
+from wjdr_bear_ui import BearUI
 from wjdr_fortress_ui import FortressUI
 import wjdr_schedule as schedules
 
@@ -861,7 +862,7 @@ def beast_cleared_first_shield_plus(image: Image.Image, read_state: Callable) ->
 from wjdr_scoreboard_ui import ScoreboardUI
 
 
-class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, QMainWindow):
+class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, QMainWindow):
     def __init__(
         self,
         preferred_device: str | None,
@@ -1040,6 +1041,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, QMainWind
         self.red_packet_start_button.setEnabled(not running)
         self.daily_task_start_button.setEnabled(not running)
         self.beast_rally_start_button.setEnabled(not running)
+        self.bear_start_button.setEnabled(not running)
         self.signals.status.emit(f"●  {text}", "busy" if running else "ready")
         if running:
             self.started_at = time.monotonic()
@@ -1131,6 +1133,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, QMainWind
             QTimer.singleShot(250, self._start_help_preset)
 
     def _show_device_info(self, item: dict[str, Any] | None) -> None:
+        self._show_bear_account(item)
         self._fortress_set_account(item)
         if not item:
             self.instance_name.setText("未选择在线实例")
