@@ -53,7 +53,8 @@ class BearUI:
         fields.addRow("首场日期", self.bear_date)
         form.addLayout(fields)
         notice = QLabel("边翻集结列表边找绿色「+」，只加入名单内队长的变异巨熊集结。\n"
-                        "请从野外红旗或联盟战争的集结列表开始。每场 30 分钟，每 5 分钟最多出征 6 次。"
+                        "请从野外红旗或联盟战争的集结列表开始。每 5 分钟最多出征 6 次。"
+                        "晚场北京时间 21:00 结束，20:55 停止加入新集结。"
                         "预约按北京时间每两天 20:30 启动。"
                         "预约期间请保持当前账号的助手窗口打开、电脑和 MuMu 在线。")
         notice.setObjectName("noticeText")

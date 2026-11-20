@@ -9,8 +9,8 @@ import cv2
 import numpy as np
 
 from wjdr_bear import (
-    BEAR_TARGET, EVENT_SECONDS, LIMIT, POLL_SECONDS, WAVE_SECONDS, WIDTH, BearFlow, Card,
-    PageTimeout, TroopLimit, _color, _detail_title_visible, _in, _template, ledger, nickname, normalized,
+    BEAR_TARGET, LIMIT, POLL_SECONDS, WAVE_SECONDS, WIDTH, BearFlow, Card,
+    PageTimeout, TroopLimit, _color, _detail_title_visible, _in, _template, join_cutoff_at, ledger, nickname, normalized,
     rally_detail, roster_settings, troop_limit_dialog, wave_at, wave_count,
 )
 
@@ -133,7 +133,7 @@ class WarBearFlow(BearFlow):
             self.await_page(lambda raw, image: self.read(image, war_page), "联盟战争集结列表")
 
     def scroll(self, view, *, toward_bottom=True):
-        if self.stop.is_set():
+        if self.input_stopped():
             raise InterruptedError()
         x = view.left + round(578 * view.width / WIDTH)
         start = view.top + round(1137 * view.width / WIDTH)
@@ -193,12 +193,16 @@ class WarBearFlow(BearFlow):
             self.return_to_list()
 
     def return_to_list(self):
-        if self.stop.is_set():
+        if self.input_stopped():
             raise InterruptedError()
         self.target.back()
         self.open_war()
 
-    def run(self, seconds=EVENT_SECONDS):
+    def run(self, seconds=None):
+        self.stop_at = join_cutoff_at()
+        if self.input_stopped():
+            self.report("已过北京时间 20:55，今日停止打熊扫描")
+            return
         prior = ledger(self.path, self.day, all_waves=True)
         self.ignored.update((record["key"], record["expires"]) for record in prior)
         if not self.target.foreground_is_game():
@@ -207,13 +211,13 @@ class WarBearFlow(BearFlow):
         wave = wave_at()
         count = wave_count(prior, wave)
         self.report(f"正在逐屏扫描联盟战争集结 · 本轮已出征 {count}/{LIMIT}")
-        deadline = time.monotonic() + seconds
+        deadline = time.monotonic() + seconds if seconds is not None else float("inf")
         last_scroll = None
         next_scroll = 0.0
         toward_bottom = True
         stationary_since = 0.0
         full_wave = None
-        while not self.stop.is_set() and time.monotonic() < deadline:
+        while not self.input_stopped() and time.monotonic() < deadline:
             now = time.time()
             current = wave_at(now)
             if current != wave:

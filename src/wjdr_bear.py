@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as clock_time, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 import hashlib
@@ -25,7 +25,7 @@ from wjdr_backend import (
 LIMIT = 6
 WAVE_SECONDS = 5 * 60
 ZONE = timezone(timedelta(hours=8))
-EVENT_SECONDS = 30 * 60
+TRAP_END = clock_time(21, 0)
 POLL_SECONDS = 0.08
 WIDTH = 786
 JOIN_TEXT = "点击加入集结队伍一起打败敌人"
@@ -63,6 +63,11 @@ def account_file(identity: str, purpose: str, directory: Path = CONFIG_DIR) -> P
 
 def wave_at(now=None):
     return int((time.time() if now is None else now) // WAVE_SECONDS)
+
+
+def join_cutoff_at(now=None):
+    current = datetime.fromtimestamp(time.time() if now is None else now, ZONE)
+    return datetime.combine(current.date(), TRAP_END, ZONE).timestamp() - WAVE_SECONDS
 
 
 def wave_count(records, wave):
@@ -343,12 +348,16 @@ class BearFlow:
         self.path = path
         self.report = report
         self.day = datetime.now(ZONE).date().isoformat()
+        self.stop_at = None
         self.ignored = {}
         self.ocr_key = None
         self.ocr_lines = []
 
+    def input_stopped(self):
+        return self.stop.is_set() or (self.stop_at is not None and time.time() >= self.stop_at)
+
     def tap(self, point, view=None):
-        if self.stop.is_set():
+        if self.input_stopped():
             raise InterruptedError()
         if view is not None:
             x, y = point
@@ -429,10 +438,14 @@ class BearFlow:
                 break
         else:
             raise TroopLimit()
-        if self.stop.is_set():
+        if self.input_stopped():
             raise InterruptedError()
         count = record_dispatch(self.day, card.key, expires=expires, path=self.path)
-        self.tap(dispatch)
+        try:
+            self.tap(dispatch)
+        except InterruptedError:
+            record_dispatch(self.day, card.key, expires=expires, rejected=True, path=self.path)
+            raise
         def outcome(raw, image):
             if self.read(image, troop_limit_dialog):
                 return "rejected"
