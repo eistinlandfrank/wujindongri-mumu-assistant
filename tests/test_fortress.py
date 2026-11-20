@@ -267,6 +267,21 @@ class FortressTests(unittest.TestCase):
                              (489, fortress.AllianceListing(2, 100, "需要申请")))
         ocr.assert_called_once()
 
+    def test_whitelist_row_uses_its_visible_join_control_and_exact_tag_crop(self):
+        lines = [
+            line(89, 21, "联盟"), line(76, 110, "建立联盟"), line(498, 110, "邀请/申请"),
+            line(57, 198, "RMB"), line(525, 397, "加入"), line(507, 399, "白名单联盟"),
+            line(219, 418, "74/100"),
+        ]
+        expected = fortress.AllianceListing(74, 100, "可直接加入")
+        self.assertEqual(fortress.read_alliance_listing([*lines, line(190, 348, "[RMB]示例")], "RMB"), expected)
+        image = Image.new("RGB", fortress.REFERENCE)
+        ocr = Mock(return_value=[line(0, 0, "74/100")])
+        with patch.object(fortress, "_cropped_listing_tag", return_value="RMB") as crop:
+            self.assertEqual(fortress._listing_in_frame(image, [*lines, line(209, 349, "MB]示例")], ocr, "RMB"),
+                             (349, expected))
+        crop.assert_called_once_with(image, 190, 349, ocr)
+
     def test_application_requires_exact_tag_and_distinguishes_gray_button(self):
         lines = [line(280, 170, "联盟资讯"), line(229, 241, "[BBK] 示例"), line(310, 929, "申 请")]
         gray = Image.new("RGB", fortress.REFERENCE, (102, 110, 120))

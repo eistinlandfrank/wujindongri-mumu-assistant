@@ -13,6 +13,7 @@ from threading import Event
 from time import monotonic
 
 import numpy as np
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -117,11 +118,21 @@ def departing_members(image, lines) -> set[str]:
     return members
 
 
+def game_root_for_chat(image, lines, ocr) -> bool:
+    if fortress.is_game_root(lines):
+        return True
+    if chat_panel(lines):
+        return False
+    nav = image.crop((4, 1142, 662, 1194)).resize((1316, 104), Image.Resampling.LANCZOS)
+    labels = "".join(fortress.compact(row["text"]) for row in ocr(nav))
+    return "联盟" in labels and sum(name in labels for name in ("探险", "背包", "商店", "英雄")) >= 2
+
+
 def close_chat(target, ocr, stop):
     frame, _ = fortress._wait_alliance_page(target, ocr, stop, lambda _im, lines: chat_panel(lines),
                                             "聊天页未确认")
     flow._tap(target, stop, frame, (636, 36))
-    fortress._wait_alliance_page(target, ocr, stop, lambda _im, lines: fortress.is_game_root(lines),
+    fortress._wait_alliance_page(target, ocr, stop, lambda im, lines: game_root_for_chat(im, lines, ocr),
                                 "退出聊天后的野外页未确认", timeout=5)
 
 
@@ -129,9 +140,9 @@ def open_chat(target, ocr, stop):
     deadline = monotonic() + 4
     previous_entry = None
     while monotonic() < deadline:
-        frame, _, lines = fortress._alliance_frame(target, ocr, stop)
+        frame, image, lines = fortress._alliance_frame(target, ocr, stop)
         entry, _ = match_red_packet_chat_entry(frame, .88)
-        if entry and entry == previous_entry and fortress.is_game_root(lines):
+        if entry and entry == previous_entry and game_root_for_chat(image, lines, ocr):
             break
         previous_entry = entry
     else:
@@ -201,7 +212,7 @@ def await_release(target, ocr, stop, run, tag, save, notify):
     raise InterruptedError()
 
 
-def run_route(target, ocr, stop, run, save, notify):
+def run_route(target, ocr, stop, run, save, notify, *, unlimited_join=None):
     while run["index"] < len(run["route"]):
         tag = run["route"][run["index"]]
         _, image, lines = fortress._alliance_frame(target, ocr, stop)
@@ -215,6 +226,21 @@ def run_route(target, ocr, stop, run, save, notify):
             if not at_checkpoint:
                 if on_chat:
                     close_chat(target, ocr, stop)
+                if tag == unlimited_join:
+                    flow._close_known_overlay(target, ocr, stop)
+                    if not fortress.prepare_alliance_route(target, ocr, stop, tag, leave_current=False):
+                        listing = fortress.precheck_alliance(target, ocr, stop, tag)
+                        if listing.access != "可直接加入":
+                            raise ValueError(f"[{tag}] 尚未确认直接加入入口")
+                        while not stop.is_set():
+                            result = fortress.run_rapid_join(target, ocr, stop, run, tag, save, rate=100,
+                                                             duration=None, notify=notify, single_first=False)
+                            if result.joined:
+                                notify(result.message)
+                                break
+                            if "入盟结果待核对" not in result.message:
+                                raise ValueError(result.message)
+                            notify(f"[{tag}] 核对同一加入页后续点")
                 flow._visit(target, ocr, stop, run, tag, save, notify, notify, 100)
                 flow._member_to_root(target, ocr, stop, tag)
                 open_chat(target, ocr, stop)
@@ -238,6 +264,7 @@ def main():
     parser.add_argument("--index", type=int, required=True)
     parser.add_argument("--start-at", required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--unlimited-join", help="不限时连点已经尝试过单点的当前联盟")
     parser.add_argument("route", nargs="+")
     args = parser.parse_args()
     if len(set(args.route)) != len(args.route) or not all(re.fullmatch(r"[A-Z0-9-]{1,16}", tag) for tag in args.route):
@@ -266,6 +293,9 @@ def main():
                    {"route": args.route, "index": 0, "round_start": fortress.format_stamp(start), "applications": {}})
             if run["route"] != args.route:
                 raise ValueError("本轮的已保存顺序和命令不同")
+            if args.unlimited_join and (run["index"] >= len(run["route"])
+                                        or run["route"][run["index"]] != args.unlimited_join):
+                raise ValueError("不限时连点只适用于当前站")
 
             def save():
                 fortress._atomic_json_write(path, run)
@@ -273,7 +303,8 @@ def main():
             save()
             with (TemporaryDirectory(prefix="wjdr-egg-route-") as folder, FortressOcr(Path(folder), stop) as ocr,
                   RouteCapture(target, args.index) as capture):
-                run_route(capture, ocr, stop, run, save, lambda message: print(message, flush=True))
+                run_route(capture, ocr, stop, run, save, lambda message: print(message, flush=True),
+                          unlimited_join=args.unlimited_join)
         finally:
             lease.release()
         return 0

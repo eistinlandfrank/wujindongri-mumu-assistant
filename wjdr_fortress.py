@@ -783,9 +783,10 @@ def _alliance_listing_row(lines: list[dict], tag: str, *, verified_field=None,
         }
         if no_alliance:
             labels = _text_in(lines, (492, y + 45, 626, y + 101))
-            for button, mode in (("加入", "可直接加入"), ("申请", "需要申请")):
-                if button in labels:
-                    access.add(mode)
+            controls = {mode for button, mode in (("加入", "可直接加入"), ("申请", "需要申请"))
+                        if button in labels}
+            if controls:
+                access = controls
         if len(capacity) != 1 or len(access) != 1:
             return None
         match = re.search(r"([0-9]{1,3})/([0-9]{1,3})$", capacity[0])
@@ -806,9 +807,15 @@ def _listing_in_frame(image, lines, ocr, tag):
         return row
     matches = []
     for line in lines:
-        if not line.get("words") or not compact(line["text"]).startswith("["):
+        if not line.get("words"):
             continue
         x, y = (round(line["words"][0][key]) for key in ("x", "y"))
+        label = compact(line["text"])
+        if not label.startswith("["):
+            tail = re.match(r"^([A-Za-z0-9-]{1,2})\]", label)
+            if not tail or not tag.endswith(tail[1]) or not 195 <= x < 230:
+                continue
+            x = 190  # OCR dropped the opening bracket and the first glyph of the row label.
         if not (175 <= x <= 310 and 255 <= y <= 1000):
             continue
         if _cropped_listing_tag(image, x, y, ocr) != tag:
@@ -1181,9 +1188,12 @@ def rapid_join_anchor(target, ocr, stop_event, tag: str):
             return None
         red, green, blue = np.asarray(image.crop((480, top + 53, 615, top + 87)), dtype=np.int16).transpose(2, 0, 1)
         ready = ((green > 105) & (green - red > 50) & (green - blue > 35)).mean() > .55
-        return top if ready else None
+        labels = [round(line["words"][0]["y"]) for line in lines if line.get("words")
+                  and compact(line["text"]) == "加入" and 505 <= line["words"][0]["x"] < 601
+                  and top + 40 <= line["words"][0]["y"] <= top + 85]
+        return (top, labels[0] + 13 if len(labels) == 1 else top + 69) if ready else None
 
-    frame, top = _wait_alliance_page(target, ocr, stop_event, identify, f"[{tag}] 的绿色加入按钮未确认")
+    frame, (top, button_y) = _wait_alliance_page(target, ocr, stop_event, identify, f"[{tag}] 的绿色加入按钮未确认")
     tag_right = 190 + 12 + 14 * len(tag)
     boxes = ((42, 184, 180, 225), (186, top - 5, tag_right, top + 28), (481, top + 53, 610, top + 85))
     physical_boxes = [
@@ -1201,10 +1211,11 @@ def rapid_join_anchor(target, ocr, stop_event, tag: str):
         red, green, blue = np.asarray(current.crop(physical_boxes[2]).convert("RGB"), dtype=np.int16).transpose(2, 0, 1)
         return ((green > 90) & (green - red > 36) & (green - blue > 26)).mean() > .45
 
-    return map_content_point((549, top + 69), REFERENCE, frame), same_page
+    return map_content_point((549, button_y), REFERENCE, frame), same_page
 
 
-def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, interval=RAPID_JOIN_INTERVAL):
+def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, interval=RAPID_JOIN_INTERVAL,
+                    missing_timeout=0.5):
     """Run a fixed cadence while an independent reader confirms the same live page."""
     done = Event()
     guard = Lock()
@@ -1251,7 +1262,7 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
                 missing_since = None
             elif missing_since is None:
                 missing_since = sampled
-            elif sampled - missing_since >= 0.5:
+            elif sampled - missing_since >= missing_timeout:
                 break
             done.wait(0.025)
     finally:
@@ -1262,7 +1273,7 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
     return count
 
 
-def confirm_direct_join(target, ocr, stop_event, tag: str) -> None:
+def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=6.0) -> None:
     handled = set()
 
     def identify(image, lines):
@@ -1279,7 +1290,7 @@ def confirm_direct_join(target, ocr, stop_event, tag: str) -> None:
 
     for _ in range(4):
         frame, outcome = _wait_alliance_page(
-            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=6.0)
+            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout)
         if outcome == "joined":
             return
         handled.add(outcome)
@@ -1297,16 +1308,23 @@ def confirm_direct_join(target, ocr, stop_event, tag: str) -> None:
 
 
 def _join_page_still_ready(inspect, stop_event) -> bool:
-    started = time.monotonic()
-    while not stop_event.is_set() and inspect():
-        if time.monotonic() - started >= 0.25:
-            return True
+    deadline = time.monotonic() + 0.60
+    stable_since = None
+    while not stop_event.is_set() and time.monotonic() < deadline:
+        if inspect():
+            now = time.monotonic()
+            if stable_since is not None and now - stable_since >= 0.22:
+                return True
+            if stable_since is None:
+                stable_since = now
+        else:
+            stable_since = None
         stop_event.wait(0.06)
     return False
 
 
 def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration=RAPID_JOIN_DURATION,
-                   check_only=False, notify=None, on_timeout=None):
+                   check_only=False, notify=None, on_timeout=None, single_first=True):
     records = run["applications"]
     prior = records.get(tag)
     if not check_only and prior and prior.get("method", "application") == "application" and prior["state"] != "joined":
@@ -1336,13 +1354,13 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
 
         started = time.monotonic()
         count = 0
-        run_clicker = check_only
+        run_clicker = check_only or not single_first
         if not check_only:
             started_at = (prior["started_at"] if prior and prior.get("method") == "direct"
                           and prior["state"] == "waiting" else time.time())
             records[tag] = {"started_at": started_at, "state": "waiting", "confirmed": False, "method": "direct"}
             save()
-            if not stop_event.is_set() and target.foreground_is_game() and inspect():
+            if single_first and not stop_event.is_set() and target.foreground_is_game() and inspect():
                 send_touch()
                 count = 1
                 if notify:
@@ -1354,7 +1372,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
                 limit = "不限时" if remaining is None else f"剩余 {remaining:.1f} 秒"
                 notify(f"[{tag}] 开始连点 · 目标每秒 {rate} 次 · {limit}")
             count += rapid_join_taps(tap, inspect, stop_event, duration=2.1 if check_only else remaining,
-                                     interval=1 / rate)
+                                     interval=1 / rate, missing_timeout=3.5 if duration is None and not check_only else 0.5)
         reached_limit = duration is not None and time.monotonic() - started >= duration
 
     rhythm = ""
@@ -1376,7 +1394,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
     if stop_event.is_set() or not target.foreground_is_game():
         return AllianceVisit(False, f"[{tag}] 连点已停止")
     try:
-        confirm_direct_join(target, ocr, stop_event, tag)
+        confirm_direct_join(target, ocr, stop_event, tag, timeout=2.5 if duration is None else 6.0)
     except ValueError:
         if reached_limit:
             if count:
