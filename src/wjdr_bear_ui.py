@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 
 import wjdr_schedule as schedules
 from wjdr_backend import DeviceLease, _atomic_json_write
-from wjdr_bear import BearFlow, ZONE, account_file, reconcile_dispatch, roster_settings
+from wjdr_bear import ZONE, account_file, reconcile_dispatch, roster_settings
+from wjdr_bear_war import WarBearFlow
 from wjdr_fortress_ocr import FortressOcr
 
 
@@ -26,7 +27,7 @@ class BearUI:
         card.setObjectName("card")
         form = QVBoxLayout(card)
         form.setContentsMargins(24, 22, 24, 22)
-        title = QLabel("联盟聊天集结")
+        title = QLabel("联盟战争集结")
         title.setObjectName("sectionTitle")
         form.addWidget(title)
         self.bear_account = QLabel("请先连接目标手机")
@@ -51,8 +52,8 @@ class BearUI:
         self.bear_date.setAccessibleName("首场打熊日期")
         fields.addRow("首场日期", self.bear_date)
         form.addLayout(fields)
-        notice = QLabel("只加入名单内队长发出的变异巨熊集结，使用名为「熊」的可用编队。\n"
-                        "请从主城或联盟聊天开始。每场监听 30 分钟，最多出征 6 次。"
+        notice = QLabel("边翻集结列表边找绿色「+」，只加入名单内队长的变异巨熊集结。\n"
+                        "请从野外红旗或联盟战争的集结列表开始。每场 30 分钟，最多出征 6 次。"
                         "预约按北京时间每两天 20:30 启动。"
                         "预约期间请保持当前账号的助手窗口打开、电脑和 MuMu 在线。")
         notice.setObjectName("noticeText")
@@ -67,6 +68,10 @@ class BearUI:
         reserve.setObjectName("softButton")
         reserve.clicked.connect(self._add_bear_schedule)
         actions.addWidget(reserve)
+        save_names = QPushButton("保存队长名单")
+        save_names.setObjectName("softButton")
+        save_names.clicked.connect(self._save_bear_names)
+        actions.addWidget(save_names)
         actions.addStretch()
         form.addLayout(actions)
         reconcile = QPushButton("标记待核实出征已核对")
@@ -113,6 +118,14 @@ class BearUI:
         _atomic_json_write(account_file(identity, "profile"), config)
         return config
 
+    def _save_bear_names(self):
+        try:
+            _, identity = self._bear_account_binding()
+            config = self._save_bear_roster(identity)
+            self.log(f"打熊名单已保存，共 {len(config['names'])} 位队长。")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            QMessageBox.warning(self, "打熊名单未保存", str(exc))
+
     def _add_bear_schedule(self):
         try:
             item, identity = self._bear_account_binding()
@@ -148,8 +161,9 @@ class BearUI:
 
         def job():
             with TemporaryDirectory(prefix="wjdr-bear-ocr-") as tmp, FortressOcr(Path(tmp), self.stop_event) as ocr:
-                BearFlow(target, self.stop_event, ocr, config, path,
-                         lambda message: self._log_for_device(target.device, message)).run()
+                WarBearFlow(target, self.stop_event, ocr, config, path,
+                            lambda message: self._log_for_device(target.device, message),
+                            profile=account_file(identity, "profile")).run()
 
         self._start_worker(target.device, job, expected_identity=identity)
 

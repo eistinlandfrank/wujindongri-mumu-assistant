@@ -16,7 +16,7 @@ modules = ("wjdr_mumu_assistant_qt", "wjdr_backend", "wjdr_beast_hunt",
            "wjdr_daily_intel", "wjdr_daily_expedition", "wjdr_scoreboard",
            "wjdr_scoreboard_ui", "wjdr_mumu_ipc", "wjdr_ui_appearance",
            "wjdr_fortress", "wjdr_fortress_flow", "wjdr_fortress_ocr", "wjdr_fortress_ui",
-           "wjdr_bear", "wjdr_bear_ui")
+           "wjdr_bear", "wjdr_bear_ui", "wjdr_bear_war")
 if (sources / "wjdr_adb.py").is_file():
     modules += ("wjdr_adb",)
 if (sources / "wjdr_scoreboard_identity.py").is_file():
