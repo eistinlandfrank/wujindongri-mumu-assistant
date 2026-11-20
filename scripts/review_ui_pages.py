@@ -1,6 +1,7 @@
 """Render every page without ADB, accounts or game input (25s watchdog)."""
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "windows" if os.name == "nt" else "offscreen")
+import argparse
 import sys
 import threading
 from pathlib import Path
@@ -18,7 +19,12 @@ app = QApplication([])
 app.setStyle("Fusion")
 window = make_window()
 window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
-output = Path(sys.argv[1])
+parser = argparse.ArgumentParser()
+parser.add_argument("output", type=Path)
+parser.add_argument("--theme", choices=("light", "dark"), default="light")
+args = parser.parse_args()
+window._set_theme(args.theme, persist=False)
+output = args.output
 output.mkdir(parents=True, exist_ok=True)
 for width, height in ((1080, 720), (1280, 840)):
     window.resize(width, height)

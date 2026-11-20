@@ -55,7 +55,90 @@ COLORS = {
     "green_soft": "#E7F8F1",
     "red": "#DE5262",
     "amber": "#F2A33A",
+    "input": "#FFFFFF",
+    "header": "#EDF3FC",
+    "hover": "#F0F5FC",
+    "focus": "#8EAEDE",
+    "accent": "#255EC5",
+    "accent_bg": "#E9F0FE",
+    "accent_border": "#CDDCF8",
+    "primary": "#2B64CF",
+    "primary_hover": "#2457B8",
+    "selection": "#DBE8FF",
+    "disabled": "#647388",
+    "disabled_bg": "#EEF2F8",
+    "success": "#0E7150",
+    "warning": "#874525",
+    "warning_bg": "#FFF8F0",
+    "warning_border": "#F1D4B1",
+    "danger": "#A63142",
+    "danger_bg": "#FFF0F1",
+    "danger_border": "#F2CCD2",
+    "danger_hover": "#FCE1E4",
+    "danger_button": "#BB3D50",
+    "scrollbar": "#BAC8DF",
 }
+
+THEMES = {
+    "light": COLORS,
+    "dark": {
+        **COLORS,
+        "window": "#101827",
+        "surface": "#192538",
+        "surface_alt": "#1E2C41",
+        "navy": "#0B1322",
+        "text": "#E8EFFB",
+        "muted": "#A9B8CE",
+        "border": "#33445E",
+        "input": "#142033",
+        "header": "#26364E",
+        "hover": "#253650",
+        "focus": "#7EA8EF",
+        "accent": "#A3C4FF",
+        "accent_bg": "#243960",
+        "accent_border": "#3A5684",
+        "primary": "#3266C9",
+        "primary_hover": "#3A71DA",
+        "selection": "#314F7D",
+        "disabled": "#8799B2",
+        "disabled_bg": "#1C283B",
+        "success": "#8BE1BF",
+        "green_soft": "#163A36",
+        "warning": "#F0BF92",
+        "warning_bg": "#352921",
+        "warning_border": "#614631",
+        "danger": "#FFAFB8",
+        "danger_bg": "#39232E",
+        "danger_border": "#653946",
+        "danger_hover": "#50303D",
+        "danger_button": "#B04056",
+        "scrollbar": "#586D8A",
+    },
+}
+
+
+def theme_palette(colors: dict[str, str]) -> QPalette:
+    palette = QPalette()
+    role = QPalette.ColorRole
+    for name, key in {
+        role.Window: "window", role.WindowText: "text", role.Base: "input",
+        role.AlternateBase: "surface_alt", role.Text: "text", role.Button: "surface",
+        role.ButtonText: "text", role.Highlight: "selection", role.HighlightedText: "text",
+        role.ToolTipBase: "surface", role.ToolTipText: "text", role.PlaceholderText: "muted",
+        role.Link: "accent", role.Mid: "border", role.Light: "focus", role.Dark: "window",
+    }.items():
+        palette.setColor(name, QColor(colors[key]))
+    for name in (role.Text, role.ButtonText, role.WindowText):
+        palette.setColor(QPalette.ColorGroup.Disabled, name, QColor(colors["disabled"]))
+    return palette
+
+
+def set_style_property(widget: QWidget, name: str, value: str) -> None:
+    if widget.property(name) != value:
+        widget.setProperty(name, value)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
 
 
 class UiSignals(QObject):
@@ -94,11 +177,15 @@ class ScreenshotView(QWidget):
         self.drag_start: QPoint | None = None
         self.drag_end: QPoint | None = None
 
-    def set_pil_image(self, image: Image.Image) -> None:
-        rgb = image.convert("RGB")
-        raw = rgb.tobytes("raw", "RGB")
-        self.image = QImage(raw, rgb.width, rgb.height, rgb.width * 3, QImage.Format.Format_RGB888).copy()
-        self.image_size = rgb.size
+    def set_pil_image(self, image: Image.Image | None) -> None:
+        if image is None:
+            self.image = None
+            self.image_size = (1, 1)
+        else:
+            rgb = image.convert("RGB")
+            raw = rgb.tobytes("raw", "RGB")
+            self.image = QImage(raw, rgb.width, rgb.height, rgb.width * 3, QImage.Format.Format_RGB888).copy()
+            self.image_size = rgb.size
         self.drag_start = self.drag_end = None
         self.update()
 
@@ -174,43 +261,27 @@ class ScreenshotView(QWidget):
 
 
 class LightSettingsDialog(QDialog):
-    """Readable account settings even when Windows supplies a dark palette."""
+    """Account settings use the appearance of the owning assistant window."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        palette = QPalette()
-        for role, color in {
-            QPalette.ColorRole.Window: "#F5F8FD",
-            QPalette.ColorRole.WindowText: "#233247",
-            QPalette.ColorRole.Base: "#FFFFFF",
-            QPalette.ColorRole.AlternateBase: "#EDF2FA",
-            QPalette.ColorRole.Text: "#233247",
-            QPalette.ColorRole.Button: "#FFFFFF",
-            QPalette.ColorRole.ButtonText: "#233247",
-            QPalette.ColorRole.Highlight: "#245FD0",
-            QPalette.ColorRole.HighlightedText: "#FFFFFF",
-            QPalette.ColorRole.ToolTipBase: "#FFFFFF",
-            QPalette.ColorRole.ToolTipText: "#233247",
-        }.items():
-            palette.setColor(role, QColor(color))
-        for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText,
-                     QPalette.ColorRole.ButtonText):
-            palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#65748A"))
-        self.setPalette(palette)
+        colors = THEMES.get(getattr(parent, "theme_name", "light"), COLORS)
+        self.setPalette(theme_palette(colors))
         self.setAutoFillBackground(True)
-        self.setStyleSheet("""
-            QDialog { background: #F5F8FD; color: #233247; }
-            QLabel, QRadioButton { color: #233247; background: transparent; }
-            QLabel#muted, QLabel#mutedLabel { color: #52627A; }
-            QLabel#noticeText { color: #705022; }
-            QSpinBox { background: #FFFFFF; color: #233247;
-                       border: 1px solid #B8C7DC; border-radius: 6px; padding: 8px; }
-            QSpinBox:disabled { background: #EDF2FA; color: #65748A; }
-            QPushButton { background: #FFFFFF; color: #233247;
-                          border: 1px solid #B8C7DC; border-radius: 6px;
-                          min-height: 34px; padding: 0 18px; }
-            QPushButton:hover { background: #E6EEFC; border-color: #245FD0; }
-            QPushButton:default { background: #245FD0; color: #FFFFFF; }
+        self.setStyleSheet(f"""
+            QDialog {{ background: {colors['window']}; color: {colors['text']}; }}
+            QLabel, QRadioButton {{ color: {colors['text']}; background: transparent; }}
+            QLabel#muted, QLabel#mutedLabel {{ color: {colors['muted']}; }}
+            QLabel#noticeText {{ color: {colors['warning']}; }}
+            QSpinBox, QComboBox {{ background: {colors['input']}; color: {colors['text']};
+                       border: 1px solid {colors['border']}; border-radius: 6px; }}
+            QSpinBox:disabled, QComboBox:disabled {{ background: {colors['disabled_bg']}; color: {colors['disabled']}; }}
+            QComboBox QAbstractItemView {{ background: {colors['surface']}; color: {colors['text']}; }}
+            QPushButton {{ background: {colors['surface']}; color: {colors['text']};
+                          border: 1px solid {colors['border']}; border-radius: 6px;
+                          min-height: 34px; padding: 0 18px; }}
+            QPushButton:hover {{ background: {colors['hover']}; border-color: {colors['focus']}; }}
+            QPushButton:default {{ background: {colors['primary']}; color: #FFFFFF; }}
         """)
 
 

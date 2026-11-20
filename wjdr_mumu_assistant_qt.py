@@ -302,7 +302,7 @@ from wjdr_daily_controller import start_daily_rewards_flow
 from wjdr_schedule_ui import ScheduleUI
 import wjdr_schedule as schedules
 
-from wjdr_ui_components import COLORS, UiSignals, Card, ScreenshotView, LightSettingsDialog, MiningLevelSettingsDialog, BeastRallySettingsDialog
+from wjdr_ui_components import COLORS, UiSignals, Card, ScreenshotView, LightSettingsDialog, MiningLevelSettingsDialog, BeastRallySettingsDialog, set_style_property
 
 
 # A single automation action must never monopolise the worker for minutes.
@@ -1028,14 +1028,8 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
 
     def _set_status(self, text: str, kind: str) -> None:
         self.status_pill.setText(text)
-        colors = {
-            "ready": ("#E7F8F1", "#11865B"),
-            "busy": ("#EAF1FF", "#275FBF"),
-            "error": ("#FDECEE", "#B63B4A"),
-            "idle": ("#F1F4F8", "#65738A"),
-        }
-        bg, fg = colors.get(kind, colors["idle"])
-        self.status_pill.setStyleSheet(f"background:{bg};color:{fg};border-radius:15px;padding:8px 12px;font-weight:700;")
+        set_style_property(self.status_pill, "statusKind", kind)
+
 
     def _set_running(self, running: bool, text: str) -> None:
         self.scan_button.setEnabled(not running)
@@ -1104,7 +1098,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
         if not selected:
             self.current_image = None
             self.selected_point = self.selected_region = self.selected_source_size = None
-            self.screenshot.set_pil_image(Image.new("RGB", (720, 1280), "#E8EDF5"))
+            self.screenshot.set_pil_image(None)
             self.signals.status.emit("●  请选择在线实例", "error")
             return
         self.signals.status.emit("●  已就绪", "ready")
@@ -1302,7 +1296,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
         self._show_device_info(item)
         self.current_image = None
         self.selected_point = self.selected_region = self.selected_source_size = None
-        self.screenshot.set_pil_image(Image.new("RGB", (720, 1280), "#E8EDF5"))
+        self.screenshot.set_pil_image(None)
         self.point_label.setText("正在读取当前手机…")
         self.click_count.setText("0")
         self.runtime_label.setText("00:00:00")

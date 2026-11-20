@@ -2,20 +2,29 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from PIL import Image
+from PySide6.QtCore import QSettings
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QPushButton, QScrollArea, QToolButton
 from wjdr_mumu_assistant_qt import MainWindow, UiSignals
+from wjdr_ui_components import THEMES, LightSettingsDialog
 
 
-def make_window():
+def make_window(appearance_settings=None):
     window = MainWindow.__new__(MainWindow)
     QMainWindow.__init__(window)
     window.adb = Mock(device="device-a")
     window.worker = None
     window.signals = UiSignals()
     window.devices = ["device-a", "device-b"]
-    window._build_ui()
+    settings = appearance_settings if appearance_settings is not None else Mock()
+    if appearance_settings is None:
+        settings.value.return_value = "light"
+    with patch("wjdr_frontend_layout.QSettings", return_value=settings):
+        window._build_ui()
     window._apply_style()
     return window
 
@@ -81,6 +90,38 @@ class MultiDeviceUITests(unittest.TestCase):
         self.assertFalse(batch.isVisible())
         beast.findChild(QToolButton, "disclosureButton").click()
         self.assertTrue(batch.isVisible())
+
+    def test_theme_switch_updates_palette_and_keeps_current_page_and_status(self):
+        window = self.window
+        window._show_page(4)
+        window._set_status("测试状态", "error")
+        worker = Mock()
+        window.worker = worker
+        window.theme_button.click()
+        self.assertEqual(window.theme_name, "dark")
+        self.assertEqual(window.theme_button.text(), "浅色")
+        self.assertEqual(window.stack.currentIndex(), 4)
+        self.assertIs(window.worker, worker)
+        self.assertEqual(window.status_pill.property("statusKind"), "error")
+        self.assertEqual(window.status_pill.text(), "测试状态")
+        self.assertEqual(window.palette().color(QPalette.ColorRole.Window), QColor(THEMES["dark"]["window"]))
+        with_dialog = LightSettingsDialog(window)
+        self.assertEqual(with_dialog.palette().color(QPalette.ColorRole.Base), QColor(THEMES["dark"]["input"]))
+        with_dialog.deleteLater()
+        window.theme_button.click()
+        self.assertEqual(window.theme_name, "light")
+
+    def test_new_window_loads_saved_palette(self):
+        with TemporaryDirectory() as temp:
+            path = str(Path(temp) / "appearance.ini")
+            first = make_window(QSettings(path, QSettings.Format.IniFormat))
+            self.assertEqual(first.theme_name, "light")
+            first.theme_button.click()
+            other = make_window(QSettings(path, QSettings.Format.IniFormat))
+            self.assertEqual(other.theme_name, "dark")
+            self.assertTrue(other.nav_buttons[0].isChecked())
+            first.deleteLater()
+            other.deleteLater()
 
     def test_stale_device_frame_is_rejected(self):
         self.window.current_image = None

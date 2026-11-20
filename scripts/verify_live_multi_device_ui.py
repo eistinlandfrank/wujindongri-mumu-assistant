@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication, QDialog, QPushButton
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QPalette
 from wjdr_mumu_assistant_qt import MainWindow
 
 guard = threading.Timer(25, lambda: os._exit(124))
@@ -40,15 +41,25 @@ for window, device in zip(windows, devices):
         assert window.adb.device == device and window.worker is None
         assert window.stop_button.isVisible() and window.nav_buttons[index].isChecked()
     window._show_page(4)
+    image = window.current_image
+    window._set_theme("dark", persist=False)
+    app.processEvents()
+    assert window.adb.device == device and window.stack.currentIndex() == 4
+    assert window.current_image is image and window.worker is None
+    assert window.device_combo.currentData()["identity"] == identity
     assert f"[{devices[1] if device == devices[0] else devices[0]}]" not in window.log_edit.toPlainText()
-    print(f"PASS {device}: fresh {window.current_image.size}; {window.stack.count()} pages; no worker; isolated logs", flush=True)
+    print(f"PASS {device}: fresh {window.current_image.size}; {window.stack.count()} pages; theme switch; no worker; isolated logs", flush=True)
 assert windows[0].device_combo.currentData()["identity"] != windows[1].device_combo.currentData()["identity"]
 result = []
 def inspect_manager():
     dialog = app.activeModalWidget()
     if isinstance(dialog, QDialog):
         buttons = [b.accessibleName() for b in dialog.findChildren(QPushButton)]
-        result.append(all(f"打开手机 {device}" in buttons for device in devices))
+        result.append(
+            all(f"打开手机 {device}" in buttons for device in devices)
+            and dialog.palette().color(QPalette.ColorRole.Window)
+            == windows[0].palette().color(QPalette.ColorRole.Window)
+        )
         dialog.grab().save("evidence/milestone-181-ui-multidevice/device-manager.png")
         dialog.reject()
 QTimer.singleShot(100, inspect_manager)

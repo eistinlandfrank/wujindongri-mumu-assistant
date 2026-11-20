@@ -3,12 +3,9 @@
 from __future__ import annotations
 import os
 from PySide6.QtCore import (
+    QSettings,
     Qt,
     QTimer,
-)
-from PySide6.QtGui import (
-    QColor,
-    QPalette,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -36,9 +33,10 @@ from wjdr_backend import (
     resource_path,
 )
 from wjdr_ui_components import (
-    COLORS,
+    THEMES,
     Card,
     ScreenshotView,
+    theme_palette,
 )
 from wjdr_runtime_config import (
     MAX_SINGLE_WAIT_SECONDS,
@@ -63,10 +61,14 @@ NAV_SECTIONS = (
     ("任务管理", (5, 9, 6)),
     ("排查与帮助", (7, 8)),
 )
+THEME_KEY = "appearance/theme"
 
 
 class FrontendLayout:
     def _build_ui(self) -> None:
+        self.appearance_settings = QSettings("WJDR Tools", "WJDRMuMuAssistant")
+        saved_theme = self.appearance_settings.value(THEME_KEY, "light", type=str)
+        self.theme_name = saved_theme if saved_theme in THEMES else "light"
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
@@ -156,8 +158,13 @@ class FrontendLayout:
         self.device_manager_button.setObjectName("secondaryButton")
         self.device_manager_button.clicked.connect(self._open_device_manager)
         device_bar.addWidget(self.device_manager_button)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("softButton")
+        self.theme_button.clicked.connect(self._toggle_theme)
+        device_bar.addWidget(self.theme_button)
         self.status_pill = QLabel("●  正在连接")
         self.status_pill.setObjectName("statusPill")
+        self.status_pill.setProperty("statusKind", "idle")
         device_bar.addWidget(self.status_pill)
         self.stop_button = QPushButton("停止当前")
         self.stop_button.setObjectName("stopCurrentButton")
@@ -836,17 +843,32 @@ class FrontendLayout:
 
     @staticmethod
     def _set_window_background(widget: QWidget) -> None:
-        palette = widget.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(COLORS["window"]))
-        widget.setPalette(palette)
+        widget.setProperty("themeWindow", "true")
         widget.setAutoFillBackground(True)
 
+    def _toggle_theme(self) -> None:
+        self._set_theme("light" if self.theme_name == "dark" else "dark")
+
+    def _set_theme(self, name: str, *, persist: bool = True) -> None:
+        self.theme_name = name
+        self._apply_style()
+        if persist:
+            self.appearance_settings.setValue(THEME_KEY, name)
+            self.appearance_settings.sync()
+
     def _apply_style(self) -> None:
+        colors = THEMES[self.theme_name]
+        self.setPalette(theme_palette(colors))
+        destination = "浅色" if self.theme_name == "dark" else "深色"
+        self.theme_button.setText(destination)
+        self.theme_button.setAccessibleName(f"切换为{destination}模式")
+        self.theme_button.setToolTip(f"切换为{destination}模式")
+        arrow_suffix = "_dark" if self.theme_name == "dark" else ""
         self.setStyleSheet(
             f"""
-            * {{ font-family: 'Microsoft YaHei UI'; font-size: 14px; color: {COLORS['text']}; }}
-            QMainWindow, QWidget#root, QWidget#main {{ background: {COLORS['window']}; }}
-            QFrame#sidebar, QScrollArea#navigation, QWidget#navigationBody {{ background: {COLORS['navy']}; }}
+            * {{ font-family: 'Microsoft YaHei UI'; font-size: 14px; color: {colors['text']}; }}
+            QMainWindow, QDialog, QWidget#root, QWidget#main, QWidget[themeWindow="true"] {{ background: {colors['window']}; }}
+            QFrame#sidebar, QScrollArea#navigation, QWidget#navigationBody {{ background: {colors['navy']}; }}
             QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 10px; min-width: 34px; min-height: 34px; font-size: 19px; font-weight: 700; }}
             QLabel#brand {{ color: #F8FAFF; font-size: 15px; font-weight: 700; }}
             QLabel#brandSub {{ color: #9CAEC9; font-size: 11px; }}
@@ -857,65 +879,75 @@ class FrontendLayout:
             QPushButton#navButton:focus {{ border-color: #72AAFF; }}
             QLabel#sidebarFooter {{ color: #B7C7DD; font-size: 12px; border-top: 1px solid #2C3C55; padding: 10px 7px 0; }}
             QLabel#pageTitle {{ font-size: 23px; font-weight: 750; }}
-            QLabel#pageSubtitle, QLabel#muted {{ color: {COLORS['muted']}; font-size: 12px; }}
-            QLabel#statusPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
-            QFrame#card, QFrame#noticeCard, QFrame#dailyTaskStatusCard {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 14px; }}
-            QFrame#deviceToolbar {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 12px; }}
+            QLabel#pageSubtitle, QLabel#muted {{ color: {colors['muted']}; font-size: 12px; }}
+            QLabel#statusPill {{ background: {colors['disabled_bg']}; color: {colors['muted']}; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
+            QLabel#statusPill[statusKind="ready"] {{ background: {colors['green_soft']}; color: {colors['success']}; }}
+            QLabel#statusPill[statusKind="busy"] {{ background: {colors['accent_bg']}; color: {colors['accent']}; }}
+            QLabel#statusPill[statusKind="error"], QLabel#fortressProgress[urgent="true"] {{ background: {colors['danger_bg']}; color: {colors['danger']}; }}
+            QFrame#card, QFrame#noticeCard, QFrame#dailyTaskStatusCard {{ background: {colors['surface']}; border: 1px solid {colors['border']}; border-radius: 14px; }}
+            QFrame#deviceToolbar {{ background: {colors['surface']}; border: 1px solid {colors['border']}; border-radius: 12px; }}
             QFrame#deviceToolbar QPushButton {{ min-height: 32px; padding: 0 11px; }}
             QFrame#deviceToolbar QComboBox {{ padding: 4px 9px; }}
-            QPushButton#stopCurrentButton {{ background: #FFF0F1; color: #A63142; border: 1px solid #F2CCD2; }}
-            QPushButton#stopCurrentButton:hover {{ background: #FCE1E4; }}
-            QPushButton#quickTask {{ text-align: left; color: #234B8F; border: 1px solid #D9E6F8; background: #F4F8FF; }}
-            QPushButton#quickTask:hover {{ color: #1747A0; border-color: #98B8EC; background: #EDF4FF; }}
+            QPushButton#stopCurrentButton {{ background: {colors['danger_bg']}; color: {colors['danger']}; border: 1px solid {colors['danger_border']}; }}
+            QPushButton#stopCurrentButton:hover {{ background: {colors['danger_hover']}; }}
+            QPushButton#quickTask {{ text-align: left; color: {colors['accent']}; border: 1px solid {colors['accent_border']}; background: {colors['surface_alt']}; }}
+            QPushButton#quickTask:hover {{ color: {colors['accent']}; border-color: {colors['focus']}; background: {colors['hover']}; }}
             QToolButton#disclosureButton {{ min-height: 31px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; font-weight: 650; }}
-            QToolButton#disclosureButton:hover {{ background: #F1F5FC; }}
-            QToolButton#disclosureButton:focus {{ border-color: #98B8EC; }}
-            QFrame#dailyAccountSettingsCard, QFrame#beastAccountSettingsCard {{ background: #F8FAFE; border: 1px solid #D8E3F5; border-radius: 14px; }}
-            QFrame#redPacketStatusCard {{ background: #FFF8F0; border: 1px solid #F1D4B1; border-radius: 14px; }}
-            QLabel#redPacketState {{ color: #B45624; font-size: 15px; font-weight: 750; }}
+            QToolButton#disclosureButton:hover {{ background: {colors['hover']}; }}
+            QToolButton#disclosureButton:focus {{ border-color: {colors['focus']}; }}
+            QFrame#dailyAccountSettingsCard, QFrame#beastAccountSettingsCard {{ background: {colors['surface_alt']}; border: 1px solid {colors['border']}; border-radius: 14px; }}
+            QFrame#redPacketStatusCard {{ background: {colors['warning_bg']}; border: 1px solid {colors['warning_border']}; border-radius: 14px; }}
+            QLabel#redPacketState {{ color: {colors['warning']}; font-size: 15px; font-weight: 750; }}
             QLabel#cardTitle, QLabel#sectionTitle {{ font-size: 17px; font-weight: 750; }}
             QLabel#instanceName {{ font-size: 19px; font-weight: 750; }}
-            QLabel#greenPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 12px; padding: 5px 9px; font-size: 11px; font-weight: 700; }}
-            QLabel#statValue {{ color: {COLORS['blue']}; font-size: 25px; font-weight: 800; }}
-            QLabel#noticeTitle {{ color: #945A0C; font-weight: 750; }}
-            QLabel#noticeText {{ color: #8B6A39; font-size: 11px; }}
+            QLabel#greenPill {{ background: {colors['green_soft']}; color: {colors['success']}; border-radius: 12px; padding: 5px 9px; font-size: 11px; font-weight: 700; }}
+            QLabel#statValue {{ color: {colors['accent']}; font-size: 25px; font-weight: 800; }}
+            QLabel#noticeTitle {{ color: {colors['warning']}; font-weight: 750; }}
+            QLabel#noticeText {{ color: {colors['warning']}; font-size: 11px; }}
             QLabel#fieldLabel {{ font-weight: 700; margin-top: 2px; }}
-            QLabel#inputLike {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 11px; color: {COLORS['muted']}; }}
-            QLabel#valuePill {{ background: #EAF1FF; color: #255EC5; border-radius: 10px; padding: 5px 9px; font-weight: 700; }}
-            QLabel#aboutText {{ color: #52627A; font-size: 14px; line-height: 1.6; }}
+            QLabel#inputLike {{ background: {colors['surface_alt']}; border: 1px solid {colors['border']}; border-radius: 8px; padding: 11px; color: {colors['muted']}; }}
+            QLabel#valuePill {{ background: {colors['accent_bg']}; color: {colors['accent']}; border-radius: 10px; padding: 5px 9px; font-weight: 700; }}
+            QLabel#aboutText {{ color: {colors['muted']}; font-size: 14px; line-height: 1.6; }}
             QPushButton {{ min-height: 38px; border-radius: 9px; padding: 0 16px; font-weight: 650; }}
-            QPushButton#primaryButton {{ background: {COLORS['blue']}; color: white; border: none; min-height: 44px; }}
-            QPushButton#primaryButton:hover {{ background: {COLORS['blue_dark']}; }}
-            QPushButton#secondaryButton {{ background: #E9F0FE; color: #275FBF; border: 1px solid #CDDCF8; }}
-            QPushButton#settingsButton {{ background: white; color: #255EC5; border: 1px solid #BFD1EF; min-width: 168px; }}
-            QPushButton#settingsButton:hover {{ background: #EDF3FF; border-color: #8FB0E3; }}
-            QPushButton#settingsButton:disabled {{ background: #F1F4F8; color: #98A5B8; border-color: #DCE3EC; }}
-            QPushButton#softButton, QPushButton#ghostButton {{ background: white; color: #3D4C63; border: 1px solid {COLORS['border']}; }}
-            QPushButton#softButton:hover, QPushButton#ghostButton:hover {{ border-color: #AFC3E3; background: #F8FAFE; }}
-            QPushButton#dangerButton {{ background: {COLORS['red']}; color: white; border: none; }}
-            QComboBox, QSpinBox, QDoubleSpinBox, QDateTimeEdit {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
-            QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: #AFC3E3; }}
+            QPushButton#primaryButton {{ background: {colors['primary']}; color: white; border: none; min-height: 44px; }}
+            QPushButton#primaryButton:hover {{ background: {colors['primary_hover']}; }}
+            QPushButton#secondaryButton {{ background: {colors['accent_bg']}; color: {colors['accent']}; border: 1px solid {colors['accent_border']}; }}
+            QPushButton#primaryButton:disabled, QPushButton#secondaryButton:disabled {{ background: {colors['disabled_bg']}; color: {colors['disabled']}; border: 1px solid {colors['border']}; }}
+            QPushButton#settingsButton {{ background: {colors['surface']}; color: {colors['accent']}; border: 1px solid {colors['accent_border']}; min-width: 168px; }}
+            QPushButton#settingsButton:hover {{ background: {colors['hover']}; border-color: {colors['focus']}; }}
+            QPushButton#settingsButton:disabled {{ background: {colors['disabled_bg']}; color: {colors['disabled']}; border-color: {colors['border']}; }}
+            QPushButton#softButton, QPushButton#ghostButton {{ background: {colors['surface']}; color: {colors['text']}; border: 1px solid {colors['border']}; }}
+            QPushButton#softButton:hover, QPushButton#ghostButton:hover {{ border-color: {colors['focus']}; background: {colors['surface_alt']}; }}
+            QPushButton#dangerButton {{ background: {colors['danger_button']}; color: white; border: none; }}
+            QComboBox, QSpinBox, QDoubleSpinBox, QDateTimeEdit, QLineEdit, QTextEdit, QPlainTextEdit {{ background: {colors['input']}; border: 1px solid {colors['border']}; border-radius: 9px; padding: 8px 11px; min-height: 24px; }}
+            QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {colors['focus']}; }}
+            QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QDateTimeEdit:disabled, QLineEdit:disabled {{ background: {colors['disabled_bg']}; color: {colors['disabled']}; }}
+            QPushButton:disabled {{ color: {colors['disabled']}; }}
             QComboBox::drop-down {{ border: none; width: 28px; }}
-            QComboBox::down-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{resource_path('assets/ui_chevron_down.svg').as_posix()}"); width: 12px; height: 8px; }}
-            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{resource_path('assets/ui_chevron_up.svg').as_posix()}"); width: 12px; height: 8px; }}
-            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{ border: none; width: 22px; background: #EDF2FA; }}
-            QComboBox QAbstractItemView {{ background: white; border: 1px solid {COLORS['border']}; selection-background-color: #E9F0FE; selection-color: {COLORS['text']}; padding: 6px; }}
+            QComboBox::down-arrow, QDateTimeEdit::down-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{resource_path(f'assets/ui_chevron_down{arrow_suffix}.svg').as_posix()}"); width: 12px; height: 8px; }}
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{resource_path(f'assets/ui_chevron_up{arrow_suffix}.svg').as_posix()}"); width: 12px; height: 8px; }}
+            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{ border: none; width: 22px; background: {colors['header']}; }}
+            QComboBox QAbstractItemView {{ background: {colors['surface']}; border: 1px solid {colors['border']}; selection-background-color: {colors['accent_bg']}; selection-color: {colors['text']}; padding: 6px; }}
             QCheckBox {{ spacing: 8px; }}
-            QListWidget {{ background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; border-radius: 10px; padding: 6px; }}
-            QTableWidget {{ background: white; alternate-background-color: #F5F8FD; color: #233247; gridline-color: #DCE4F0; border: 1px solid #DCE4F0; selection-background-color: #E4EDFE; selection-color: #233247; }}
-            QHeaderView::section {{ background: #EDF3FC; color: #344960; padding: 8px; border: none; font-weight: 600; }}
-            QCalendarWidget QWidget {{ background: white; color: #233247; }}
-            QCalendarWidget QToolButton {{ background: #EDF3FC; color: #233247; }}
+            QToolTip {{ color: {colors['text']}; background: {colors['surface']}; border: 1px solid {colors['border']}; }}
+            QTabWidget#scoreTabs::pane {{ border: 1px solid {colors['border']}; background: {colors['surface']}; }}
+            QTabWidget#scoreTabs QTabBar::tab {{ background: {colors['header']}; color: {colors['text']}; padding: 8px 14px; border: 0; }}
+            QTabWidget#scoreTabs QTabBar::tab:selected {{ background: {colors['surface']}; color: {colors['accent']}; font-weight: 600; }}
+            QListWidget {{ background: {colors['surface_alt']}; border: 1px solid {colors['border']}; border-radius: 10px; padding: 6px; }}
+            QTableWidget {{ background: {colors['input']}; alternate-background-color: {colors['surface_alt']}; color: {colors['text']}; gridline-color: {colors['border']}; border: 1px solid {colors['border']}; selection-background-color: {colors['selection']}; selection-color: {colors['text']}; }}
+            QHeaderView::section {{ background: {colors['header']}; color: {colors['muted']}; padding: 8px; border: none; font-weight: 600; }}
+            QCalendarWidget QWidget {{ background: {colors['surface']}; color: {colors['text']}; }}
+            QCalendarWidget QToolButton {{ background: {colors['header']}; color: {colors['text']}; }}
             QListWidget::item {{ padding: 10px; border-radius: 7px; }}
-            QListWidget::item:selected {{ background: #E4EDFE; color: #255EC5; }}
+            QListWidget::item:selected {{ background: {colors['selection']}; color: {colors['accent']}; }}
             QTextEdit#logEdit {{ background: #0D1627; color: #D7E3F6; border: none; border-radius: 11px; padding: 12px; font-family: 'Cascadia Mono'; font-size: 12px; }}
             QScrollArea {{ background: transparent; border: none; }}
             QScrollBar:vertical {{ width: 10px; background: transparent; margin: 4px 0; }}
-            QScrollBar::handle:vertical {{ background: #CAD4E4; border-radius: 5px; min-height: 30px; }}
+            QScrollBar::handle:vertical {{ background: {colors['scrollbar']}; border-radius: 5px; min-height: 30px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-            QSlider::groove:horizontal {{ height: 5px; background: #DDE5F2; border-radius: 2px; }}
-            QSlider::sub-page:horizontal {{ background: {COLORS['blue']}; border-radius: 2px; }}
-            QSlider::handle:horizontal {{ background: white; border: 2px solid {COLORS['blue']}; width: 16px; margin: -6px 0; border-radius: 8px; }}
+            QSlider::groove:horizontal {{ height: 5px; background: {colors['border']}; border-radius: 2px; }}
+            QSlider::sub-page:horizontal {{ background: {colors['blue']}; border-radius: 2px; }}
+            QSlider::handle:horizontal {{ background: {colors['surface']}; border: 2px solid {colors['blue']}; width: 16px; margin: -6px 0; border-radius: 8px; }}
             """
         )
 

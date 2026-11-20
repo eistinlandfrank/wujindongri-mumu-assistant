@@ -42,7 +42,7 @@ class ScoreboardUI:
         self.score_info.setWordWrap(True)
         layout.addWidget(self.score_info)
         self.score_tabs = QTabWidget()
-        self.score_tabs.setStyleSheet("QTabBar::tab { background: #E7EDF7; color: #233857; padding: 8px 14px; border: 0; } QTabBar::tab:selected { background: white; color: #1D58C8; font-weight: 600; } QTabWidget::pane { border: 1px solid #D9E3F0; background: white; }")
+        self.score_tabs.setObjectName("scoreTabs")
         self.score_table = QTableWidget(0, 5)
         self.score_table.setHorizontalHeaderLabels(["排名", "国家", "联盟", "玩家昵称", "积分"])
         self.score_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
