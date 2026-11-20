@@ -39,7 +39,8 @@ def _close_known_overlay(target, ocr, stop_event):
                 set(fortress._text_in(lines, (200, 248, 454, 301)))
                 & (fortress.FORTRESS_MAIL | {fortress.CONTROL_MAIL})):
             return "mail"
-        if fortress.is_unaffiliated_in_frame(image, lines, ocr) or fortress.read_joined_in_frame(image, lines, ocr):
+        if (fortress.is_unaffiliated_in_frame(image, lines, ocr) or fortress.read_joined_in_frame(image, lines, ocr)
+                or fortress.read_alliance_application(image, lines, ocr)):
             return "alliance"
         controls = set(fortress._text_in(lines, (140, 1138, 544, 1192)))
         if "联盟" in fortress._text_in(lines, (70, 0, 170, 60)) and len(controls & {"成员", "设置", "激励"}) >= 2:

@@ -946,24 +946,40 @@ def read_alliance_application(image: Image.Image, lines: list[dict], ocr) -> All
     if "联盟资讯" not in _text_in(lines, (240, 146, 433, 209)):
         return None
     headers = _text_in(lines, (211, 220, 460, 272))
-    tag = next((re.match(r"^\[([\w-]{1,16})\]", text) for text in headers if text.startswith("[")), None)
-    if not tag:
+    match = next((re.match(r"^\[([\w-]{1,16})\]", text) for text in headers if text.startswith("[")), None)
+    if not match:
         header = image.crop((211, 219, 384, 269)).resize((519, 150))
         for line in ocr(header):
-            tag = re.match(r"^\[([\w-]{1,16})\]", compact(line["text"]))
-            if tag:
+            match = re.match(r"^\[([\w-]{1,16})\]", compact(line["text"]))
+            if match:
                 break
+    tag = match[1] if match else None
+    if not tag:
+        red, green, blue = np.asarray(image.crop((225, 231, 296, 270)), dtype=np.int16).transpose(2, 0, 1)
+        ink = (red < 132) & (green < 158) & (blue < 180)
+        if (ink[13:30, 7:9].mean() > .85 and ink[10:13, 9:11].mean() > .55
+                and ink[13:30, 65:68].mean() > .85 and ink[10:13, 63:65].mean() > .50):
+            tag = _read_repeated_glyphs(ink[:, 11:63], ocr)
+            repeated = re.fullmatch(r"([A-Za-z0-9-]{3})\1\1", tag)
+            tag = repeated[1] if repeated else None
     if not tag:
         return None
     actions = set(_text_in(lines, (235, 903, 455, 967)))
-    if actions & {"已申请", "申请中", "审核中", "等待审核", "已提交申请"}:
-        return AllianceApplication(tag.group(1).upper(), "pending")
-    if not actions & {"申请", "申请加入", "申请入盟"}:
+    pending = {"已申请", "申请中", "审核中", "等待审核", "已提交申请"}
+    apply = {"申请", "申请加入", "申请入盟"}
+    if not actions & (pending | apply):
+        pixels = np.asarray(image.crop((265, 913, 409, 969)), dtype=np.int16)
+        white = (pixels.min(axis=2) > 177) & (np.ptp(pixels, axis=2) < 54)
+        label = Image.fromarray(np.where(white, 0, 255).astype(np.uint8)).resize((576, 224), Image.Resampling.LANCZOS)
+        actions = {compact(line["text"]) for line in ocr(ImageOps.expand(label, border=18, fill=255))}
+    if actions & pending:
+        return AllianceApplication(tag.upper(), "pending")
+    if not actions & apply:
         return None
     pixels = np.asarray(image.crop((222, 912, 450, 958)), dtype=np.int16)
     red, green, blue = pixels.transpose(2, 0, 1)
     enabled = ((green > 105) & (green - red > 52) & ((green - blue > 28) | (blue - red > 48))).mean()
-    return AllianceApplication(tag.group(1).upper(), "ready" if enabled > 0.60 else "gray")
+    return AllianceApplication(tag.upper(), "ready" if enabled > 0.60 else "gray")
 
 
 def _alliance_frame(target, ocr, stop_event):
@@ -1036,6 +1052,9 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
     """Open the verified unaffiliated page, or confirm the account is already in this station."""
     def state(image, lines):
         if is_unaffiliated_in_frame(image, lines, ocr):
+            return ("available", None)
+        application = read_alliance_application(image, lines, ocr)
+        if application and application.tag == tag:
             return ("available", None)
         current = read_joined_in_frame(image, lines, ocr)
         if current:
