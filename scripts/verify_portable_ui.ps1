@@ -1,19 +1,17 @@
-param([string]$OutputRoot = 'release_v5_71', [string]$Device = '')
+param([string]$OutputRoot = 'release', [string]$Device = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$release = [IO.Path]::GetFullPath((Join-Path $repo $OutputRoot))
-$exe = Join-Path $release 'WJDRMuMuAssistant_v5.71.0_Portable.exe'
+Set-Location $repo
+$release = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
+$exe = Join-Path $release 'WJDRMuMuAssistant_v5.8.0_Portable.exe'
 $digest = (Get-Content -LiteralPath (Join-Path $release 'portable_payload/payload.sha256') -Raw).Trim()
-$runtime = Join-Path $env:LOCALAPPDATA ("WJDRMuMuAssistant/portable/5.71.0-" + $digest.Substring(0,12))
-$env:WJDR_QA_PAGE = '4'
-$evidenceDir = Join-Path $repo 'evidence/milestone-186-beast-compact-shift'
-[void][IO.Directory]::CreateDirectory($evidenceDir)
-$env:WJDR_QA_SCREENSHOT = Join-Path $evidenceDir 'portable-boot.png'
+$runtime = Join-Path $env:LOCALAPPDATA ("WJDRMuMuAssistant/portable/5.8.0-" + $digest.Substring(0,12))
+$env:WJDR_QA_PAGE = '0'
+Remove-Item Env:WJDR_QA_SCREENSHOT, Env:WJDR_BEAST_MAX_CYCLES -ErrorAction SilentlyContinue
 $watch = [Diagnostics.Stopwatch]::StartNew()
 # A visible frontend is explicitly requested. Launch without task flags,
 # from a non-source working directory; the package supplies its own runtime.
 if ($Device) {
-    $env:WJDR_QA_SCREENSHOT = Join-Path $evidenceDir 'portable-second.png'
     $launcher = Start-Process -FilePath (Join-Path $runtime 'WJDRMuMuAssistant.exe') -ArgumentList '--device',$Device -WorkingDirectory $env:TEMP -WindowStyle Normal -PassThru
 } else {
     $launcher = Start-Process -FilePath $exe -WorkingDirectory $env:TEMP -WindowStyle Normal -PassThru
@@ -22,7 +20,7 @@ $deadline = [DateTime]::UtcNow.AddSeconds(20)
 while ([DateTime]::UtcNow -lt $deadline) {
     $launcher.Refresh()
     $windows = @(Get-Process -Name WJDRMuMuAssistant -ErrorAction SilentlyContinue | Where-Object {
-        $_.Path -eq (Join-Path $runtime 'WJDRMuMuAssistant.exe') -and $_.MainWindowTitle -like '*5.71.0*127.0.0.1:*' -and
+        $_.Path -eq (Join-Path $runtime 'WJDRMuMuAssistant.exe') -and $_.MainWindowTitle -like '*5.8.0*127.0.0.1:*' -and
         ((-not $Device) -or ($_.Id -eq $launcher.Id -and $_.MainWindowTitle.EndsWith($Device)))
     })
     if ($windows.Count -gt 0) {

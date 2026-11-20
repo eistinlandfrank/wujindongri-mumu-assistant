@@ -13,7 +13,8 @@ modules = ("wjdr_mumu_assistant_qt", "wjdr_backend", "wjdr_beast_hunt",
            "wjdr_ui_components", "wjdr_runtime_config", "wjdr_frontend_layout",
            "wjdr_beast_supervision", "wjdr_daily_visuals",
            "wjdr_daily_intel", "wjdr_daily_expedition", "wjdr_scoreboard",
-           "wjdr_scoreboard_ui", "wjdr_mumu_ipc")
+           "wjdr_scoreboard_ui", "wjdr_mumu_ipc", "wjdr_ui_appearance",
+           "wjdr_fortress", "wjdr_fortress_flow", "wjdr_fortress_ocr", "wjdr_fortress_ui")
 if (repo / "wjdr_adb.py").is_file():
     modules += ("wjdr_adb",)
 if (repo / "wjdr_scoreboard_identity.py").is_file():
@@ -25,8 +26,12 @@ for name in modules:
     assert code == expected, f"stale frozen source: {name}"
 assert (runtime / "wjdr_fast_vision.py").read_bytes() == (repo / "wjdr_fast_vision.py").read_bytes(), "stale standalone recognizer"
 assert (runtime / "wjdr_mumu_ipc.py").read_bytes() == (repo / "wjdr_mumu_ipc.py").read_bytes(), "stale standalone IPC worker"
-assets = list((repo / "assets").glob("*"))
-for source in assets:
-    if source.is_file():
-        assert source.read_bytes() == (runtime / "_internal" / "assets" / source.name).read_bytes(), source.name
+internal = runtime / "_internal"
+assets = {path.relative_to(repo / "assets") for path in (repo / "assets").rglob("*") if path.is_file()}
+packaged_assets = {path.relative_to(internal / "assets") for path in (internal / "assets").rglob("*") if path.is_file()}
+assert packaged_assets == assets, "unexpected or missing packaged assets"
+for relative in assets:
+    assert (repo / "assets" / relative).read_bytes() == (internal / "assets" / relative).read_bytes(), relative
+for source in (*repo.glob("alliance_*_builtin.png"), repo / "app_icon.svg"):
+    assert source.read_bytes() == (internal / source.name).read_bytes(), source.name
 print(f"PASS {len(modules)} current frozen modules and all asset bytes")

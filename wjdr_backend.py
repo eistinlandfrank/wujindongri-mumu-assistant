@@ -33,7 +33,7 @@ from wjdr_mumu_ipc import IpcScreenshots
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "5.78.0"
+APP_VERSION = "5.8.0"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot "release"),
     [switch]$Incremental
 )
@@ -52,10 +52,8 @@ foreach ($icuName in @('icuuc.dll', 'icudt78.dll')) {
     if ([IO.Path]::GetDirectoryName($icuPath) -ne $internalRoot) { throw 'Invalid runtime ICU path' }
     if (Test-Path -LiteralPath $icuPath) { Remove-Item -LiteralPath $icuPath -Force }
 }
-foreach ($document in (Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object {
-    $_.Extension -in @(".md", ".txt", ".cmd") -and $_.Name -notin @("SHA256.txt", "version_info.txt", "requirements.txt")
-})) {
-    Copy-Item -LiteralPath $document.FullName -Destination $packageRoot -Force
+foreach ($document in @('README.md', '第三方许可说明.txt', '快速识图工具.md', '快速识图.cmd')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $document) -Destination $packageRoot -Force
 }
 
 # Keep the read-only batch recogniser usable beside the portable GUI.  It is

@@ -7,12 +7,13 @@
 | 程序入口、设备选择、工作线程、野兽和红包流程 | `wjdr_mumu_assistant_qt.py` |
 | 每日 325 的扫描、采集、训练、情报等流程 | `wjdr_daily_controller.py` |
 | 主窗口页面的创建、布局和样式 | `wjdr_frontend_layout.py` |
-| 截图控件、设置对话框和界面信号 | `wjdr_ui_components.py` |
+| 截图控件、设置对话框、界面信号和全局主题 | `wjdr_ui_components.py`、`wjdr_ui_appearance.py` |
 | 桌面工作流共用的超时和重试常量 | `wjdr_runtime_config.py` |
 | ADB、设备身份、持久化和底层图像识别 | `wjdr_backend.py` |
 | 野兽状态和账本语义 | `wjdr_beast_hunt.py`、`wjdr_beast_supervision.py` |
 | 每日情报、探险及视觉辅助 | `wjdr_daily_intel.py`、`wjdr_daily_expedition.py`、`wjdr_daily_visuals.py` |
 | 定时计划、战备积分 | `wjdr_schedule*.py`、`wjdr_scoreboard*.py` |
+| 实例视频帧与堡垒跑联盟 | `wjdr_mumu_ipc.py`、`wjdr_fortress*.py` |
 
 `MainWindow._start_daily_rewards_flow` 是兼容入口，实际实现位于
 `wjdr_daily_controller.DailyController._start_daily_rewards_flow`；界面方法通过
