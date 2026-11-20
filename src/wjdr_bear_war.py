@@ -132,12 +132,14 @@ class WarBearFlow(BearFlow):
             self.tap(point, view)
             self.await_page(lambda raw, image: self.read(image, war_page), "联盟战争集结列表")
 
-    def scroll(self, view):
+    def scroll(self, view, *, toward_bottom=True):
         if self.stop.is_set():
             raise InterruptedError()
         x = view.left + round(578 * view.width / WIDTH)
         start = view.top + round(1137 * view.width / WIDTH)
         end = view.top + round(674 * view.width / WIDTH)
+        if not toward_bottom:
+            start, end = end, start
         self.target.shell(["input", "swipe", str(x), str(start), str(x), str(end), "150"], timeout=4)
 
     def board(self, rally, view):
@@ -209,6 +211,8 @@ class WarBearFlow(BearFlow):
         deadline = time.monotonic() + seconds
         last_scroll = None
         next_scroll = 0.0
+        toward_bottom = True
+        stationary_since = 0.0
         while not self.stop.is_set() and time.monotonic() < deadline:
             raw = self.target.screenshot(timeout=3)
             image, view = normalized(raw)
@@ -230,12 +234,21 @@ class WarBearFlow(BearFlow):
                 if ready := confirm(fresh, current):
                     self.board(ready, current_view)
                     last_scroll = None
+                    toward_bottom = True
                     if len(ledger(self.path, self.day)) >= LIMIT:
                         return
                 continue
             position = list_position(image)
-            if time.monotonic() >= next_scroll and (last_scroll is None or np.abs(last_scroll-position).mean() > 5):
-                self.scroll(view)
+            now = time.monotonic()
+            changed = last_scroll is None or np.abs(last_scroll-position).mean() > 5
+            if changed:
+                stationary_since = now
+            at_end = not changed and now - stationary_since >= 0.8
+            if now >= next_scroll and (changed or at_end):
+                if at_end:
+                    toward_bottom = not toward_bottom
+                self.scroll(view, toward_bottom=toward_bottom)
                 last_scroll = position
                 next_scroll = time.monotonic() + 0.15
+                stationary_since = time.monotonic()
             self.stop.wait(POLL_SECONDS)
