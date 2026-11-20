@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("output", type=Path)
 parser.add_argument("--theme", choices=("light", "dark"), default="light")
 args = parser.parse_args()
-window._set_theme(args.theme, persist=False)
+window.appearance.set_mode(args.theme, persist=False)
 output = args.output
 output.mkdir(parents=True, exist_ok=True)
 for width, height in ((1080, 720), (1280, 840)):

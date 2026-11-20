@@ -39,99 +39,7 @@ from wjdr_backend import (
     BeastRallyProfile,
     MiningLevelProfile,
 )
-
-COLORS = {
-    "window": "#F4F7FC",
-    "surface": "#FFFFFF",
-    "surface_alt": "#F7F9FD",
-    "navy": "#101C33",
-    "navy_2": "#162744",
-    "text": "#17243B",
-    "muted": "#6C7A91",
-    "border": "#DFE6F1",
-    "blue": "#3478F6",
-    "blue_dark": "#245EC8",
-    "green": "#16A36D",
-    "green_soft": "#E7F8F1",
-    "red": "#DE5262",
-    "amber": "#F2A33A",
-    "input": "#FFFFFF",
-    "header": "#EDF3FC",
-    "hover": "#F0F5FC",
-    "focus": "#8EAEDE",
-    "accent": "#255EC5",
-    "accent_bg": "#E9F0FE",
-    "accent_border": "#CDDCF8",
-    "primary": "#2B64CF",
-    "primary_hover": "#2457B8",
-    "selection": "#DBE8FF",
-    "disabled": "#647388",
-    "disabled_bg": "#EEF2F8",
-    "success": "#0E7150",
-    "warning": "#874525",
-    "warning_bg": "#FFF8F0",
-    "warning_border": "#F1D4B1",
-    "danger": "#A63142",
-    "danger_bg": "#FFF0F1",
-    "danger_border": "#F2CCD2",
-    "danger_hover": "#FCE1E4",
-    "danger_button": "#BB3D50",
-    "scrollbar": "#BAC8DF",
-}
-
-THEMES = {
-    "light": COLORS,
-    "dark": {
-        **COLORS,
-        "window": "#101827",
-        "surface": "#192538",
-        "surface_alt": "#1E2C41",
-        "navy": "#0B1322",
-        "text": "#E8EFFB",
-        "muted": "#A9B8CE",
-        "border": "#33445E",
-        "input": "#142033",
-        "header": "#26364E",
-        "hover": "#253650",
-        "focus": "#7EA8EF",
-        "accent": "#A3C4FF",
-        "accent_bg": "#243960",
-        "accent_border": "#3A5684",
-        "primary": "#3266C9",
-        "primary_hover": "#3A71DA",
-        "selection": "#314F7D",
-        "disabled": "#8799B2",
-        "disabled_bg": "#1C283B",
-        "success": "#8BE1BF",
-        "green_soft": "#163A36",
-        "warning": "#F0BF92",
-        "warning_bg": "#352921",
-        "warning_border": "#614631",
-        "danger": "#FFAFB8",
-        "danger_bg": "#39232E",
-        "danger_border": "#653946",
-        "danger_hover": "#50303D",
-        "danger_button": "#B04056",
-        "scrollbar": "#586D8A",
-    },
-}
-
-
-def theme_palette(colors: dict[str, str]) -> QPalette:
-    palette = QPalette()
-    role = QPalette.ColorRole
-    for name, key in {
-        role.Window: "window", role.WindowText: "text", role.Base: "input",
-        role.AlternateBase: "surface_alt", role.Text: "text", role.Button: "surface",
-        role.ButtonText: "text", role.Highlight: "selection", role.HighlightedText: "text",
-        role.ToolTipBase: "surface", role.ToolTipText: "text", role.PlaceholderText: "muted",
-        role.Link: "accent", role.Mid: "border", role.Light: "focus", role.Dark: "window",
-    }.items():
-        palette.setColor(name, QColor(colors[key]))
-    for name in (role.Text, role.ButtonText, role.WindowText):
-        palette.setColor(QPalette.ColorGroup.Disabled, name, QColor(colors["disabled"]))
-    return palette
-
+from wjdr_ui_appearance import ApplicationAppearance, COLORS, THEMES
 
 def set_style_property(widget: QWidget, name: str, value: str) -> None:
     if widget.property(name) != value:
@@ -212,7 +120,8 @@ class ScreenshotView(QWidget):
     def paintEvent(self, _event: Any) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0C1424"))
+        palette = self.palette()
+        painter.fillRect(self.rect(), palette.color(QPalette.ColorRole.AlternateBase))
         if self.image:
             target = self._target_rect()
             path = QPainterPath()
@@ -220,10 +129,10 @@ class ScreenshotView(QWidget):
             painter.setClipPath(path)
             painter.drawImage(target, self.image)
             painter.setClipping(False)
-            painter.setPen(QPen(QColor("#263754"), 1))
+            painter.setPen(QPen(palette.color(QPalette.ColorRole.Mid), 1))
             painter.drawRoundedRect(target, 12, 12)
         else:
-            painter.setPen(QColor("#8EA1BF"))
+            painter.setPen(palette.color(QPalette.ColorRole.PlaceholderText))
             painter.setFont(QFont("Microsoft YaHei UI", 11))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "正在获取 MuMu 画面…")
         if self.drag_start and self.drag_end:
@@ -261,13 +170,17 @@ class ScreenshotView(QWidget):
 
 
 class LightSettingsDialog(QDialog):
-    """Account settings use the appearance of the owning assistant window."""
+    """Account settings follow the global assistant appearance."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        colors = THEMES.get(getattr(parent, "theme_name", "light"), COLORS)
-        self.setPalette(theme_palette(colors))
         self.setAutoFillBackground(True)
+        self.appearance = ApplicationAppearance.current()
+        self.appearance.changed.connect(self._apply_appearance)
+        self._apply_appearance()
+
+    def _apply_appearance(self) -> None:
+        colors = THEMES[self.appearance.theme]
         self.setStyleSheet(f"""
             QDialog {{ background: {colors['window']}; color: {colors['text']}; }}
             QLabel, QRadioButton {{ color: {colors['text']}; background: transparent; }}

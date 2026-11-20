@@ -114,7 +114,10 @@ class ScoreboardUI:
     def _score_import(self):
         try:
             identity = self._score_identity()
-            path, _ = QFileDialog.getOpenFileName(self, "导入备战榜首版或其他快照", "", "表格 (*.xlsx *.csv)")
+            path, _ = QFileDialog.getOpenFileName(
+                self, "导入备战榜首版或其他快照", "", "表格 (*.xlsx *.csv)",
+                options=QFileDialog.Option.DontUseNativeDialog,
+            )
             if not path:
                 return
             rows = scores.read_xlsx(path) if path.lower().endswith(".xlsx") else scores.read_csv(path)

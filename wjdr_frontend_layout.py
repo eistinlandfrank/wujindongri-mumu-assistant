@@ -3,7 +3,6 @@
 from __future__ import annotations
 import os
 from PySide6.QtCore import (
-    QSettings,
     Qt,
     QTimer,
 )
@@ -32,11 +31,10 @@ from wjdr_backend import (
     CONFIG_DIR,
     resource_path,
 )
+from wjdr_ui_appearance import APPEARANCE_MODES, THEMES, ApplicationAppearance
 from wjdr_ui_components import (
-    THEMES,
     Card,
     ScreenshotView,
-    theme_palette,
 )
 from wjdr_runtime_config import (
     MAX_SINGLE_WAIT_SECONDS,
@@ -61,14 +59,11 @@ NAV_SECTIONS = (
     ("任务管理", (5, 9, 6)),
     ("排查与帮助", (7, 8)),
 )
-THEME_KEY = "appearance/theme"
 
 
 class FrontendLayout:
     def _build_ui(self) -> None:
-        self.appearance_settings = QSettings("WJDR Tools", "WJDRMuMuAssistant")
-        saved_theme = self.appearance_settings.value(THEME_KEY, "light", type=str)
-        self.theme_name = saved_theme if saved_theme in THEMES else "light"
+        self.appearance = ApplicationAppearance.current()
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
@@ -158,10 +153,16 @@ class FrontendLayout:
         self.device_manager_button.setObjectName("secondaryButton")
         self.device_manager_button.clicked.connect(self._open_device_manager)
         device_bar.addWidget(self.device_manager_button)
-        self.theme_button = QPushButton()
-        self.theme_button.setObjectName("softButton")
-        self.theme_button.clicked.connect(self._toggle_theme)
-        device_bar.addWidget(self.theme_button)
+        self.appearance_combo = QComboBox()
+        self.appearance_combo.setObjectName("appearanceCombo")
+        self.appearance_combo.setAccessibleName("全局外观")
+        self.appearance_combo.setToolTip("全局外观 · 跟随 Windows 设置，或固定使用浅色、深色")
+        for mode, label in APPEARANCE_MODES.items():
+            self.appearance_combo.addItem(label, mode)
+        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
+        self.appearance_combo.activated.connect(self._select_appearance)
+        self.appearance.changed.connect(self._apply_style)
+        device_bar.addWidget(self.appearance_combo)
         self.status_pill = QLabel("●  正在连接")
         self.status_pill.setObjectName("statusPill")
         self.status_pill.setProperty("statusKind", "idle")
@@ -846,38 +847,30 @@ class FrontendLayout:
         widget.setProperty("themeWindow", "true")
         widget.setAutoFillBackground(True)
 
-    def _toggle_theme(self) -> None:
-        self._set_theme("light" if self.theme_name == "dark" else "dark")
-
-    def _set_theme(self, name: str, *, persist: bool = True) -> None:
-        self.theme_name = name
-        self._apply_style()
-        if persist:
-            self.appearance_settings.setValue(THEME_KEY, name)
-            self.appearance_settings.sync()
+    def _select_appearance(self, index: int) -> None:
+        self.appearance.set_mode(self.appearance_combo.itemData(index))
 
     def _apply_style(self) -> None:
-        colors = THEMES[self.theme_name]
-        self.setPalette(theme_palette(colors))
-        destination = "浅色" if self.theme_name == "dark" else "深色"
-        self.theme_button.setText(destination)
-        self.theme_button.setAccessibleName(f"切换为{destination}模式")
-        self.theme_button.setToolTip(f"切换为{destination}模式")
-        arrow_suffix = "_dark" if self.theme_name == "dark" else ""
+        colors = THEMES[self.appearance.theme]
+        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
+        dark = self.appearance.theme == "dark"
+        arrow_suffix = "_dark" if dark else ""
+        sidebar_bg = colors["navy"] if dark else colors["surface"]
         self.setStyleSheet(
             f"""
             * {{ font-family: 'Microsoft YaHei UI'; font-size: 14px; color: {colors['text']}; }}
             QMainWindow, QDialog, QWidget#root, QWidget#main, QWidget[themeWindow="true"] {{ background: {colors['window']}; }}
-            QFrame#sidebar, QScrollArea#navigation, QWidget#navigationBody {{ background: {colors['navy']}; }}
+            QFrame#sidebar, QScrollArea#navigation, QWidget#navigationBody {{ background: {sidebar_bg}; }}
+            QFrame#sidebar {{ border-right: 1px solid {colors['border']}; }}
             QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 10px; min-width: 34px; min-height: 34px; font-size: 19px; font-weight: 700; }}
-            QLabel#brand {{ color: #F8FAFF; font-size: 15px; font-weight: 700; }}
-            QLabel#brandSub {{ color: #9CAEC9; font-size: 11px; }}
-            QLabel#navSection {{ color: #A2B3CC; font-size: 11px; font-weight: 600; padding: 10px 10px 1px; }}
-            QPushButton#navButton {{ text-align: left; color: #D3DFF1; background: transparent; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 7px; min-height: 31px; padding: 0 9px; font-size: 13px; font-weight: 600; }}
-            QPushButton#navButton:hover {{ color: white; background: #1A2C4A; }}
-            QPushButton#navButton:checked {{ color: #FFFFFF; background: #233E68; border-left-color: #72AAFF; }}
-            QPushButton#navButton:focus {{ border-color: #72AAFF; }}
-            QLabel#sidebarFooter {{ color: #B7C7DD; font-size: 12px; border-top: 1px solid #2C3C55; padding: 10px 7px 0; }}
+            QLabel#brand {{ font-size: 15px; font-weight: 700; }}
+            QLabel#brandSub {{ color: {colors['muted']}; font-size: 11px; }}
+            QLabel#navSection {{ color: {colors['muted']}; font-size: 11px; font-weight: 600; padding: 10px 10px 1px; }}
+            QPushButton#navButton {{ text-align: left; background: transparent; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 7px; min-height: 31px; padding: 0 9px; font-size: 13px; font-weight: 600; }}
+            QPushButton#navButton:hover {{ background: {colors['hover']}; }}
+            QPushButton#navButton:checked {{ color: {colors['accent']}; background: {colors['accent_bg']}; border-left-color: {colors['focus']}; }}
+            QPushButton#navButton:focus {{ border-color: {colors['focus']}; }}
+            QLabel#sidebarFooter {{ color: {colors['muted']}; font-size: 12px; border-top: 1px solid {colors['border']}; padding: 10px 7px 0; }}
             QLabel#pageTitle {{ font-size: 23px; font-weight: 750; }}
             QLabel#pageSubtitle, QLabel#muted {{ color: {colors['muted']}; font-size: 12px; }}
             QLabel#statusPill {{ background: {colors['disabled_bg']}; color: {colors['muted']}; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
@@ -888,6 +881,7 @@ class FrontendLayout:
             QFrame#deviceToolbar {{ background: {colors['surface']}; border: 1px solid {colors['border']}; border-radius: 12px; }}
             QFrame#deviceToolbar QPushButton {{ min-height: 32px; padding: 0 11px; }}
             QFrame#deviceToolbar QComboBox {{ padding: 4px 9px; }}
+            QFrame#deviceToolbar QComboBox#appearanceCombo {{ min-width: 56px; padding-right: 28px; }}
             QPushButton#stopCurrentButton {{ background: {colors['danger_bg']}; color: {colors['danger']}; border: 1px solid {colors['danger_border']}; }}
             QPushButton#stopCurrentButton:hover {{ background: {colors['danger_hover']}; }}
             QPushButton#quickTask {{ text-align: left; color: {colors['accent']}; border: 1px solid {colors['accent_border']}; background: {colors['surface_alt']}; }}
@@ -928,6 +922,9 @@ class FrontendLayout:
             QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{resource_path(f'assets/ui_chevron_up{arrow_suffix}.svg').as_posix()}"); width: 12px; height: 8px; }}
             QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{ border: none; width: 22px; background: {colors['header']}; }}
             QComboBox QAbstractItemView {{ background: {colors['surface']}; border: 1px solid {colors['border']}; selection-background-color: {colors['accent_bg']}; selection-color: {colors['text']}; padding: 6px; }}
+            QMenu {{ color: {colors['text']}; background: {colors['surface']}; border: 1px solid {colors['border']}; }}
+            QMenu::item:selected {{ color: {colors['text']}; background: {colors['selection']}; }}
+            QMenu::item:disabled {{ color: {colors['disabled']}; }}
             QCheckBox {{ spacing: 8px; }}
             QToolTip {{ color: {colors['text']}; background: {colors['surface']}; border: 1px solid {colors['border']}; }}
             QTabWidget#scoreTabs::pane {{ border: 1px solid {colors['border']}; background: {colors['surface']}; }}

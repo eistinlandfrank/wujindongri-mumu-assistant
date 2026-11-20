@@ -42,7 +42,7 @@ for window, device in zip(windows, devices):
         assert window.stop_button.isVisible() and window.nav_buttons[index].isChecked()
     window._show_page(4)
     image = window.current_image
-    window._set_theme("dark", persist=False)
+    window.appearance.set_mode("dark", persist=False)
     app.processEvents()
     assert window.adb.device == device and window.stack.currentIndex() == 4
     assert window.current_image is image and window.worker is None
@@ -60,7 +60,6 @@ def inspect_manager():
             and dialog.palette().color(QPalette.ColorRole.Window)
             == windows[0].palette().color(QPalette.ColorRole.Window)
         )
-        dialog.grab().save("evidence/milestone-181-ui-multidevice/device-manager.png")
         dialog.reject()
 QTimer.singleShot(100, inspect_manager)
 windows[0]._open_device_manager()
