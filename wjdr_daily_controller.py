@@ -231,20 +231,7 @@ class DailyController:
         def job() -> None:
             interval = configured_daily_interval
             capture_latency_ewma = 0.0
-            fast_capture_ok = True
-            _fast_retry_counter = 0
-
             def daily_screenshot() -> Image.Image:
-                nonlocal fast_capture_ok, _fast_retry_counter
-                if fast_capture_ok or _fast_retry_counter % 20 == 0:
-                    try:
-                        result = target.fast_window_screenshot(BUILTIN_DAILY_TASK_REFERENCE_SIZE)
-                        fast_capture_ok = True
-                        _fast_retry_counter = 0
-                        return result
-                    except AdbError:
-                        fast_capture_ok = False
-                _fast_retry_counter += 1
                 return target.screenshot()
 
             def capture_daily_image() -> Image.Image:
@@ -1520,18 +1507,20 @@ class DailyController:
                     and time.monotonic() < fast_home_deadline
                 ):
                     try:
-                        first_overview = target.fast_window_screenshot(_world_image.size)
+                        first_overview = target.screenshot(timeout=fast_home_deadline - time.monotonic())
                     except AdbError as exc:
                         self._log_for_device(
                             target.device,
-                            f"采矿区域预检：MuMu 快速窗口截图不可用（{exc}）；"
-                            "未用过期ADB帧点击临时小房子，未搜索或派遣。",
+                            f"采矿区域预检：MuMu IPC 取帧失败（{exc}）；"
+                            "临时小房子未确认，本轮停止搜索和派遣。",
                         )
                         return False
                     fast_home_point, fast_home_score = (
                         match_daily_world_overview_home_button_fast(first_overview, 0.76)
                     )
                     if fast_home_point:
+                        if self.stop_event.is_set() or time.monotonic() >= fast_home_deadline:
+                            return False
                         target.tap(*fast_home_point)
                         fast_home_sent = True
                         elapsed_ms = round((time.monotonic() - fast_home_started) * 1000)
@@ -1837,7 +1826,7 @@ class DailyController:
                         self._log_for_device(
                             target.device,
                             f"运行时截图滚动清理：{directory.name} 已删除 {removed} 张最旧裁剪，"
-                            f"仅保留最近 {max(1, keep_latest)} 张；识图仍只使用实时ADB帧。",
+                            f"仅保留最近 {max(1, keep_latest)} 张；识图只使用实时 IPC 帧。",
                         )
                 except OSError as exc:
                     self._log_for_device(target.device, f"运行时截图滚动清理失败：{exc}")
@@ -3158,12 +3147,8 @@ class DailyController:
                 regular_back_streak = 0
                 regular_back_sent = False
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
-                    # This is a persistent city render, not the transient
-                    # overview house.  One live instance returned a valid but
-                    # stale/wrong PrintWindow surface for all 29 seconds while
-                    # native ADB already proved the city at 0.9914.  Use only
-                    # authoritative native pixels here; two city frames remain
-                    # mandatory and no new action coordinate is introduced.
+                    # Persistent city recovery requires two fresh renderer
+                    # frames to confirm the same city control before input.
                     image = capture_daily_image()
                     page = detect_daily_task_state(image, threshold)
                     if page.state is getattr(DailyTaskState, "BLOCKED", None):
@@ -7382,10 +7367,7 @@ class DailyController:
                                     self._log_for_device(target.device, "已进入宠物寻宝；仅允许已验证的普通 10 体力派遣。")
 
                                     def pet_capture() -> Image.Image:
-                                        try:
-                                            return target.fast_window_screenshot(BUILTIN_DAILY_TASK_REFERENCE_SIZE)
-                                        except AdbError:
-                                            return target.screenshot(timeout=2)
+                                        return target.screenshot(timeout=2)
 
                                     def pet_tap(x: int, y: int) -> None:
                                         target.shell(["input", "tap", str(x), str(y)], timeout=2)

@@ -13,7 +13,9 @@ modules = ("wjdr_mumu_assistant_qt", "wjdr_backend", "wjdr_beast_hunt",
            "wjdr_ui_components", "wjdr_runtime_config", "wjdr_frontend_layout",
            "wjdr_beast_supervision", "wjdr_daily_visuals",
            "wjdr_daily_intel", "wjdr_daily_expedition", "wjdr_scoreboard",
-           "wjdr_scoreboard_ui")
+           "wjdr_scoreboard_ui", "wjdr_mumu_ipc")
+if (repo / "wjdr_adb.py").is_file():
+    modules += ("wjdr_adb",)
 if (repo / "wjdr_scoreboard_identity.py").is_file():
     modules += ("wjdr_scoreboard_identity",)
 for name in modules:
@@ -22,6 +24,7 @@ for name in modules:
                        "exec", dont_inherit=True, optimize=0)
     assert code == expected, f"stale frozen source: {name}"
 assert (runtime / "wjdr_fast_vision.py").read_bytes() == (repo / "wjdr_fast_vision.py").read_bytes(), "stale standalone recognizer"
+assert (runtime / "wjdr_mumu_ipc.py").read_bytes() == (repo / "wjdr_mumu_ipc.py").read_bytes(), "stale standalone IPC worker"
 assets = list((repo / "assets").glob("*"))
 for source in assets:
     if source.is_file():

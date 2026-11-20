@@ -16,6 +16,12 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
+if __name__ == "__main__" and sys.argv[1:2] == ["--wjdr-ipc-worker"]:
+    from wjdr_mumu_ipc import worker_main
+
+    worker_main(sys.argv[2:])
+    raise SystemExit(0)
+
 from PIL import Image, ImageChops, ImageStat
 from wjdr_daily_visuals import intel_coloured_candidates, intel_expert, intel_expert_maybe_visible, intel_station_expert, recommended_tech
 from wjdr_daily_expedition import ExpeditionClaimLedger, run_expedition_claim
@@ -3522,20 +3528,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
             # small adaptive cushion. No single passive wait exceeds 1.5 s.
             interval = configured_daily_interval
             capture_latency_ewma = 0.0
-            fast_capture_ok = True
-            _fast_retry_counter = 0
-
             def daily_screenshot() -> Image.Image:
-                nonlocal fast_capture_ok, _fast_retry_counter
-                if fast_capture_ok or _fast_retry_counter % 20 == 0:
-                    try:
-                        result = target.fast_window_screenshot(BUILTIN_DAILY_TASK_REFERENCE_SIZE)
-                        fast_capture_ok = True
-                        _fast_retry_counter = 0
-                        return result
-                    except AdbError:
-                        fast_capture_ok = False
-                _fast_retry_counter += 1
                 return target.screenshot()
 
             def capture_daily_image() -> Image.Image:

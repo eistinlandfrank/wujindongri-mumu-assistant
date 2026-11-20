@@ -60,12 +60,11 @@ foreach ($document in (Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Ob
 
 # Keep the read-only batch recogniser usable beside the portable GUI.  It is
 # intentionally a source-mode diagnostic (the host needs Python plus the
-# small requirements file) and has no input commands; copying both modules
-# fixes the old package where 快速识图.cmd was present but its target script
-# was missing.
-foreach ($toolFile in @("wjdr_fast_vision.py", "wjdr_backend.py", "requirements.txt")) {
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $toolFile) -Destination $packageRoot -Force
+# small requirements file). Ship its source imports and the IPC worker beside it.
+foreach ($module in (Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter "wjdr_*.py")) {
+    Copy-Item -LiteralPath $module.FullName -Destination $packageRoot -Force
 }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "requirements.txt") -Destination $packageRoot -Force
 foreach ($asset in $assets) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $asset) -Destination $packageRoot -Force
 }

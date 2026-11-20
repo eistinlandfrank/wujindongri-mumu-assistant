@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import io
 import inspect
 import hashlib
 import json
@@ -29,6 +28,8 @@ if os.name == "nt":
 import cv2
 import numpy as np
 from PIL import Image, ImageChops, ImageStat
+
+from wjdr_mumu_ipc import IpcScreenshots
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
@@ -3118,6 +3119,7 @@ class MuMuADB:
         self.adb_path = adb_path or self._find_adb()
         self.manager_path = self._find_manager()
         self.device = ""
+        self._ipc_screenshots = IpcScreenshots(AdbError)
         self.players: list[dict[str, Any]] = []
         # ADB can expose one Android instance through several local serials
         # (for example 127.0.0.1:7555 and emulator-5554).  Cache the stable
@@ -3509,153 +3511,7 @@ class MuMuADB:
         self.shell(["monkey", "-p", GAME_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"], timeout=20)
 
     def screenshot(self, *, timeout: float = 20, device: str | None = None) -> Image.Image:
-        args = (["-s", device, "exec-out", "screencap", "-p"] if device
-                else self._device_args(["exec-out", "screencap", "-p"]))
-        raw = self._run(args, timeout=min(20, max(0.1, timeout)), binary=True)
-        assert isinstance(raw, bytes)
-        try:
-            image = Image.open(io.BytesIO(raw))
-            image.load()
-            return image.convert("RGB")
-        except Exception as exc:
-            raise AdbError(f"截图解析失败：{exc}") from exc
-
-    def fast_window_screenshot(
-        self,
-        reference_size: tuple[int, int] | None = None,
-    ) -> Image.Image:
-        """Capture MuMu's render child directly through Windows GDI.
-
-        This read-only path exists for short-lived visual controls whose
-        lifetime is shorter than a normal ADB screencap round trip.  The
-        manager-provided render HWND is tied to the selected ADB port.  A
-        missing/invalid window fails closed; callers must not silently use a
-        late ADB frame to authorise a transient click.
-        """
-
-        if os.name != "nt":
-            raise AdbError("快速窗口截图仅支持 Windows MuMu。")
-        player = self.player_for_device(self.device)
-        if player is None:
-            self.players = self._manager_players()
-            player = self.player_for_device(self.device)
-        if player is None:
-            raise AdbError("MuMu 管理器未返回当前设备的窗口。")
-        handle_text = str(player.get("render_wnd") or "").strip()
-        try:
-            hwnd = int(handle_text, 16)
-        except ValueError as exc:
-            raise AdbError("MuMu 管理器未返回有效的渲染窗口句柄。") from exc
-        if not hwnd or not ctypes.windll.user32.IsWindow(hwnd):
-            raise AdbError("MuMu 渲染窗口已经失效。")
-
-        class Rect(ctypes.Structure):
-            _fields_ = [
-                ("left", ctypes.c_long),
-                ("top", ctypes.c_long),
-                ("right", ctypes.c_long),
-                ("bottom", ctypes.c_long),
-            ]
-
-        class BitmapInfoHeader(ctypes.Structure):
-            _fields_ = [
-                ("biSize", wintypes.DWORD),
-                ("biWidth", ctypes.c_long),
-                ("biHeight", ctypes.c_long),
-                ("biPlanes", wintypes.WORD),
-                ("biBitCount", wintypes.WORD),
-                ("biCompression", wintypes.DWORD),
-                ("biSizeImage", wintypes.DWORD),
-                ("biXPelsPerMeter", ctypes.c_long),
-                ("biYPelsPerMeter", ctypes.c_long),
-                ("biClrUsed", wintypes.DWORD),
-                ("biClrImportant", wintypes.DWORD),
-            ]
-
-        user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
-        rect = Rect()
-        if not user32.GetClientRect(hwnd, ctypes.byref(rect)):
-            raise AdbError("无法读取 MuMu 渲染窗口尺寸。")
-        width, height = rect.right - rect.left, rect.bottom - rect.top
-        if width < 200 or height < 300:
-            raise AdbError("MuMu 渲染窗口尺寸异常。")
-        capture_width, capture_height = width, height
-        if reference_size:
-            reference_width, reference_height = reference_size
-            source_ratio = width / max(1, height)
-            reference_ratio = reference_width / max(1, reference_height)
-            # A non-DPI-aware caller receives logical client coordinates
-            # (for example 945x1680 at 150%) even though PrintWindow renders
-            # the physical 1440x2560 game surface. Allocate the authoritative
-            # device-size bitmap directly when the aspect ratios agree. This
-            # avoids capturing only a magnified top-left fragment and keeps
-            # the fast recogniser independent of the host process DPI mode.
-            if (
-                reference_width >= 200
-                and reference_height >= 300
-                and abs(source_ratio - reference_ratio) <= 0.01
-            ):
-                capture_width, capture_height = reference_width, reference_height
-        source_dc = user32.GetDC(hwnd)
-        memory_dc = gdi32.CreateCompatibleDC(source_dc)
-        bitmap = gdi32.CreateCompatibleBitmap(
-            source_dc,
-            capture_width,
-            capture_height,
-        )
-        previous = gdi32.SelectObject(memory_dc, bitmap)
-        try:
-            # PW_CLIENTONLY captures the render child client area. Unlike
-            # PW_RENDERFULLCONTENT it still succeeds when the emulator window
-            # is minimized or off-screen, which is the common background case.
-            if not user32.PrintWindow(hwnd, memory_dc, 1):
-                raise AdbError("MuMu 渲染窗口快速截图失败。")
-            header = BitmapInfoHeader(
-                ctypes.sizeof(BitmapInfoHeader),
-                capture_width,
-                -capture_height,
-                1,
-                32,
-                0,
-                capture_width * capture_height * 4,
-                0,
-                0,
-                0,
-                0,
-            )
-            buffer = ctypes.create_string_buffer(
-                capture_width * capture_height * 4
-            )
-            rows = gdi32.GetDIBits(
-                memory_dc,
-                bitmap,
-                0,
-                capture_height,
-                buffer,
-                ctypes.byref(header),
-                0,
-            )
-            if rows != capture_height:
-                raise AdbError("MuMu 渲染窗口像素读取不完整。")
-            image = Image.frombuffer(
-                "RGB",
-                (capture_width, capture_height),
-                buffer,
-                "raw",
-                "BGRX",
-                0,
-                1,
-            ).copy()
-        finally:
-            gdi32.SelectObject(memory_dc, previous)
-            gdi32.DeleteObject(bitmap)
-            gdi32.DeleteDC(memory_dc)
-            user32.ReleaseDC(hwnd, source_dc)
-        if reference_size and image.size != reference_size:
-            image = image.resize(reference_size, Image.Resampling.BILINEAR)
-        if fast_capture_is_blank(image):
-            raise AdbError("MuMu 快速截图返回黑屏，不能用于识别。")
-        return image
+        return self._ipc_screenshots.screenshot(self, device or self.device, timeout)
 
     def tap(self, x: int, y: int) -> None:
         self.shell(["input", "tap", str(int(x)), str(int(y))], timeout=10)

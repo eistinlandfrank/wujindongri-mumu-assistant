@@ -8,18 +8,16 @@ one screen is often compared with dozens of known assets, and the legacy
 
 This module prepares a frame once, preloads templates once, caches resized
 templates by viewport size, and runs independent OpenCV matches concurrently.
-It never emits ADB input commands.  ADB support is limited to ``screencap``.
+Live frames come from MuMu IPC. ADB is used only to verify device identity.
 """
 
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import math
 import os
 import re
-import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +36,7 @@ from wjdr_backend import (
     BUILTIN_HELP_REFERENCE_SIZE,
     BUILTIN_HELP_TEMPLATE_ASSET,
     BUILTIN_HELP_TEMPLATE_NAME,
-    CREATE_NO_WINDOW,
+    MuMuADB,
     DAILY_BUILTIN_TEMPLATES,
     BUILTIN_DAILY_TASK_REFERENCE_SIZE,
     RED_PACKET_BUILTIN_TEMPLATES,
@@ -287,28 +285,12 @@ class FastVisionEngine:
         return frame, results, total_ms
 
 
-def capture_adb(device: str, adb_path: str = DEFAULT_ADB, timeout: float = 20.0) -> Image.Image:
-    """Capture one frame.  This function has no ADB input command path."""
-    command = [adb_path, "-s", device, "exec-out", "screencap", "-p"]
-    try:
-        process = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(f"ADB screenshot failed: {exc}") from exc
-    if process.returncode != 0:
-        error = process.stderr.decode("utf-8", "replace").strip()
-        raise RuntimeError(error or f"ADB screenshot returned {process.returncode}")
-    try:
-        image = Image.open(io.BytesIO(process.stdout))
-        image.load()
-        return image.convert("RGB")
-    except Exception as exc:
-        raise RuntimeError(f"ADB screenshot parse failed: {exc}") from exc
+def capture_mumu(device: str, adb_path: str = DEFAULT_ADB, timeout: float = 20.0) -> Image.Image:
+    """Resolve the selected ADB transport and read one frame through MuMu IPC."""
+    target = MuMuADB(adb_path)
+    target.set_device(device)
+    target.players = target._manager_players()
+    return target.screenshot(timeout=timeout)
 
 
 def load_image(path: Path) -> Image.Image:
@@ -440,8 +422,8 @@ def print_results(results: Sequence[MatchResult], total_ms: float, top: int) -> 
 def add_match_arguments(parser: argparse.ArgumentParser) -> None:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--image", type=Path, help="offline PNG/JPEG screenshot")
-    source.add_argument("--device", help=f"read one ADB frame, for example {DEFAULT_DEVICE}")
-    parser.add_argument("--adb", default=DEFAULT_ADB, help="ADB executable path")
+    source.add_argument("--device", help=f"read one MuMu IPC frame, for example {DEFAULT_DEVICE}")
+    parser.add_argument("--adb", default=DEFAULT_ADB, help="ADB executable path for device identity")
     parser.add_argument("--pattern", default="daily", help="regex applied to template id/path/name")
     parser.add_argument("--threshold", type=float, default=0.94)
     parser.add_argument("--mode", choices=("fast", "robust"), default="fast")
@@ -468,8 +450,8 @@ def command_inspect(args: argparse.Namespace) -> int:
         image = load_image(args.image)
         source = str(args.image.resolve())
     else:
-        image = capture_adb(args.device, args.adb)
-        source = f"adb:{args.device}"
+        image = capture_mumu(args.device, args.adb)
+        source = f"mumu-ipc:{args.device}"
     _frame, results, total_ms = engine.inspect(
         image,
         threshold=args.threshold,
