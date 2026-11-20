@@ -51,6 +51,8 @@ def set_style_property(widget: QWidget, name: str, value: str) -> None:
 
 class UiSignals(QObject):
     schedule_verified = Signal(object, str)
+    fortress_result = Signal(str, str, str)
+    fortress_application_timeout = Signal(str, str, str)
     log = Signal(str)
     status = Signal(str, str)
     devices = Signal(object, str)

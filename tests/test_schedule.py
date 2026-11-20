@@ -36,6 +36,14 @@ class ScheduleTests(unittest.TestCase):
         self.assertIsNone(s.claim_due(A, now=100, path=self.path))
         self.assertEqual(s.read_jobs(self.path)[0]["state"], "claimed")
 
+    def test_fortress_appointment_keeps_route_and_exact_second(self):
+        route = [{"alliance": "985", "targets": [{"kind": "堡垒", "number": None, "mode": "单撞"}]}]
+        s.add_job(A, "adb-test", "测试手机", 143, task="fortress_route", route=route, now=1, path=self.path)
+        self.assertIsNone(s.claim_due(A, now=142, path=self.path))
+        job = s.claim_due(A, now=143, path=self.path)
+        self.assertEqual((job["task"], job["route"], job["run_at"]), ("fortress_route", route, 143))
+        self.assertIsNone(s.claim_due(A, now=143, path=self.path))
+
     def test_separate_account_not_wrong_port(self):
         self.add()
         self.assertIsNone(s.claim_due(B, now=100, path=self.path))

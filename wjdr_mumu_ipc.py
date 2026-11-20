@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from threading import Lock
@@ -64,8 +65,35 @@ def _receive(stream):
     return json.loads(line)
 
 
+def _touch_worker(connection, dll, handle, display):
+    if display != 0:
+        raise ValueError("MuMu IPC 触控需要 0 号 Android 显示")
+    down, up = dll.nemu_input_event_touch_down, dll.nemu_input_event_touch_up
+    down.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+    up.argtypes = (ctypes.c_int, ctypes.c_int)
+    down.restype = up.restype = ctypes.c_int
+    width, height = ctypes.c_int(), ctypes.c_int()
+    if dll.nemu_capture_display(handle, display, 0, ctypes.byref(width), ctypes.byref(height), None):
+        raise ValueError("MuMu IPC 触控显示尺寸未确认")
+    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    with connection.makefile("rb") as requests:
+        _send(connection, None)
+        while command := requests.read(1):
+            if command == b"T":
+                x, y = _receive(requests)
+                if not (type(x) is int and type(y) is int and 0 <= x < width.value and 0 <= y < height.value):
+                    raise ValueError("触控坐标超出已确认的游戏范围")
+                pressed = down(handle, display, x, y)
+                released = up(handle, display)
+                if pressed or released:
+                    raise ValueError("MuMu IPC 触控结果未确认")
+            elif command != b"P":
+                raise ValueError("MuMu IPC 触控请求无效")
+            _send(connection, None)
+
+
 def worker_main(args):
-    port, token, name, root, version, index, game_package = args
+    port, token, name, root, version, index, game_package, *options = args
     with socket.create_connection(("127.0.0.1", int(port)), timeout=3) as connection:
         _send(connection, token)
         connection.settimeout(None)
@@ -81,6 +109,9 @@ def worker_main(args):
                     display = display_for(handle, package, 0)
                     if display < 0:
                         raise ValueError("MuMu IPC 未确认当前游戏显示")
+                if options == ["touch"]:
+                    _touch_worker(connection, dll, handle, display)
+                    return
                 shared = SharedMemory(name=name)
                 try:
                     buffer = (ctypes.c_ubyte * shared.size).from_buffer(shared.buf)
@@ -138,7 +169,7 @@ def _close_worker(process, shared, connection=None, stream=None):
 
 
 class _IpcCapture:
-    def __init__(self, target, index, size, *, game_display=True, timeout=5):
+    def __init__(self, target, index, size, *, game_display=True, timeout=5, touch=False):
         if not target.manager_path:
             raise ValueError("找不到 MuMu 管理器")
         if min(size) <= 0 or not 0 < size[0] * size[1] <= MAX_PIXELS:
@@ -149,11 +180,11 @@ class _IpcCapture:
         root = str(Path(target.manager_path).resolve().parent.parent)
         game_package = ""
         if game_display:
-            from wjdr_constants import GAME_PACKAGE
+            from wjdr_backend import GAME_PACKAGE
 
             game_package = GAME_PACKAGE
 
-        shared = SharedMemory(create=True, size=size[0] * size[1] * 4)
+        shared = SharedMemory(create=True, size=1 if touch else size[0] * size[1] * 4)
         process = connection = stream = None
         try:
             with socket.socket() as listener:
@@ -169,12 +200,15 @@ class _IpcCapture:
                 # The one-file bootloader can reuse its extraction for this worker.
                 env.pop("PYINSTALLER_RESET_ENVIRONMENT", None)
                 process = subprocess.Popen(
-                    [*command, str(port), token, shared.name, root, version, str(index), game_package],
+                    [*command, str(port), token, shared.name, root, version, str(index), game_package,
+                     *(["touch"] if touch else [])],
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env,
                 )
                 listener.settimeout(_remaining(deadline))
                 connection, _ = listener.accept()
+                if touch:
+                    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 stream = connection.makefile("rb")
                 connection.settimeout(_remaining(deadline))
                 if _receive(stream) != token:
@@ -209,6 +243,17 @@ class _IpcCapture:
     def close(self):
         self._cleanup()
 
+    def touch_request(self, point=None):
+        try:
+            self._connection.settimeout(0.18)
+            request = b"P" if point is None else b"T" + json.dumps(point).encode("ascii") + b"\n"
+            self._connection.sendall(request)
+            reply = _receive(self._stream)
+            if reply is not None:
+                raise ValueError(str(reply))
+        except (OSError, EOFError, ValueError) as exc:
+            raise RuntimeError(f"MuMu IPC 触控结果未确认 · {exc}") from exc
+
 
 class IpcScreenshots:
     """Own live renderer sessions for the ADB serials bound to one transport."""
@@ -221,7 +266,7 @@ class IpcScreenshots:
         self._sessions = {}
         self._bindings = {}
 
-    def _open(self, target, serial, deadline):
+    def _open(self, target, serial, deadline, *, touch=False):
         output = str(target._run(
             ["-s", serial, "shell", "settings get secure android_id; cat /proc/sys/kernel/random/boot_id; wm size"],
             timeout=min(2, _remaining(deadline)),
@@ -272,7 +317,18 @@ class IpcScreenshots:
         if self._bindings.setdefault(serial, binding) != binding:
             raise ValueError("MuMu 实例已重启或改变，请重新绑定后再开始")
         size = tuple(map(int, sizes[-1]))
-        return _IpcCapture(target, int(index), size, game_display=self._game_display, timeout=_remaining(deadline))
+        options = {"touch": True} if touch else {}
+        return _IpcCapture(target, int(index), size, game_display=self._game_display,
+                           timeout=_remaining(deadline), **options)
+
+    @contextmanager
+    def touch_session(self, target, serial):
+        with self._lock:
+            session = self._open(target, serial, time.monotonic() + 5, touch=True)
+        try:
+            yield session
+        finally:
+            session.close()
 
     def screenshot(self, target, serial, timeout):
         if not serial:
@@ -325,6 +381,9 @@ class RouteCapture:
 
     def screenshot(self, *, timeout: float = 6) -> Image.Image:
         return self._captures.screenshot(self.target, self.target.device, timeout)
+
+    def touch_session(self):
+        return self._captures.touch_session(self.target, self.target.device)
 
 
 if __name__ == "__main__" and sys.argv[1:2] == [WORKER_FLAG]:

@@ -12,6 +12,7 @@ GRACE_SECONDS = 30
 STATES = {"pending": "等待时间", "claimed": "正在核验手机", "running": "已启动",
           "finished": "流程已结束", "cancelled": "已取消", "missed": "已错过",
           "skipped": "未执行", "failed": "启动失败"}
+TASK_NAMES = {"beast_rally": "巨兽集结", "fortress_route": "堡垒跑联盟"}
 
 
 def read_jobs(path: Path = SCHEDULE_FILE) -> list[dict]:
@@ -29,12 +30,15 @@ def _write(path, jobs):
 
 @_serialized_account_write
 def add_job(identity: str, device: str, label: str, run_at: float, *,
+            task: str = "beast_rally", route: list[dict] | None = None,
             now: float | None = None, path: Path = SCHEDULE_FILE) -> dict:
     now = time.time() if now is None else now
     if not identity.startswith("mumu:") or ":android:" not in identity:
         raise ValueError("请先连接并确认手机身份，再保存定时任务")
     if run_at <= now:
         raise ValueError("请选择未来的日期和时间")
+    if task not in TASK_NAMES or (task == "fortress_route" and not route):
+        raise ValueError("请确认预约任务及路线")
     jobs = read_jobs(path)
     if any(j["identity"] == identity and j["state"] in {"pending", "claimed"}
            and abs(j["run_at"] - run_at) < GRACE_SECONDS for j in jobs):
@@ -42,8 +46,10 @@ def add_job(identity: str, device: str, label: str, run_at: float, *,
     if len(jobs) >= 200:
         raise ValueError("最多保存200条记录，请先清除已结束记录")
     job = dict(id=os.urandom(16).hex(), identity=identity, device=device, label=label,
-               task="beast_rally", run_at=float(run_at), created_at=now,
+               task=task, run_at=float(run_at), created_at=now,
                state="pending", note="到点核验手机后启动一次；不会唤醒电脑")
+    if task == "fortress_route":
+        job["route"] = route
     jobs.append(job)
     _write(path, jobs)
     return dict(job)

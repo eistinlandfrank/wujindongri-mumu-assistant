@@ -1,4 +1,4 @@
-param([ValidateRange(0, 9)][int]$Page = 4, [string]$Screenshot = '', [string]$Device = '')
+param([ValidateRange(0, 10)][int]$Page = 4, [string]$Screenshot = '', [string]$Device = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo

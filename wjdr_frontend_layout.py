@@ -55,10 +55,11 @@ PAGE_HEADERS = (
     ("运行日志", "查看当前手机的运行记录"),
     ("关于与安全", ""),
     ("备战积分", "采集榜单、保存快照并对比积分"),
+    ("堡垒跑联盟", "配置跑盟路线与本站操作"),
 )
 NAV_SECTIONS = (
     ("", (0,)),
-    ("自动化", (4, 3, 1, 2)),
+    ("自动化", (4, 3, 1, 2, 10)),
     ("任务管理", (5, 9, 6)),
     ("排查与帮助", (7, 8)),
 )
@@ -231,6 +232,7 @@ class FrontendLayout:
         self.stack.addWidget(self._build_log_page())
         self.stack.addWidget(self._build_about_page())
         self.stack.addWidget(self._build_scoreboard_page())
+        self.stack.addWidget(self._build_fortress_page())
         # Every page remains accessible on short/high-DPI displays. Never let
         # a long status or title silently enlarge the native window.
         for label in main.findChildren(QLabel) + self.stack.findChildren(QLabel):

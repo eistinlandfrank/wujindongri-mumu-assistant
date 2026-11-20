@@ -1,0 +1,28 @@
+{
+  "device": "127.0.0.1:16448",
+  "mumu_index": 2,
+  "round_start": "2026-11-20 12:00:00",
+  "take_keys": false,
+  "capture": "ipc",
+  "stops": [
+    {
+      "alliance": "ZYZ",
+      "targets": [
+        {"kind": "堡垒", "number": 3, "mode": "单撞"}
+      ]
+    },
+    {
+      "alliance": "BBK",
+      "targets": [
+        {"kind": "堡垒", "number": 11, "mode": "集结"}
+      ]
+    },
+    {
+      "alliance": "520",
+      "targets": [
+        {"kind": "要塞", "number": 4, "mode": "集结"},
+        {"kind": "堡垒", "number": 8, "mode": "集结"}
+      ]
+    }
+  ]
+}

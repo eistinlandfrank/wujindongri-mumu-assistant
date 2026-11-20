@@ -1,4 +1,4 @@
-"""Qt scheduling page; uses the existing account-bound Beast worker."""
+"""Qt scheduling page for account-bound one-shot tasks."""
 import json
 import time
 from PySide6.QtCore import QDateTime, QTime, Qt
@@ -56,7 +56,7 @@ class ScheduleUI:
         history.setObjectName("card")
         table_layout = QVBoxLayout(history)
         table_layout.setContentsMargins(20, 18, 20, 18)
-        heading = QLabel("预约记录 · 所有手机")
+        heading = QLabel("预约记录 · 所有手机（本机时间）")
         heading.setObjectName("sectionTitle")
         table_layout.addWidget(heading)
         self.schedule_table = QTableWidget(0, 5)
@@ -90,7 +90,8 @@ class ScheduleUI:
         self.schedule_table.setRowCount(len(jobs))
         for row, job in enumerate(sorted(jobs, key=lambda j: j["run_at"], reverse=True)):
             values = [job["label"], QDateTime.fromSecsSinceEpoch(int(job["run_at"])).toString("MM/dd HH:mm:ss"),
-                      "巨兽集结", schedules.STATES.get(job["state"], job["state"]), job["note"]]
+                      schedules.TASK_NAMES.get(job.get("task", "beast_rally"), "未知任务"),
+                      schedules.STATES.get(job["state"], job["state"]), job["note"]]
             for col, value in enumerate(values):
                 cell = QTableWidgetItem(value)
                 cell.setData(Qt.ItemDataRole.UserRole, job["id"])
@@ -195,9 +196,16 @@ class ScheduleUI:
             current = next((j for j in schedules.read_jobs(self.schedule_path) if j["id"] == job["id"]), {})
             if current.get("state") != "claimed" or current.get("token") != job["token"]:
                 return
+            task = job.get("task", "beast_rally")
+            if task not in schedules.TASK_NAMES:
+                schedules.transition(job["id"], job["token"], "failed", "预约任务类型无法识别", path=self.schedule_path)
+                return
             self._launching_schedule = job
-            self.log("定时已到，账号核验通过，开始巨兽集结流程。")
-            self._start_beast_rally_flow()
+            self.log(f"定时已到，账号核验通过，启动{schedules.TASK_NAMES[task]}。")
+            if task == "fortress_route":
+                self._fortress_start_flow(scheduled=job)
+            else:
+                self._start_beast_rally_flow()
             if not self.worker or not self.worker.is_alive():
                 schedules.transition(job["id"], job["token"], "failed", "启动检查未通过，请查看运行日志", path=self.schedule_path)
         except Exception as exc:

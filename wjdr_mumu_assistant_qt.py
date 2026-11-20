@@ -300,6 +300,7 @@ from wjdr_backend import (
 from wjdr_frontend_layout import FrontendLayout
 from wjdr_daily_controller import start_daily_rewards_flow
 from wjdr_schedule_ui import ScheduleUI
+from wjdr_fortress_ui import FortressUI
 import wjdr_schedule as schedules
 
 from wjdr_ui_components import COLORS, UiSignals, Card, ScreenshotView, LightSettingsDialog, MiningLevelSettingsDialog, BeastRallySettingsDialog, set_style_property
@@ -860,7 +861,7 @@ def beast_cleared_first_shield_plus(image: Image.Image, read_state: Callable) ->
 from wjdr_scoreboard_ui import ScoreboardUI
 
 
-class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
+class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, QMainWindow):
     def __init__(
         self,
         preferred_device: str | None,
@@ -932,6 +933,8 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
 
     def _connect_signals(self) -> None:
         self.signals.schedule_verified.connect(self._schedule_verified)
+        self.signals.fortress_result.connect(self._fortress_result)
+        self.signals.fortress_application_timeout.connect(self._fortress_application_timeout)
         self.signals.log.connect(self._append_log)
         self.signals.status.connect(self._set_status)
         self.signals.devices.connect(self._apply_devices)
@@ -1128,6 +1131,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
             QTimer.singleShot(250, self._start_help_preset)
 
     def _show_device_info(self, item: dict[str, Any] | None) -> None:
+        self._fortress_set_account(item)
         if not item:
             self.instance_name.setText("未选择在线实例")
             self.instance_meta.setText("请从上方列表选择")
