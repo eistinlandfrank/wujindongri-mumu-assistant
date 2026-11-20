@@ -1,37 +1,46 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QDialogButtonBox
+from PySide6.QtWidgets import QApplication
 from wjdr_mumu_assistant_qt import MiningLevelSettingsDialog, BeastRallySettingsDialog
 from wjdr_backend import MiningLevelProfile, BeastRallyProfile
+from wjdr_ui_appearance import ApplicationAppearance, THEMES
 
 
-class SettingsLightPaletteTest(unittest.TestCase):
-    def test_dialogs_override_dark_system_palette(self):
+class SettingsPaletteTest(unittest.TestCase):
+    def test_open_dialogs_follow_assistant_appearance(self):
         app = QApplication.instance() or QApplication([])
         original = app.palette()
-        dark = QPalette()
-        dark.setColor(QPalette.ColorRole.Window, QColor("#151515"))
-        dark.setColor(QPalette.ColorRole.Base, QColor("#202020"))
-        dark.setColor(QPalette.ColorRole.Text, QColor("#EEEEEE"))
-        app.setPalette(dark)
-        try:
-            dialogs = [
-                MiningLevelSettingsDialog("Test account", "test", MiningLevelProfile()),
-                BeastRallySettingsDialog("Test account", "test", BeastRallyProfile(), 60),
-            ]
-            for dialog in dialogs:
-                dialog.show()
-                app.processEvents()
-                self.assertGreater(dialog.palette().color(QPalette.ColorRole.Window).lightness(), 230)
-                self.assertLess(dialog.palette().color(QPalette.ColorRole.WindowText).lightness(), 100)
-                for button in dialog.findChildren(QDialogButtonBox)[0].buttons():
-                    self.assertGreater(button.palette().color(QPalette.ColorRole.Button).lightness(), 230)
-                    self.assertLess(button.palette().color(QPalette.ColorRole.ButtonText).lightness(), 120)
-                dialog.close()
-        finally:
-            app.setPalette(original)
+        with TemporaryDirectory() as temp:
+            settings = QSettings(str(Path(temp) / "appearance.ini"), QSettings.Format.IniFormat)
+            appearance = ApplicationAppearance(app, settings)
+            try:
+                with patch.object(ApplicationAppearance, "current", return_value=appearance):
+                    dialogs = [
+                        MiningLevelSettingsDialog("Test account", "test", MiningLevelProfile()),
+                        BeastRallySettingsDialog("Test account", "test", BeastRallyProfile(), 60),
+                    ]
+                for dialog in dialogs:
+                    dialog.show()
+                for mode, colors in THEMES.items():
+                    appearance.set_mode(mode, persist=False)
+                    app.processEvents()
+                    for dialog in dialogs:
+                        palette = dialog.palette()
+                        self.assertEqual(palette.color(QPalette.ColorRole.Window), QColor(colors["window"]))
+                        self.assertEqual(palette.color(QPalette.ColorRole.WindowText), QColor(colors["text"]))
+                        self.assertIn(colors["surface"], dialog.styleSheet())
+                for dialog in dialogs:
+                    dialog.close()
+            finally:
+                appearance.sync_timer.stop()
+                appearance.deleteLater()
+                app.setPalette(original)
 
 
 if __name__ == "__main__":

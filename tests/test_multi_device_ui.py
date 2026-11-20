@@ -50,11 +50,12 @@ class MultiDeviceUITests(unittest.TestCase):
         window.resize(1080, 720)
         window.show()
         self.app.processEvents()
-        sidebar = window.appearance_combo.parentWidget()
+        control = window.appearance_control
+        sidebar = control.parentWidget()
         self.assertEqual(sidebar.objectName(), "sidebar")
-        self.assertGreater(window.appearance_combo.y(), window.nav_scroll.geometry().bottom())
+        self.assertGreater(control.y(), window.nav_scroll.geometry().bottom())
         self.assertLess(
-            window.appearance_combo.geometry().bottom(),
+            control.geometry().bottom(),
             sidebar.findChild(QLabel, "sidebarFooter").y(),
         )
         titles = ["设备中心", "联盟帮助", "联盟红包", "每日任务", "巨兽集结",
@@ -69,7 +70,7 @@ class MultiDeviceUITests(unittest.TestCase):
             self.assertEqual(window.width(), 1080)
             self.assertEqual(window.height(), 720)
             self.assertTrue(window.stop_button.isVisible())
-            self.assertTrue(window.appearance_combo.isVisible())
+            self.assertTrue(window.appearance_control.isVisible())
             if index not in (7, 9):
                 self.assertIsInstance(window.stack.widget(index), QScrollArea)
                 self.assertLessEqual(window.stack.widget(index).horizontalScrollBar().maximum(), 0)
@@ -114,10 +115,12 @@ class MultiDeviceUITests(unittest.TestCase):
         dialog = LightSettingsDialog(other)
         message = QMessageBox(other)
         menu = QMenu()
-        index = window.appearance_combo.findData("dark")
-        window.appearance_combo.activated.emit(index)
+        for mode in ("light", "dark"):
+            self.assertFalse(window.appearance_buttons[mode].icon().isNull())
+        window.appearance_buttons["dark"].click()
         self.app.processEvents()
-        self.assertEqual(other.appearance_combo.currentText(), "深色")
+        self.assertTrue(other.appearance_buttons["dark"].isChecked())
+        self.assertFalse(other.appearance_buttons["light"].isChecked())
         self.assertIs(other.appearance, window.appearance)
         self.assertEqual(window.stack.currentIndex(), 4)
         self.assertIs(window.worker, worker)
@@ -140,25 +143,25 @@ class MultiDeviceUITests(unittest.TestCase):
         other_settings.remove(THEME_KEY)
         other_settings.sync()
         appearance.sync_preferences()
-        self.assertEqual(self.window.appearance_combo.currentData(), "system")
+        self.assertTrue(self.window.appearance_buttons["system"].isChecked())
         other_settings.setValue(THEME_KEY, "dark")
         other_settings.sync()
         appearance.sync_preferences()
-        self.assertEqual(self.window.appearance_combo.currentData(), "dark")
+        self.assertTrue(self.window.appearance_buttons["dark"].isChecked())
         self.assertEqual(appearance.theme, "dark")
 
     def test_system_notification_changes_only_system_mode(self):
         appearance = ApplicationAppearance.current()
         hints = appearance.style_hints
         with patch.object(hints, "colorScheme", return_value=Qt.ColorScheme.Light) as scheme:
-            appearance.set_mode("system")
+            self.window.appearance_buttons["system"].click()
             self.assertEqual(appearance.theme, "light")
             scheme.return_value = Qt.ColorScheme.Dark
             hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
             self.app.processEvents()
             self.assertEqual(appearance.theme, "dark")
-            self.assertEqual(self.window.appearance_combo.currentData(), "system")
-            appearance.set_mode("light")
+            self.assertTrue(self.window.appearance_buttons["system"].isChecked())
+            self.window.appearance_buttons["light"].click()
             hints.colorSchemeChanged.emit(Qt.ColorScheme.Dark)
             self.app.processEvents()
             self.assertEqual(appearance.theme, "light")

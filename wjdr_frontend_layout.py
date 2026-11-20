@@ -3,9 +3,11 @@
 from __future__ import annotations
 import os
 from PySide6.QtCore import (
+    QSize,
     Qt,
     QTimer,
 )
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QStackedWidget,
@@ -59,6 +62,22 @@ NAV_SECTIONS = (
     ("任务管理", (5, 9, 6)),
     ("排查与帮助", (7, 8)),
 )
+APPEARANCE_ICONS = {
+    "light": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M19 5l-1.5 1.5m-11 11L5 19"/>',
+    "dark": '<path d="M20.9 13.4A9 9 0 0 1 10.6 3.1a9 9 0 1 0 10.3 10.3Z"/>',
+}
+
+
+def _appearance_icon(shape: str, color: str) -> QIcon:
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24">'
+        f'<g fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" '
+        f'stroke-linejoin="round">{shape}</g></svg>'
+    )
+    pixmap = QPixmap()
+    pixmap.loadFromData(svg.encode("ascii"), "SVG")
+    pixmap.setDevicePixelRatio(2.0)
+    return QIcon(pixmap)
 
 
 class FrontendLayout:
@@ -120,23 +139,33 @@ class FrontendLayout:
         self.nav_buttons = [buttons_by_page[index] for index in range(len(PAGE_HEADERS))]
         self.nav_buttons[0].setChecked(True)
         side.addWidget(self.nav_scroll, 1)
-        appearance_row = QHBoxLayout()
-        appearance_row.setSpacing(8)
-        appearance_label = QLabel("外观")
-        appearance_label.setObjectName("appearanceLabel")
-        self.appearance_combo = QComboBox()
-        self.appearance_combo.setObjectName("appearanceCombo")
-        self.appearance_combo.setAccessibleName("全局外观")
-        self.appearance_combo.setToolTip("全局外观 · 跟随 Windows 设置，或固定使用浅色、深色")
-        for mode, label in APPEARANCE_MODES.items():
-            self.appearance_combo.addItem(label, mode)
-        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
-        self.appearance_combo.activated.connect(self._select_appearance)
+        self.appearance_control = QFrame()
+        self.appearance_control.setObjectName("appearanceControl")
+        self.appearance_control.setAccessibleName("全局外观")
+        appearance_row = QHBoxLayout(self.appearance_control)
+        appearance_row.setContentsMargins(3, 3, 3, 3)
+        appearance_row.setSpacing(2)
+        self.appearance_buttons = {}
+        for mode in ("light", "dark", "system"):
+            button = QToolButton(self.appearance_control)
+            button.setObjectName("appearanceButton")
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setAccessibleName(APPEARANCE_MODES[mode])
+            button.setToolTip(APPEARANCE_MODES[mode])
+            button.clicked.connect(lambda _checked, mode=mode: self.appearance.set_mode(mode))
+            if mode == "system":
+                button.setText("系统")
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+                button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            else:
+                button.setIconSize(QSize(18, 18))
+                button.setFixedWidth(44)
+            appearance_row.addWidget(button)
+            self.appearance_buttons[mode] = button
         self.appearance.changed.connect(self._apply_style)
-        appearance_label.setBuddy(self.appearance_combo)
-        appearance_row.addWidget(appearance_label)
-        appearance_row.addWidget(self.appearance_combo, 1)
-        side.addLayout(appearance_row)
+        side.addWidget(self.appearance_control)
         safety = QLabel("F8  全局急停")
         safety.setObjectName("sidebarFooter")
         safety.setToolTip("F8 停止所有助手窗口。顶部停止按钮只影响当前窗口。")
@@ -854,12 +883,12 @@ class FrontendLayout:
         widget.setProperty("themeWindow", "true")
         widget.setAutoFillBackground(True)
 
-    def _select_appearance(self, index: int) -> None:
-        self.appearance.set_mode(self.appearance_combo.itemData(index))
-
     def _apply_style(self) -> None:
         colors = THEMES[self.appearance.theme]
-        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
+        self.appearance_buttons[self.appearance.mode].setChecked(True)
+        for mode, shape in APPEARANCE_ICONS.items():
+            color = colors["accent"] if mode == self.appearance.mode else colors["muted"]
+            self.appearance_buttons[mode].setIcon(_appearance_icon(shape, color))
         dark = self.appearance.theme == "dark"
         arrow_suffix = "_dark" if dark else ""
         sidebar_bg = colors["navy"] if dark else colors["surface"]
@@ -878,8 +907,11 @@ class FrontendLayout:
             QPushButton#navButton:checked {{ color: {colors['accent']}; background: {colors['accent_bg']}; border-left-color: {colors['focus']}; }}
             QPushButton#navButton:focus {{ border-color: {colors['focus']}; }}
             QLabel#sidebarFooter {{ color: {colors['muted']}; font-size: 12px; border-top: 1px solid {colors['border']}; padding: 10px 7px 0; }}
-            QLabel#appearanceLabel {{ color: {colors['muted']}; font-size: 13px; padding-left: 7px; }}
-            QComboBox#appearanceCombo {{ min-height: 22px; padding: 4px 8px; }}
+            QFrame#appearanceControl {{ background: {colors['surface_alt']}; border: 1px solid {colors['border']}; border-radius: 10px; }}
+            QToolButton#appearanceButton {{ color: {colors['muted']}; background: transparent; border: 1px solid transparent; border-radius: 7px; min-height: 27px; padding: 0 5px; font-size: 12px; font-weight: 600; }}
+            QToolButton#appearanceButton:hover {{ background: {colors['hover']}; }}
+            QToolButton#appearanceButton:checked {{ color: {colors['accent']}; background: {colors['accent_bg']}; }}
+            QToolButton#appearanceButton:focus {{ border-color: {colors['focus']}; }}
             QLabel#pageTitle {{ font-size: 23px; font-weight: 750; }}
             QLabel#pageSubtitle, QLabel#muted {{ color: {colors['muted']}; font-size: 12px; }}
             QLabel#statusPill {{ background: {colors['disabled_bg']}; color: {colors['muted']}; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
