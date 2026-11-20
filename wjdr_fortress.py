@@ -660,12 +660,16 @@ def read_alliance(lines: list[dict]) -> str | None:
 
 
 def alliance_exit_point(lines: list[dict]) -> tuple[int, int] | None:
-    if ("管理" not in _text_in(lines, (70, 0, 170, 60))
-            or "联盟列表" not in _text_in(lines, (435, 130, 590, 187))):
+    if "管理" not in _text_in(lines, (70, 0, 170, 60)):
+        return None
+    original_list = "联盟列表" in _text_in(lines, (435, 130, 590, 187))
+    relocated_list = any(text.endswith("盟列表") for text in _text_in(lines, (130, 252, 285, 550)))
+    if not (original_list or relocated_list):
         return None
     locations = (
         ((435, 370, 590, 430), (510, 402)),
         ((130, 488, 290, 545), (179, 520)),
+        ((130, 725, 290, 781), (179, 757)),
     )
     visible = [point for box, point in locations if "退出联盟" in _text_in(lines, box)]
     return visible[0] if len(visible) == 1 else None
@@ -1069,18 +1073,38 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
         return True
     if not leave_current:
         raise ValueError(f"当前仍在 [{current}]。请退出当前联盟，或使用「退盟并去本站」")
+
+    def management_exit(_image, lines):
+        return alliance_exit_point(lines)
+
     tap(frame, (488, 1126))
-    frame, exit_point = _wait_alliance_page(
-        target, ocr, stop_event, lambda _image, lines: alliance_exit_point(lines),
-        "联盟管理页面的退出按钮未确认", timeout=5.0)
+    try:
+        frame, exit_point = _wait_alliance_page(
+            target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认", timeout=2.5)
+    except PageNotVerified:
+        def locate_management(image, lines):
+            point = alliance_exit_point(lines)
+            if point:
+                return "management", point
+            if (read_joined_in_frame(image, lines, ocr) == current
+                    and "设置" in _text_in(lines, (430, 1138, 544, 1192))):
+                return "overview", None
+            return None
+
+        frame, (page, exit_point) = _wait_alliance_page(
+            target, ocr, stop_event, locate_management, "退盟入口无法确认，保持当前联盟")
+        if page == "overview":
+            tap(frame, (488, 1126))
+            frame, exit_point = _wait_alliance_page(
+                target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
     tap(frame, exit_point)
     frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
-    tap(frame, (451, 725))
+    tap(frame, (473, 727))
     def after_exit(image, lines):
         visible = state(image, lines)
         return visible if visible and visible[0] in {"available", "root"} else None
 
-    frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认")
+    frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认", timeout=5)
     if mode == "available":
         return False
     tap(frame, (498, 1138))
@@ -1225,22 +1249,20 @@ def confirm_direct_join(target, ocr, stop_event, tag: str) -> None:
     def identify(image, lines):
         if joined_tag_matches(image, lines, ocr, tag):
             return "joined"
-        if can_confirm_inactive_alliance_join(lines):
+        if "inactive_join" not in handled and can_confirm_inactive_alliance_join(lines):
             return "inactive_join"
-        if is_inactive_alliance_leave_warning(lines):
+        if "inactive_leave" not in handled and is_inactive_alliance_leave_warning(lines):
             return "inactive_leave"
-        if ("迁城" in _text_in(lines, (280, 100, 419, 194))
+        if ("relocation" not in handled and "迁城" in _text_in(lines, (280, 100, 419, 194))
                 and any("距离过远" in text for text in _text_in(lines, (61, 838, 600, 897)))):
             return "relocation"
         return None
 
-    for _ in range(3):
+    for _ in range(4):
         frame, outcome = _wait_alliance_page(
             target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=6.0)
         if outcome == "joined":
             return
-        if outcome in handled:
-            break
         handled.add(outcome)
         if outcome == "inactive_join":
             if stop_event.is_set() or not target.foreground_is_game():
@@ -1253,6 +1275,15 @@ def confirm_direct_join(target, ocr, stop_event, tag: str) -> None:
         else:
             dismiss_inactive_alliance_warning(target, ocr, stop_event)
     raise ValueError(f"[{tag}] 的入盟结果未确认")
+
+
+def _join_page_still_ready(inspect, stop_event) -> bool:
+    started = time.monotonic()
+    while not stop_event.is_set() and inspect():
+        if time.monotonic() - started >= 0.25:
+            return True
+        stop_event.wait(0.06)
+    return False
 
 
 def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration=RAPID_JOIN_DURATION,
@@ -1274,33 +1305,49 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
         return same_page(target.screenshot(timeout=1.5))
 
     with (target.touch_session() if rate == 100 else nullcontext()) as touch:
-        def tap():
-            ticks.append(time.monotonic())
+        def send_touch():
             if touch is not None:
                 touch.touch_request(None if check_only else point)
             elif not check_only:
                 target.shell(["cmd", "input", "tap", str(point[0]), str(point[1])], timeout=0.8)
 
-        if not check_only:
-            records[tag] = {"started_at": time.time(), "state": "waiting", "confirmed": False, "method": "direct"}
-            save()
-            if notify:
-                limit = "不限时" if duration is None else f"最多 {duration:g} 秒"
-                notify(f"[{tag}] 开始连点 · 目标每秒 {rate} 次 · {limit}")
+        def tap():
+            ticks.append(time.monotonic())
+            send_touch()
+
         started = time.monotonic()
-        count = rapid_join_taps(tap, inspect, stop_event, duration=2.1 if check_only else duration, interval=1 / rate)
+        count = 0
+        run_clicker = check_only
+        if not check_only:
+            started_at = (prior["started_at"] if prior and prior.get("method") == "direct"
+                          and prior["state"] == "waiting" else time.time())
+            records[tag] = {"started_at": started_at, "state": "waiting", "confirmed": False, "method": "direct"}
+            save()
+            if not stop_event.is_set() and target.foreground_is_game() and inspect():
+                send_touch()
+                count = 1
+                if notify:
+                    notify(f"[{tag}] 已单点加入，正在核对入盟或提示框")
+                run_clicker = _join_page_still_ready(inspect, stop_event)
+        if run_clicker:
+            remaining = (None if duration is None else max(0, duration - (time.monotonic() - started)))
+            if notify:
+                limit = "不限时" if remaining is None else f"剩余 {remaining:.1f} 秒"
+                notify(f"[{tag}] 开始连点 · 目标每秒 {rate} 次 · {limit}")
+            count += rapid_join_taps(tap, inspect, stop_event, duration=2.1 if check_only else remaining,
+                                     interval=1 / rate)
         reached_limit = duration is not None and time.monotonic() - started >= duration
 
     rhythm = ""
-    if count >= 2:
+    if len(ticks) >= 2:
         spacing = median(right - left for left, right in zip(ticks, ticks[1:]))
         rhythm = f" · 中位发送间隔 {spacing * 1000:.2f} ms"
     if check_only:
         if count < 2:
             raise ValueError("加入按钮画面在只读检测期间变化")
         return AllianceVisit(False, f"[{tag}] 只读连点检查 {count} 个节拍{rhythm}")
-    if notify:
-        notify(f"[{tag}] 连点已停止 · 已发送 {count} 次{rhythm}")
+    if notify and run_clicker:
+        notify(f"[{tag}] 连点已停止 · 连点发送 {len(ticks)} 次{rhythm}")
     if count == 0:
         if prior is None:
             records.pop(tag)
@@ -1423,12 +1470,16 @@ def read_joined_in_frame(image, lines, ocr) -> str | None:
     head = re.match(r"^\[([A-Za-z0-9-]{2})(?:[A-Za-z0-9-][Il|])?(?=[\u3400-\u9fff])", titles[0])
     if not tail and not head:
         return None
-    crop = image.crop((261, 99, 321, 130)).resize((180, 93), Image.Resampling.LANCZOS)
-    values = [compact(line["text"]) for line in ocr(crop, "en-US")]
-    local = re.fullmatch(r"\[([A-Za-z0-9-]{3})\]?", values[0]) if len(values) == 1 else None
-    if local and ((tail is not None and local[1][1:] == tail[1])
-                  or (head is not None and local[1][:2] == head[1])):
-        return local[1]
+    for box, size, pattern in (
+        ((261, 99, 321, 130), (180, 93), r"\[([A-Za-z0-9-]{3})\]?"),
+        ((252, 93, 320, 134), (272, 164), r"\[([A-Za-z0-9-]{3})\]"),
+    ):
+        crop = image.crop(box).resize(size, Image.Resampling.LANCZOS)
+        values = [compact(line["text"]) for line in ocr(crop, "en-US")]
+        local = re.fullmatch(pattern, values[0]) if len(values) == 1 else None
+        if local and ((tail is not None and local[1][1:] == tail[1])
+                      or (head is not None and local[1][:2] == head[1])):
+            return local[1]
     return None
 
 
@@ -1588,6 +1639,14 @@ def enter_route_alliance(
 
     if record.get("method") == "direct" or record["state"] == "timed_out":
         if not probe():
+            if record.get("method") == "direct" and record["state"] == "waiting" and rapid_rate is not None:
+                remaining = RAPID_JOIN_DURATION - max(0, time.time() - record["started_at"])
+                if return_by is not None:
+                    remaining = min(remaining, (return_by - datetime.now(SHANGHAI)).total_seconds())
+                if remaining > 0:
+                    # Rearm only if the exact unaffiliated search and its green Join button are verified again.
+                    return run_rapid_join(target, ocr, stop_event, run, tag, save, rate=rapid_rate,
+                                          duration=remaining, notify=notify, on_timeout=on_timeout)
             return AllianceVisit(False, f"[{tag}] 仍未确认入盟，请查看游戏中的结果。")
     else:
         elapsed = max(0, time.time() - record["started_at"])

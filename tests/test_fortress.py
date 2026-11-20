@@ -369,6 +369,9 @@ class FortressTests(unittest.TestCase):
         self.assertFalse(fortress.joined_tag_matches(image, lines[:2], ocr, "ABC"))
         ocr.return_value = [line(0, 0, "[ABCI")]
         self.assertFalse(fortress.joined_tag_matches(image, lines, ocr, "ABC"))
+        lines = [heading, line(285, 103, "R3 ] 示例"), *controls]
+        larger_crop = Mock(side_effect=[[], [line(0, 0, "[RR3]")]])
+        self.assertTrue(fortress.joined_tag_matches(image, lines, larger_crop, "RR3"))
 
     def test_alliance_exit_follows_the_exact_label_in_both_management_layouts(self):
         menu = [line(90, 21, "管理"), line(463, 149, "联盟列表")]
@@ -377,6 +380,11 @@ class FortressTests(unittest.TestCase):
         shifted = line(156, 507, "退出联盟")
         self.assertEqual(fortress.alliance_exit_point([*menu, original]), (510, 402))
         self.assertEqual(fortress.alliance_exit_point([*menu, successor, shifted]), (179, 520))
+        relocated_list = line(156, 268, "朕盟列表")
+        self.assertEqual(fortress.alliance_exit_point([menu[0], relocated_list, shifted]), (179, 520))
+        expanded = [menu[0], line(156, 506, "联盟列表"), line(156, 744, "退出联盟")]
+        self.assertEqual(fortress.alliance_exit_point(expanded), (179, 757))
+        self.assertIsNone(fortress.alliance_exit_point([menu[0], shifted]))
         self.assertIsNone(fortress.alliance_exit_point([*menu, successor]))
         self.assertIsNone(fortress.alliance_exit_point([*menu, original, shifted]))
 

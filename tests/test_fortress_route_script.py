@@ -168,6 +168,43 @@ class FortressRouteScriptTests(unittest.TestCase):
             self.assertIsNone(clicks.call_args.kwargs["duration"])
             notify.assert_called_once()
 
+    def test_join_page_change_after_single_tap_routes_to_confirmation_before_repeating(self):
+        stop = Event()
+        target = Mock()
+        run = {"applications": {}}
+        with patch.object(fortress, "rapid_join_anchor", return_value=((1, 2), Mock(return_value=True))), \
+             patch.object(fortress, "_join_page_still_ready", return_value=False), \
+             patch.object(fortress, "confirm_direct_join") as confirm, \
+             patch.object(fortress, "rapid_join_taps") as repeated:
+            result = fortress.run_rapid_join(target, Mock(), stop, run, "RR3", Mock())
+        self.assertTrue(result.joined)
+        self.assertEqual(run["applications"]["RR3"]["state"], "joined")
+        target.shell.assert_called_once_with(["cmd", "input", "tap", "1", "2"], timeout=0.8)
+        confirm.assert_called_once()
+        repeated.assert_not_called()
+
+    def test_join_confirmation_waits_after_closing_relocation_prompt(self):
+        target = Mock()
+        stop = Event()
+        frame = Mock()
+        lines = [
+            {"text": text, "words": [{"x": x, "y": y}]}
+            for text, x, y in (("迁城", 309, 135), ("距离过远", 75, 864))
+        ]
+
+        def wait_for(_target, _ocr, _stop, identify, _error, **_kwargs):
+            result = identify(Mock(), lines)
+            if result is not None:
+                return frame, result
+            return frame, identify(Mock(), [])
+
+        with patch.object(fortress, "_wait_alliance_page", side_effect=wait_for) as wait, \
+             patch.object(fortress, "joined_tag_matches", side_effect=lambda _im, rows, *_args: not rows), \
+             patch.object(fortress, "tap_game_point") as tap:
+            fortress.confirm_direct_join(target, Mock(), stop, "AAA")
+        self.assertEqual(wait.call_count, 2)
+        tap.assert_called_once_with(target, frame, (622, 148))
+
     def test_auto_route_advances_in_order_after_verified_mail(self):
         plan = script.read_plan(EXAMPLE)
         run = script.route_state(plan, None)
