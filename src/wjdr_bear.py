@@ -23,6 +23,7 @@ from wjdr_backend import (
 )
 
 LIMIT = 6
+WAVE_SECONDS = 5 * 60
 ZONE = timezone(timedelta(hours=8))
 EVENT_SECONDS = 30 * 60
 POLL_SECONDS = 0.08
@@ -60,31 +61,63 @@ def account_file(identity: str, purpose: str, directory: Path = CONFIG_DIR) -> P
     return directory / f"bear_{purpose}_{digest}.json"
 
 
+def wave_at(now=None):
+    return int((time.time() if now is None else now) // WAVE_SECONDS)
+
+
+def wave_count(records, wave):
+    return sum(record["wave"] == wave and record.get("counted", True) for record in records)
+
+
 def _read_ledger(path, day):
     if not path.exists():
         return []
     payload = json.loads(path.read_text("utf-8"))
     records = payload["records"]
-    if (not isinstance(records, list) or len(records) > LIMIT
+    if (not isinstance(records, list) or len(records) > LIMIT * 288
             or any(not isinstance(record, dict) or record.get("state") not in {"sent", "confirmed", "submitted", "checked"}
                    for record in records)):
         raise ValueError("打熊出征记录异常")
     # An unknown submission from a prior day still needs manual reconciliation.
     if payload["day"] != day and all(record["state"] != "sent" for record in records):
         return []
+    legacy_wave = wave_at(path.stat().st_mtime)
+    for record in records:
+        record.setdefault("wave", legacy_wave)
     return records
 
 
-def ledger(path, day):
+def ledger(path, day, *, all_waves=False, now=None):
     records = _read_ledger(path, day)
     if any(record["state"] == "sent" for record in records):
         raise ValueError("有一次打熊出征尚未核实，请先在游戏中核对出征结果")
-    return records
+    wave = wave_at(now)
+    return records if all_waves else [record for record in records
+                                       if record["wave"] == wave and record.get("counted", True)]
 
 
 @_serialized_account_write
-def record_dispatch(day, key, *, expires, confirm=False, rejected=False, submitted=False, path):
+def set_wave_count(day, count, *, path, now=None):
+    if type(count) is not int or not 0 <= count <= LIMIT:
+        raise ValueError("本轮出征计数须为 0 到 6")
+    now = time.time() if now is None else now
+    wave = wave_at(now)
+    records = ledger(path, day, all_waves=True, now=now)
+    existing = [record for record in records if record["wave"] == wave]
+    for index, record in enumerate(reversed(existing)):
+        record["counted"] = index < count
+    for index in range(max(0, count - len(existing))):
+        records.append({"key": f"manual:{wave}:{len(existing) + index}", "state": "checked",
+                        "expires": now, "wave": wave})
+    _atomic_json_write(path, {"day": day, "records": records})
+    return wave_count(records, wave)
+
+
+@_serialized_account_write
+def record_dispatch(day, key, *, expires, confirm=False, rejected=False, submitted=False, path, now=None):
     records = _read_ledger(path, day)
+    now = time.time() if now is None else now
+    current = wave_at(now)
     pending = [record for record in records if record["state"] == "sent"]
     if confirm or rejected or submitted:
         if len(pending) != 1 or pending[0]["key"] != key:
@@ -94,13 +127,13 @@ def record_dispatch(day, key, *, expires, confirm=False, rejected=False, submitt
         else:
             pending[0]["state"] = "submitted" if submitted else "confirmed"
     else:
-        if pending or len(records) >= LIMIT or any(
-            record["key"] == key and record["expires"] > time.time() for record in records
+        if pending or wave_count(records, current) >= LIMIT or any(
+            record["key"] == key and record["expires"] > now for record in records
         ):
             raise ValueError("打熊出征已达上限、已有相同集结或有待核实记录")
-        records.append({"key": key, "state": "sent", "expires": expires})
+        records.append({"key": key, "state": "sent", "expires": expires, "wave": current})
     _atomic_json_write(path, {"day": day, "records": records})
-    return len(records)
+    return wave_count(records, current)
 
 
 @_serialized_account_write

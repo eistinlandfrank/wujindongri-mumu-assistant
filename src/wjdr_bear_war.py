@@ -9,9 +9,9 @@ import cv2
 import numpy as np
 
 from wjdr_bear import (
-    BEAR_TARGET, EVENT_SECONDS, LIMIT, POLL_SECONDS, WIDTH, BearFlow, Card,
+    BEAR_TARGET, EVENT_SECONDS, LIMIT, POLL_SECONDS, WAVE_SECONDS, WIDTH, BearFlow, Card,
     PageTimeout, TroopLimit, _color, _detail_title_visible, _in, _template, ledger, nickname, normalized,
-    rally_detail, roster_settings, troop_limit_dialog,
+    rally_detail, roster_settings, troop_limit_dialog, wave_at, wave_count,
 )
 
 
@@ -189,7 +189,7 @@ class WarBearFlow(BearFlow):
                 self.await_page(self.formation, "兵力提示关闭后的出征页")
             self.return_to_list()
             return
-        if count < LIMIT and status != "list":
+        if status != "list":
             self.return_to_list()
 
     def return_to_list(self):
@@ -199,21 +199,41 @@ class WarBearFlow(BearFlow):
         self.open_war()
 
     def run(self, seconds=EVENT_SECONDS):
-        prior = ledger(self.path, self.day)
+        prior = ledger(self.path, self.day, all_waves=True)
         self.ignored.update((record["key"], record["expires"]) for record in prior)
-        if len(prior) >= LIMIT:
-            self.report("本场已达到 6 次出征上限")
-            return
         if not self.target.foreground_is_game():
             raise ValueError("请将无尽冬日留在 MuMu 前台")
         self.open_war()
-        self.report(f"正在逐屏扫描联盟战争集结 · 已出征 {len(prior)}/{LIMIT}")
+        wave = wave_at()
+        count = wave_count(prior, wave)
+        self.report(f"正在逐屏扫描联盟战争集结 · 本轮已出征 {count}/{LIMIT}")
         deadline = time.monotonic() + seconds
         last_scroll = None
         next_scroll = 0.0
         toward_bottom = True
         stationary_since = 0.0
+        full_wave = None
         while not self.stop.is_set() and time.monotonic() < deadline:
+            now = time.time()
+            current = wave_at(now)
+            if current != wave:
+                wave = current
+                count = len(ledger(self.path, self.day, now=now))
+                last_scroll = None
+                toward_bottom = True
+                self.report(f"新一轮打熊 · 本轮已出征 {count}/{LIMIT}")
+            if count >= LIMIT:
+                latest = len(ledger(self.path, self.day, now=now))
+                if latest < LIMIT:
+                    count = latest
+                    last_scroll = None
+                    self.report(f"已更新本轮出征计数 {count}/{LIMIT}")
+                    continue
+                if full_wave != wave:
+                    full_wave = wave
+                    self.report("本轮已达 6 次，等下一轮自动续扫")
+                self.stop.wait(min(0.25, max(0.02, (wave + 1) * WAVE_SECONDS - now)))
+                continue
             raw = self.target.screenshot(timeout=3)
             image, view = normalized(raw)
             if not self.read(image, war_page):
@@ -235,8 +255,7 @@ class WarBearFlow(BearFlow):
                     self.board(ready, current_view)
                     last_scroll = None
                     toward_bottom = True
-                    if len(ledger(self.path, self.day)) >= LIMIT:
-                        return
+                    count = len(ledger(self.path, self.day))
                 continue
             position = list_position(image)
             now = time.monotonic()
