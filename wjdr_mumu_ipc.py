@@ -19,6 +19,7 @@ from PIL import Image
 
 WORKER_FLAG = "--wjdr-ipc-worker"
 MAX_PIXELS = 12_000_000
+FRAME_ATTEMPT_SECONDS = 2.5
 
 
 def _renderer(root, version, index):
@@ -212,8 +213,10 @@ class _IpcCapture:
 class IpcScreenshots:
     """Own live renderer sessions for the ADB serials bound to one transport."""
 
-    def __init__(self, error_type):
+    def __init__(self, error_type, *, game_display=False, expected_index=None):
         self._error_type = error_type
+        self._game_display = game_display
+        self._expected_index = expected_index
         self._lock = Lock()
         self._sessions = {}
         self._bindings = {}
@@ -260,6 +263,8 @@ class IpcScreenshots:
             if len(matches) != 1:
                 raise ValueError("ADB 别名与 MuMu 管理器实例不一致")
             index = matches[0]
+        if self._expected_index is not None and int(index) != self._expected_index:
+            raise ValueError("当前 ADB 与指定的 MuMu 实例不一致")
         identity = f"mumu:{index}:android:{android_id}"
         if known_identity.startswith("mumu:") and known_identity != identity:
             raise ValueError("当前 ADB 与已绑定的 MuMu 实例身份不一致")
@@ -267,7 +272,7 @@ class IpcScreenshots:
         if self._bindings.setdefault(serial, binding) != binding:
             raise ValueError("MuMu 实例已重启或改变，请重新绑定后再开始")
         size = tuple(map(int, sizes[-1]))
-        return _IpcCapture(target, int(index), size, game_display=False, timeout=_remaining(deadline))
+        return _IpcCapture(target, int(index), size, game_display=self._game_display, timeout=_remaining(deadline))
 
     def screenshot(self, target, serial, timeout):
         if not serial:
@@ -277,18 +282,29 @@ class IpcScreenshots:
         if not self._lock.acquire(timeout=timeout):
             raise self._error_type("MuMu IPC 截图排队超时")
         try:
-            session = self._sessions.get(serial)
-            if session is None:
-                session = self._open(target, serial, deadline)
-                self._sessions[serial] = session
-            return session.screenshot(_remaining(deadline))
+            for attempt in range(2):
+                session = self._sessions.get(serial)
+                if session is None:
+                    session = self._open(target, serial, deadline)
+                    self._sessions[serial] = session
+                try:
+                    return session.screenshot(min(FRAME_ATTEMPT_SECONDS, _remaining(deadline)))
+                except (EOFError, OSError, ValueError):
+                    self._sessions.pop(serial).close()
+                    if attempt or time.monotonic() >= deadline:
+                        raise
+                    # Reopen once on the same boot and read a new frame.
+                    # Identity and SDK startup failures never retry here.
         except (EOFError, OSError, ValueError, RuntimeError, KeyError) as exc:
-            session = self._sessions.pop(serial, None)
-            if session is not None:
-                session.close()
             raise self._error_type(f"MuMu IPC 抓帧失败 · {exc}") from exc
         finally:
             self._lock.release()
+
+    def close(self):
+        with self._lock:
+            while self._sessions:
+                _, session = self._sessions.popitem()
+                session.close()
 
 
 class RouteCapture:
@@ -296,8 +312,7 @@ class RouteCapture:
 
     def __init__(self, target, index: int) -> None:
         self.target = target
-        self.index = index
-        self.ipc = None
+        self._captures = IpcScreenshots(RuntimeError, game_display=True, expected_index=index)
 
     def __getattr__(self, name):
         return getattr(self.target, name)
@@ -306,17 +321,10 @@ class RouteCapture:
         return self
 
     def __exit__(self, *_):
-        if self.ipc is not None:
-            self.ipc.close()
-            self.ipc = None
+        self._captures.close()
 
     def screenshot(self, *, timeout: float = 6) -> Image.Image:
-        try:
-            if self.ipc is None:
-                self.ipc = _IpcCapture(self.target, self.index, self.target.screen_size())
-            return self.ipc.screenshot(timeout)
-        except (EOFError, OSError, ValueError, RuntimeError) as exc:
-            raise RuntimeError(f"MuMu IPC 抓帧失败 · {exc}") from exc
+        return self._captures.screenshot(self.target, self.target.device, timeout)
 
 
 if __name__ == "__main__" and sys.argv[1:2] == [WORKER_FLAG]:

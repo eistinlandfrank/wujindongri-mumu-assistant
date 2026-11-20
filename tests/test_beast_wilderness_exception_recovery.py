@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 import wjdr_backend as backend
+from wjdr_runtime_config import BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS
 
 
 class DrawerRecognitionTest(unittest.TestCase):
@@ -58,13 +59,17 @@ class DrawerRecognitionTest(unittest.TestCase):
 class WildernessRecoveryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        source = Path('wjdr_mumu_assistant_qt.py').read_text(encoding='utf-8')
+        source_path = Path('wjdr_ui_beast_flow.py')
+        source = (source_path if source_path.is_file() else Path('wjdr_mumu_assistant_qt.py')).read_text(encoding='utf-8')
         tree = ast.parse(source)
         node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'ensure_wilderness')
         module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), node], type_ignores=[])
         cls.code = compile(ast.fix_missing_locations(module), '<wilderness-recovery>', 'exec')
 
-    def run_case(self, frames, *, include_delay=False, existing_target=None):
+    def run_case(self, frames, *, include_delay=False, existing_target=None,
+                 include_timing=False, pending=False):
+        logs = []
+
         class Target:
             device = 'test'
             input_attempted = True
@@ -73,14 +78,18 @@ class WildernessRecoveryTest(unittest.TestCase):
             def back(self): self.backs += 1
         class Window:
             stop_event = threading.Event()
-            def _log_for_device(self, *args): pass
+            def _log_for_device(self, device, message):
+                logs.append(message)
         class Clock:
             n = 0
             def monotonic(self): self.n += 1; return self.n
         target, clock = existing_target if existing_target is not None else Target(), Clock()
         frames = iter(frames)
-        env = {'self': Window(), 'target': target, 'time': clock, 'AUTOMATION_STEP_TIMEOUT_SECONDS': 8,
+        env = {'self': Window(), 'target': target, 'time': clock,
+               'BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS': BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS,
                'completed_cycles': 1, 'threshold': .9, 'capture': lambda: next(frames, 'unknown'),
+               'recent_unconfirmed_dispatch': pending,
+               'exact_formation_match': lambda f: ((20, 30), 1) if f == 'formation' else (None, 0),
                'daily_network_dialog_is_visible': lambda f, t: f == 'network',
                'match_world': lambda f: ((1, 2), 1) if f == 'world' else (None, 0),
                'match_daily_city_wilderness_entry': lambda f, t: (None, 0),
@@ -98,6 +107,8 @@ class WildernessRecoveryTest(unittest.TestCase):
                'save_evidence': lambda *_: None, 'pause': lambda: False}
         exec(self.code, env)
         result = env['ensure_wilderness']()
+        if include_timing:
+            return result, target.backs, clock.n - 1, logs
         if include_delay:
             return result, target.backs, getattr(target, 'beast_navigation_page_delay', 1.0)
         return result, target.backs
@@ -111,6 +122,21 @@ class WildernessRecoveryTest(unittest.TestCase):
         result, backs = self.run_case(['card'] * 8)
         self.assertIsNone(result)
         self.assertEqual(backs, 1)
+
+    def test_unknown_page_times_out_after_ten_seconds_without_input(self):
+        result, backs, elapsed, logs = self.run_case([], include_timing=True)
+        self.assertIsNone(result)
+        self.assertEqual((backs, elapsed), (0, 10))
+        self.assertTrue(any("10 秒内未确认" in line for line in logs))
+
+    def test_known_formation_returns_once_and_resumes_only_without_pending_input(self):
+        frames = ['formation'] * 11 + ['world', 'world']
+        self.assertEqual(self.run_case(frames), (('world', (1, 2)), 1))
+        result, backs, _, logs = self.run_case(frames, pending=True, include_timing=True)
+        self.assertIsNone(result)
+        self.assertEqual(backs, 1)
+        self.assertTrue(any("保留上次待核实出征" in line for line in logs))
+        self.assertEqual(self.run_case(['formation'] * 25), (None, 1))
 
     def test_network_and_unknown_pages_are_not_backed(self):
         for page in ('network', 'unknown', 'conflict', 'city', 'mutual'):

@@ -38,14 +38,23 @@ class IpcCaptureContract(unittest.TestCase):
         adb._run.assert_called_once()
         self.assertEqual(adb._run.call_args.args[0][:3], ["-s", adb.device, "shell"])
 
+    def test_temporary_capture_failure_reopens_same_instance_and_returns_fresh_frame(self):
+        adb = transport()
+        failed, recovered = Mock(), Mock()
+        failed.screenshot.side_effect = TimeoutError("renderer timeout")
+        recovered.screenshot.return_value = Image.new("RGB", (2, 4), "blue")
+        with patch("wjdr_mumu_ipc._IpcCapture", side_effect=[failed, recovered]) as open_session:
+            self.assertIs(adb.screenshot(), recovered.screenshot.return_value)
+        self.assertEqual([call.args[1] for call in open_session.call_args_list], [3, 3])
+        failed.close.assert_called_once()
+        self.assertTrue(all(call.args[0][:3] == ["-s", adb.device, "shell"] for call in adb._run.call_args_list))
+
     def test_timeout_closes_renderer_and_reopen_rejects_different_boot(self):
         adb = transport()
+        adb._run.side_effect = [adb._run.return_value, f"abcdef\n{OTHER_BOOT}\nPhysical size: 1440x2560"]
         session = Mock()
         session.screenshot.side_effect = TimeoutError("renderer timeout")
         with patch("wjdr_mumu_ipc._IpcCapture", return_value=session) as open_session:
-            with self.assertRaisesRegex(AdbError, "renderer timeout"):
-                adb.screenshot()
-            adb._run.return_value = f"abcdef\n{OTHER_BOOT}\nPhysical size: 1440x2560"
             with self.assertRaisesRegex(AdbError, "已重启或改变"):
                 adb.screenshot()
         open_session.assert_called_once()

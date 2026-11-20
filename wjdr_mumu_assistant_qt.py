@@ -313,6 +313,7 @@ from wjdr_ui_components import COLORS, UiSignals, Card, ScreenshotView, LightSet
 # per-step ceiling on this machine.
 from wjdr_runtime_config import (
     AUTOMATION_STEP_TIMEOUT_SECONDS,
+    BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS,
     DAILY_DONATION_TASK_TARGET,
     DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS,
     DAILY_DONATION_WINDOW_CAP,
@@ -1752,14 +1753,14 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                     return None, 0.0
                 return match_daily_world_town_entry(image, threshold)
 
-            def ensure_wilderness() -> tuple[Image.Image, tuple[int, int]] | None:
+            def ensure_wilderness(backed_pages: set[str] | None = None) -> tuple[Image.Image, tuple[int, int]] | None:
                 """Recover from a reviewed target card or search drawer, then resume."""
-                deadline = time.monotonic() + AUTOMATION_STEP_TIMEOUT_SECONDS
+                deadline = time.monotonic() + BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS
                 prior_world = prior_city = None
                 world_streak = city_streak = 0
                 city_tapped = False
-                backed_pages = set()
-                world_required = 1 if completed_cycles else 2
+                backed_pages = set() if backed_pages is None else backed_pages
+                world_required = 1 if completed_cycles and not backed_pages else 2
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     image = capture()
                     if daily_network_dialog_is_visible(image, threshold):
@@ -1774,6 +1775,9 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                         required = 2 if city_tapped else world_required
                         set_state(f"确认野外与搜索按钮（{min(world_streak, required)}/{required}）")
                         if world_streak >= required:
+                            if "formation" in backed_pages and recent_unconfirmed_dispatch:
+                                self._log_for_device(target.device, "异常恢复：已回到野外，保留上次待核实出征，未新增出征。")
+                                return None
                             return image, world
                     elif city and not city_tapped:
                         city_streak = city_streak + 1 if stable(city, prior_city) else 1
@@ -1821,9 +1825,25 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                                 self._log_for_device(target.device, f"异常恢复：退出已识别的{label}。")
                     if pause():
                         return None
+                if not self.stop_event.is_set() and "formation" not in backed_pages:
+                    first, second = capture(), capture()
+                    if not any(daily_network_dialog_is_visible(frame, threshold) or match_same_target_conflict(frame)
+                               for frame in (first, second)):
+                        a, _ = exact_formation_match(first)
+                        b, _ = exact_formation_match(second)
+                        if stable(a, b):
+                            target.check_active()
+                            target.back()
+                            self._log_for_device(
+                                target.device, f"异常恢复：{BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS:g} 秒后双帧确认编队页，返回一次。"
+                            )
+                            backed_pages.add("formation")
+                            return ensure_wilderness(backed_pages)
                 if not self.stop_event.is_set() and not city_tapped and not target.input_attempted:
                     raise InitialRecognitionTimeout("初始城镇或野外页面识别超时")
-                self._log_for_device(target.device, "未能在单步时限内确认城镇野外入口或野外搜索按钮；已停止。")
+                self._log_for_device(
+                    target.device, f"{BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS:g} 秒内未确认城镇野外入口或野外搜索按钮；已停止。"
+                )
                 return None
 
             def selector_match(image: Image.Image) -> tuple[tuple[int, int] | None, BeastRallyState]:
@@ -3360,6 +3380,15 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                         return False
                     target.tap(*point)
                     self._log_for_device(target.device, f"点击名称已确认的打野编组 {point}。")
+                    if self.stop_event.wait(0.2):
+                        return False
+                    formation_controls = wait_for_double(
+                        "确认打野已选中及出征按钮",
+                        exact_formation_match,
+                        timeout=BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS,
+                    )
+                    if not formation_controls:
+                        return False
                 else:
                     configured = configure_single_shield()
                     if not configured:
@@ -3392,8 +3421,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                         self._log_for_device(target.device, f"提交单盾出征 {dispatch}；" + ("保留防重标记，" if profile.run_mode == 'fast' else f"{cost}点按不确定记账，") + "继续查看队列。")
                         return True
 
-                # Formation selection or custom troop setup has already run.
-                # Reuse its known control; no stamina OCR or final image check.
+                # Use the fresh selected formation proof when using 打野.
                 setup_image, dispatch, _ = formation_controls
                 dispatch = cycle_position('dispatch', setup_image, dispatch)
                 if not dispatch:
@@ -3566,8 +3594,6 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
             last_point: tuple[int, int] | None = None
             state_streak = 0
             last_ui_state = ""
-            transition_deadline = 0.0
-
             def set_state(text: str) -> None:
                 nonlocal last_ui_state
                 if text != last_ui_state:
@@ -3606,10 +3632,12 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                     break
                 try:
                     if guard and not target.foreground_is_game():
+                        last_state = None
                         set_state("已暂停：游戏不在模拟器前台")
                     else:
                         image = capture_daily_image()
                         if daily_network_dialog_is_visible(image, threshold):
+                            last_state = None
                             set_state(
                                 "游戏显示网络/账号离线：保持零输入并被动复查；不点击重新连接或联系客服"
                             )
@@ -3648,13 +3676,19 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                                 f"每日任务页面识别：{self._daily_task_page_label(page.state)}（分数 {page.score:.3f}）。",
                             )
 
-                        # An unknown state includes any popup or page that is
-                        # outside the very small reviewed workflow.  Do not
-                        # try to dismiss it or recover through a blind tap.
-                        if page.state is DailyTaskState.UNKNOWN:
-                            set_state("检测到未知页面或弹窗：不输入并停止")
-                            self._log_for_device(target.device, "每日任务流程遇到未知页面/弹窗；未执行输入，已停止。")
-                            break
+                        # Keep listening through temporary loading or a late
+                        # receipt. The sent flags still forbid a second input.
+                        if (
+                            page.state is DailyTaskState.UNKNOWN
+                            or (claim_tapped and page.state not in (
+                                DailyTaskState.DAILY_PAGE, DailyTaskState.DAILY_LOGIN_COMPLETED,
+                            ))
+                            or (city_entry_tapped and page.state is DailyTaskState.CITY_ENTRY)
+                        ):
+                            set_state("等待已知每日页面，保持零输入")
+                            if adaptive_operation_wait():
+                                break
+                            continue
 
                         if claim_tapped:
                             # A claim is counted only after two fresh frames
@@ -3662,31 +3696,16 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, QMainWindow):
                             # page and the actionable CLAIM_READY state has
                             # disappeared.  No second claim attempt is ever
                             # made, even if the old button remains visible.
-                            if page.state in (
-                                DailyTaskState.DAILY_PAGE,
-                                DailyTaskState.DAILY_LOGIN_COMPLETED,
-                            ):
-                                set_state("已点击领取：复核每日页与领取状态消失")
-                                if streak >= 2:
-                                    claims = 1
-                                    self.signals.clicks.emit(claims)
-                                    set_state("每日登录领取已确认：本次流程已停止")
-                                    self._log_for_device(target.device, "每日登录领取状态已在同一每日任务页消失；已计数并停止。")
-                                    break
-                                continue
-                            if page.state is DailyTaskState.CLAIM_READY:
-                                set_state("领取后按钮仍存在：不再输入并停止")
-                                self._log_for_device(target.device, "领取后仍识别到原领取状态；未再次点击，已停止。")
+                            set_state("已点击领取：复核每日页与领取状态消失")
+                            if streak >= 2:
+                                claims = 1
+                                self.signals.clicks.emit(claims)
+                                set_state("每日登录领取已确认：本次流程已停止")
+                                self._log_for_device(target.device, "每日登录领取状态已在同一每日任务页消失；已计数并停止。")
                                 break
-                            set_state("领取后页面未按预期切换：不输入并停止")
-                            self._log_for_device(target.device, "领取后未回到已验证每日页；未执行任何恢复操作，已停止。")
-                            break
+                            continue
 
                         if page.state is DailyTaskState.CITY_ENTRY:
-                            if city_entry_tapped:
-                                set_state("任务入口点击后页面未切换：不再输入并停止")
-                                self._log_for_device(target.device, "主城任务入口点击后仍是原入口；未重复点击，已停止。")
-                                break
                             if not city_point:
                                 set_state("主城任务入口坐标未复核：不输入并停止")
                                 self._log_for_device(target.device, "主城任务入口缺少二次坐标证明；未执行输入，已停止。")

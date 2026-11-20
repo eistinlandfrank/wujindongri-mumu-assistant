@@ -6,6 +6,7 @@ Daily retry limits do not override proven natural training or gather queues.
 """
 
 AUTOMATION_STEP_TIMEOUT_SECONDS = 24.0
+BEAST_ABNORMAL_PAGE_TIMEOUT_SECONDS = 10.0
 
 DAILY_TOWN_RENDER_PASSIVE_CAP_SECONDS = 29.0
 
