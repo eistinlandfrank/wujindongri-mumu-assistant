@@ -224,6 +224,7 @@ def rally_detail(image, items, card, player, *, expected_origin=None):
 class Preset:
     point: tuple[int, int]
     selected: bool
+    warned: bool = False
 
 
 def _white(rgb):
@@ -242,7 +243,7 @@ def _preset_templates():
             for sample in samples for scale in (0.84, 0.92, 1.0, 1.08, 1.12, 1.16)]
 
 
-def bear_presets(strip, *, top=0):
+def bear_presets(strip, *, top=0, allow_warning=False):
     rgb = np.asarray(strip)
     mask = _white(rgb)
     candidates = []
@@ -261,12 +262,13 @@ def bear_presets(strip, *, top=0):
         occupied.append(cx)
         badge = rgb[cy-54 if cy >= 54 else 0:cy-19, cx+14:cx+48]
         warning = (badge[:, :, 0] > 215) & (badge[:, :, 1] > 90) & (badge[:, :, 1] < 177) & (badge[:, :, 2] < 85)
-        if int(warning.sum()) > 30:
+        warned = int(warning.sum()) > 30
+        if warned and not allow_warning:
             continue
         tile = rgb[cy-31:cy-9, cx-23:cx+24]
         gold = (tile[:, :, 0] > 185) & (tile[:, :, 1] > 147) & (tile[:, :, 2] < 135)
         selected = float(gold.mean()) > 0.12
-        found.append(Preset((cx, top + cy - 17), selected))
+        found.append(Preset((cx, top + cy - 17), selected, warned))
     return sorted(found, key=lambda preset: preset.point)
 
 
@@ -360,12 +362,12 @@ class BearFlow:
             if point is None:
                 return None
             point = map_content_point(point, image.size, raw)
-        presets = bear_presets(image.crop((0, 65, WIDTH, 232)), top=65)
+        presets = bear_presets(image.crop((0, 65, WIDTH, 232)), top=65, allow_warning=True)
         return (point, presets) if presets else None
 
     def dispatch(self, card, expires, receipt, *, room=None):
         (_, available), view = self.await_page(self.formation, "可用的「熊」编队")
-        for index, preset in enumerate(sorted(available, key=lambda item: not item.selected)):
+        for index, preset in enumerate(sorted(available, key=lambda item: (item.warned, not item.selected))):
             def same_slot(raw, image):
                 result = self.formation(raw, image)
                 if result:
