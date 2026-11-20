@@ -9,20 +9,10 @@ sources = repo / "src"
 runtime = Path(sys.argv[1]).resolve()
 archive = CArchiveReader(str(runtime / "WJDRMuMuAssistant.exe"))
 pyz = archive.open_embedded_archive("PYZ.pyz")
-modules = ("wjdr_mumu_assistant_qt", "wjdr_backend", "wjdr_beast_hunt",
-           "wjdr_schedule", "wjdr_schedule_ui", "wjdr_daily_controller",
-           "wjdr_ui_components", "wjdr_runtime_config", "wjdr_frontend_layout",
-           "wjdr_beast_supervision", "wjdr_daily_visuals",
-           "wjdr_daily_intel", "wjdr_daily_expedition", "wjdr_scoreboard",
-           "wjdr_scoreboard_ui", "wjdr_mumu_ipc", "wjdr_ui_appearance",
-           "wjdr_fortress", "wjdr_fortress_flow", "wjdr_fortress_ocr", "wjdr_fortress_ui",
-           "wjdr_bear", "wjdr_bear_ui", "wjdr_bear_war")
-if (sources / "wjdr_adb.py").is_file():
-    modules += ("wjdr_adb",)
-if (sources / "wjdr_scoreboard_identity.py").is_file():
-    modules += ("wjdr_scoreboard_identity",)
+entry = "wjdr_mumu_assistant_qt"
+modules = sorted(path.stem for path in sources.glob("wjdr_*.py"))
 for name in modules:
-    code = (marshal.loads(archive.extract(name)) if name == modules[0] else pyz.extract(name))
+    code = marshal.loads(archive.extract(name)) if name == entry else pyz.extract(name)
     expected = compile((sources / (name + ".py")).read_bytes(), code.co_filename,
                        "exec", dont_inherit=True, optimize=0)
     assert code == expected, f"stale frozen source: {name}"

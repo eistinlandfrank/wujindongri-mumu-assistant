@@ -35,6 +35,7 @@ from wjdr_backend import (
     resource_path,
 )
 from wjdr_ui_appearance import APPEARANCE_MODES, THEMES, ApplicationAppearance
+from wjdr_stable_update_ui import StableUpdateCard
 from wjdr_ui_components import (
     Card,
     ScreenshotView,
@@ -830,6 +831,11 @@ class FrontendLayout:
         page.setWidget(body)
         layout = QVBoxLayout(body)
         layout.setContentsMargins(0, 0, 8, 0)
+        self.stable_update = StableUpdateCard(APP_VERSION)
+        self.stable_update.available_changed.connect(
+            lambda available: self.nav_buttons[8].setText("关于与安全 · 有更新" if available else PAGE_HEADERS[8][0])
+        )
+        layout.addWidget(self.stable_update)
         about = Card()
         about_layout = QVBoxLayout(about)
         about_layout.setContentsMargins(28, 26, 28, 28)

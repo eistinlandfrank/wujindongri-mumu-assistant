@@ -4608,6 +4608,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
             time.sleep(0.08)
 
     def closeEvent(self, event: Any) -> None:
+        self.stable_update.cancel()
         self.closing.set()
         self.stop_event.set()
         self._cancel_managed_beast()

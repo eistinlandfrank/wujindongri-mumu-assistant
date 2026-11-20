@@ -1,13 +1,14 @@
-# 无尽冬日 MuMu 助手 5.8.0
+# 无尽冬日 MuMu 助手
 
 面向 MuMu Player 的 Windows 桌面助手。使用 MuMu 安装自带的渲染 IPC 读取游戏画面，用 ADB 绑定实例并执行已确认的操作。
 
 ## 下载和使用
 
 1. 在 Windows 10 或 11 的 64 位系统上启动 MuMu Player，并为目标实例启用 ADB。
-2. 从 [GitHub Releases](https://github.com/eistinlandfrank/wujindongri-mumu-assistant/releases) 获取 `WJDRMuMuAssistant_v5.8.0_Portable.exe`。双击即可启动，首次运行会校验并解压到本机用户目录。使用便携版无需安装 Python。
+2. 从 [GitHub Releases](https://github.com/eistinlandfrank/wujindongri-mumu-assistant/releases/latest) 获取 `WJDRMuMuAssistant_vX.Y.Z_Portable.exe`。双击即可启动，首次运行会校验并解压到本机用户目录。使用便携版无需安装 Python。
 3. 在顶部选择手机。通过「多手机窗口」分别打开其他账号的窗口。任务、配置和日志按账号隔离。
 4. 从左侧选择任务。顶部「停止当前」只停止当前窗口，**F8** 停止所有助手窗口中的任务并取消尚未开始的预约。左下角的太阳、月亮和「系统」分别切换全局浅色、深色和跟随 Windows。
+5. 从 6.0.0 起，助手在启动后及每小时检查已批准的稳定版。侧栏出现「关于与安全 · 有更新」时，可进入该页下载并自动校验便携包。等当前任务结束后，双击新版便携包即可使用，账号配置沿用本机用户目录。旧版用户需要先手动下载支持更新的版本。
 
 ## 功能
 
@@ -34,4 +35,14 @@ python -m pip install pyinstaller
 .\packaging\build_portable.ps1 -OutputRoot release -SkipRuntime
 ```
 
-输出为 `release/WJDRMuMuAssistant_v5.8.0_Portable.exe`。封装时会校验运行目录中的代码与素材是否和当前源码一致。
+输出为 `release/WJDRMuMuAssistant_vX.Y.Z_Portable.exe`。升级版本号时同步修改 `src/wjdr_backend.py` 的 `APP_VERSION` 和 `packaging/version_info.txt`。封装会校验运行目录的版本、代码和素材。
+
+## 批准稳定版推送
+
+在 GitHub Releases 为对应提交创建草稿或预发行版，并上传验收过的同名便携包。测试期间保持草稿或预发行状态。运行以下命令核对本地文件和 GitHub 附件的大小与 SHA-256，路径换成这一版的实际便携包路径。
+
+```powershell
+.\packaging\promote_stable.ps1 -Portable .\release\WJDRMuMuAssistant_vX.Y.Z_Portable.exe
+```
+
+确定该版本可推送给所有用户时，在同一命令后加 `-Publish`。脚本会把便携附件标记为 `WJDR Stable`，然后发布为 GitHub Latest。客户端只从这个入口提示更新。推送生效后，支持更新的旧客户端将在下次检查时显示提醒。
