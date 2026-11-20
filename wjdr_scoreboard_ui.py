@@ -19,15 +19,22 @@ class ScoreboardUI:
     def _build_scoreboard_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        intro = QLabel("选择当前手机；程序会从已识别的页面进入备战总榜。可识别当前画面或连续采集（F8 停止）；核对后保存快照，即可比较任意两版。")
+        intro = QLabel("识别榜单后核对字段，再保存当前账号的快照。")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         actions = QGridLayout()
-        for index, (label, slot) in enumerate((("新建", self._score_new_editor), ("导入 Excel / CSV", self._score_import), ("识别当前画面", self._score_capture), ("连续采集", self._score_capture_many), ("恢复采集草稿", self._score_recover_draft),
-                            ("添加一行", self._score_add_row), ("删除选中行", self._score_delete_rows),
-                            ("保存快照", self._score_save))):
+        for index, (label, slot, style) in enumerate((
+            ("连续采集", self._score_capture_many, "primaryButton"),
+            ("识别当前画面", self._score_capture, "secondaryButton"),
+            ("恢复采集草稿", self._score_recover_draft, "softButton"),
+            ("导入 Excel / CSV", self._score_import, "softButton"),
+            ("新建", self._score_new_editor, "softButton"),
+            ("添加一行", self._score_add_row, "softButton"),
+            ("删除选中行", self._score_delete_rows, "softButton"),
+            ("保存快照", self._score_save, "secondaryButton"),
+        )):
             button = QPushButton(label)
-            button.setObjectName("secondaryButton")
+            button.setObjectName(style)
             button.clicked.connect(slot)
             actions.addWidget(button, index // 4, index % 4)
         layout.addLayout(actions)

@@ -18,6 +18,7 @@ app = QApplication([])
 app.setStyle("Fusion")
 windows = [MainWindow(device, False, False, False, False) for device in devices]
 for i, window in enumerate(windows):
+    window.schedule_timer.stop()
     window.move(30 + i * 100, 30 + i * 50)
     window.show()
 deadline = time.monotonic() + 20
@@ -37,6 +38,7 @@ for window, device in zip(windows, devices):
         window._show_page(index)
         app.processEvents()
         assert window.adb.device == device and window.worker is None
+        assert window.stop_button.isVisible() and window.nav_buttons[index].isChecked()
     window._show_page(4)
     assert f"[{devices[1] if device == devices[0] else devices[0]}]" not in window.log_edit.toPlainText()
     print(f"PASS {device}: fresh {window.current_image.size}; {window.stack.count()} pages; no worker; isolated logs", flush=True)

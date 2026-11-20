@@ -4,7 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
 from unittest.mock import Mock, patch
 from PIL import Image
-from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QPushButton, QScrollArea, QToolButton
 from wjdr_mumu_assistant_qt import MainWindow, UiSignals
 
 
@@ -36,16 +36,51 @@ class MultiDeviceUITests(unittest.TestCase):
         window = self.window
         window.resize(1080, 720)
         window.show()
-        for index, title in enumerate(("设备中心", "联盟帮助", "联盟红包", "每日任务",
-                                       "巨兽集结", "定时启动", "任务编排", "运行日志", "关于与安全")):
+        titles = ["设备中心", "联盟帮助", "联盟红包", "每日任务", "巨兽集结",
+                  "定时启动", "任务编排", "运行日志", "关于与安全", "备战积分"]
+        if hasattr(window, "_build_fortress_page"):
+            titles.append("堡垒跑联盟")
+        self.assertEqual(window.stack.count(), len(titles))
+        for index, title in enumerate(titles):
             window._show_page(index)
             self.app.processEvents()
             self.assertEqual(window.page_title.text(), title)
             self.assertEqual(window.width(), 1080)
             self.assertEqual(window.height(), 720)
-            if index != 7:
+            self.assertTrue(window.stop_button.isVisible())
+            if index not in (7, 9):
                 self.assertIsInstance(window.stack.widget(index), QScrollArea)
                 self.assertLessEqual(window.stack.widget(index).horizontalScrollBar().maximum(), 0)
+
+    def test_sidebar_orders_workflows_before_management_and_support(self):
+        nav = self.window.nav_scroll.widget().layout()
+        labels = [
+            item.text()
+            for index in range(nav.count())
+            if isinstance(item := nav.itemAt(index).widget(), (QPushButton, QLabel))
+        ]
+        expected = ["设备中心", "自动化", "巨兽集结", "每日任务", "联盟帮助", "联盟红包"]
+        if hasattr(self.window, "_build_fortress_page"):
+            expected.append("堡垒跑联盟")
+        expected.extend(["任务管理", "定时启动", "备战积分", "任务编排", "排查与帮助", "运行日志", "关于与安全"])
+        self.assertEqual(labels, expected)
+        self.window.nav_buttons[4].click()
+        self.assertEqual(self.window.stack.currentIndex(), 4)
+        self.assertTrue(self.window.nav_buttons[4].isChecked())
+
+    def test_shortcuts_navigate_and_batch_start_is_in_disclosure(self):
+        window = self.window
+        window.show()
+        shortcuts = window.stack.widget(0).findChildren(QPushButton, "quickTask")
+        self.assertEqual([button.text() for button in shortcuts], ["巨兽集结", "每日任务", "联盟帮助"])
+        shortcuts[0].click()
+        self.assertEqual(window.stack.currentIndex(), 4)
+        self.assertIsNone(window.worker)
+        beast = window.stack.currentWidget()
+        batch = next(button for button in beast.findChildren(QPushButton) if button.text() == "全部实例分别启动")
+        self.assertFalse(batch.isVisible())
+        beast.findChild(QToolButton, "disclosureButton").click()
+        self.assertTrue(batch.isVisible())
 
     def test_stale_device_frame_is_rejected(self):
         self.window.current_image = None

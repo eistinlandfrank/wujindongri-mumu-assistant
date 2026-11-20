@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStackedWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,6 +45,26 @@ from wjdr_runtime_config import (
 )
 
 
+PAGE_HEADERS = (
+    ("设备中心", "查看当前实例的画面和运行状态"),
+    ("联盟帮助", "自动识别并点击联盟互助页的全部帮助"),
+    ("联盟红包", "监听熔炉升级红包"),
+    ("每日任务", "领取奖励并执行已验证的每日任务"),
+    ("巨兽集结", "冰原巨兽 · 三分钟集结"),
+    ("定时启动", "为当前手机预约一次任务启动"),
+    ("任务编排", "编辑点击、等待、返回和识图步骤"),
+    ("运行日志", "查看当前手机的运行记录"),
+    ("关于与安全", ""),
+    ("备战积分", "采集榜单、保存快照并对比积分"),
+)
+NAV_SECTIONS = (
+    ("", (0,)),
+    ("自动化", (4, 3, 1, 2)),
+    ("任务管理", (5, 9, 6)),
+    ("排查与帮助", (7, 8)),
+)
+
+
 class FrontendLayout:
     def _build_ui(self) -> None:
         root = QWidget()
@@ -55,80 +76,68 @@ class FrontendLayout:
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(204)
+        sidebar.setFixedWidth(186)
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(18, 24, 18, 20)
-        side.setSpacing(8)
+        side.setContentsMargins(12, 18, 12, 14)
+        side.setSpacing(12)
         brand_row = QHBoxLayout()
+        brand_row.setContentsMargins(5, 0, 2, 0)
         brand_icon = QLabel("❄")
         brand_icon.setObjectName("brandIcon")
         brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         brand_text = QVBoxLayout()
         brand = QLabel("无尽冬日助手")
         brand.setObjectName("brand")
-        brand_sub = QLabel(f"DESKTOP  ·  v{APP_VERSION}")
+        brand_sub = QLabel(f"v{APP_VERSION}")
         brand_sub.setObjectName("brandSub")
         brand_text.addWidget(brand)
         brand_text.addWidget(brand_sub)
         brand_row.addWidget(brand_icon)
         brand_row.addLayout(brand_text, 1)
         side.addLayout(brand_row)
-        side.addSpacing(25)
-        self.nav_buttons: list[QPushButton] = []
-        nav_items = [
-            ("⌂", "设备中心"),
-            ("◉", "联盟帮助"),
-            ("✦", "联盟红包"),
-            ("☀", "每日任务"),
-            ("R", "巨兽集结"),
-            ("◷", "定时启动"),
-            ("☷", "任务编排"),
-            ("≡", "运行日志"),
-            ("i", "关于与安全"),
-            ("榜", "备战积分"),
-        ]
-        for index, (glyph, text) in enumerate(nav_items):
-            button = QPushButton(f"{glyph}    {text}")
-            button.setObjectName("navButton")
-            button.setFixedHeight(44)
-            button.setCheckable(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.clicked.connect(lambda _checked=False, page=index: self._show_page(page))
-            side.addWidget(button)
-            self.nav_buttons.append(button)
+        self.nav_scroll = QScrollArea()
+        self.nav_scroll.setObjectName("navigation")
+        self.nav_scroll.setWidgetResizable(True)
+        self.nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_body = QWidget()
+        nav_body.setObjectName("navigationBody")
+        self.nav_scroll.setWidget(nav_body)
+        nav = QVBoxLayout(nav_body)
+        nav.setContentsMargins(0, 0, 0, 0)
+        nav.setSpacing(3)
+        buttons_by_page = {}
+        for heading, pages in NAV_SECTIONS:
+            if heading:
+                section = QLabel(heading)
+                section.setObjectName("navSection")
+                nav.addWidget(section)
+            for index in pages:
+                button = QPushButton(PAGE_HEADERS[index][0])
+                button.setObjectName("navButton")
+                button.setCheckable(True)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.clicked.connect(lambda _checked=False, page=index: self._show_page(page))
+                nav.addWidget(button)
+                buttons_by_page[index] = button
+        nav.addStretch()
+        self.nav_buttons = [buttons_by_page[index] for index in range(len(PAGE_HEADERS))]
         self.nav_buttons[0].setChecked(True)
-        side.addStretch()
-        safety = Card(name="sidebarCard")
-        safety_layout = QVBoxLayout(safety)
-        safety_layout.setContentsMargins(14, 13, 14, 13)
-        safety_title = QLabel("全局急停")
-        safety_title.setObjectName("sideCardTitle")
-        safety_text = QLabel("按 F8 停止所有助手窗口\n界面停止仅影响当前窗口")
-        safety_text.setObjectName("sideCardText")
-        safety_layout.addWidget(safety_title)
-        safety_layout.addWidget(safety_text)
+        side.addWidget(self.nav_scroll, 1)
+        safety = QLabel("F8  全局急停")
+        safety.setObjectName("sidebarFooter")
+        safety.setToolTip("F8 停止所有助手窗口。顶部停止按钮只影响当前窗口。")
         side.addWidget(safety)
         shell.addWidget(sidebar)
 
         main = QWidget()
         main.setObjectName("main")
         main_layout = QVBoxLayout(main)
-        main_layout.setContentsMargins(22, 18, 22, 18)
-        main_layout.setSpacing(12)
-        top = QHBoxLayout()
-        titles = QVBoxLayout()
-        self.page_title = QLabel("设备中心")
-        self.page_title.setObjectName("pageTitle")
-        self.page_subtitle = QLabel("选择 MuMu 实例，确认画面后开始运行")
-        self.page_subtitle.setObjectName("pageSubtitle")
-        titles.addWidget(self.page_title)
-        titles.addWidget(self.page_subtitle)
-        top.addLayout(titles, 1)
-        self.status_pill = QLabel("●  正在连接")
-        self.status_pill.setObjectName("statusPill")
-        top.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
-        main_layout.addLayout(top)
-        device_bar = QHBoxLayout()
+        main_layout.setContentsMargins(20, 14, 20, 16)
+        main_layout.setSpacing(13)
+        toolbar = Card(name="deviceToolbar")
+        device_bar = QHBoxLayout(toolbar)
+        device_bar.setContentsMargins(12, 7, 12, 7)
+        device_bar.setSpacing(8)
         device_bar.addWidget(self._field_label("当前手机"))
         self.device_combo = QComboBox()
         self.device_combo.setObjectName("deviceCombo")
@@ -138,7 +147,7 @@ class FrontendLayout:
         self.device_combo.setAccessibleName("当前绑定手机")
         self.device_combo.currentIndexChanged.connect(self._device_changed)
         device_bar.addWidget(self.device_combo, 1)
-        scan = QPushButton("↻  扫描")
+        scan = QPushButton("扫描设备")
         scan.setObjectName("ghostButton")
         scan.clicked.connect(lambda: self._run_async(self._connect_job))
         self.scan_button = scan
@@ -147,7 +156,25 @@ class FrontendLayout:
         self.device_manager_button.setObjectName("secondaryButton")
         self.device_manager_button.clicked.connect(self._open_device_manager)
         device_bar.addWidget(self.device_manager_button)
-        main_layout.addLayout(device_bar)
+        self.status_pill = QLabel("●  正在连接")
+        self.status_pill.setObjectName("statusPill")
+        device_bar.addWidget(self.status_pill)
+        self.stop_button = QPushButton("停止当前")
+        self.stop_button.setObjectName("stopCurrentButton")
+        self.stop_button.setToolTip("停止当前窗口的任务")
+        self.stop_button.clicked.connect(self.stop_all)
+        device_bar.addWidget(self.stop_button)
+        main_layout.addWidget(toolbar)
+
+        titles = QVBoxLayout()
+        titles.setSpacing(2)
+        self.page_title = QLabel(PAGE_HEADERS[0][0])
+        self.page_title.setObjectName("pageTitle")
+        self.page_subtitle = QLabel(PAGE_HEADERS[0][1])
+        self.page_subtitle.setObjectName("pageSubtitle")
+        titles.addWidget(self.page_title)
+        titles.addWidget(self.page_subtitle)
+        main_layout.addLayout(titles)
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_dashboard())
@@ -183,29 +210,20 @@ class FrontendLayout:
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
-        hero = Card(name="hero")
-        hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(26, 22, 24, 22)
-        hero_text = QVBoxLayout()
-        kicker = QLabel("设备工作台 · 独立账号 · 并行运行")
-        kicker.setObjectName("heroKicker")
-        title = QLabel("每台手机，一个独立工作窗口")
-        title.setObjectName("heroTitle")
-        desc = QLabel("在“多手机窗口”中打开其他设备；设置与任务独立，切换页面不影响正在运行的流程。")
-        desc.setObjectName("heroText")
-        hero_text.addWidget(kicker)
-        hero_text.addWidget(title)
-        hero_text.addWidget(desc)
-        hero_layout.addLayout(hero_text, 1)
-        self.start_button = QPushButton("▶  联盟帮助")
-        self.start_button.setObjectName("primaryButton")
-        self.start_button.clicked.connect(self._start_help_preset)
-        stop = QPushButton("■  停止")
-        stop.setObjectName("dangerButton")
-        stop.clicked.connect(self.stop_all)
-        hero_layout.addWidget(self.start_button)
-        hero_layout.addWidget(stop)
-        layout.addWidget(hero)
+        shortcuts = Card()
+        shortcuts_layout = QHBoxLayout(shortcuts)
+        shortcuts_layout.setContentsMargins(16, 10, 16, 10)
+        title = QLabel("常用任务")
+        title.setObjectName("cardTitle")
+        shortcuts_layout.addWidget(title)
+        shortcuts_layout.addSpacing(8)
+        for index in (4, 3, 1):
+            button = QPushButton(PAGE_HEADERS[index][0])
+            button.setObjectName("quickTask")
+            button.setToolTip(f"打开{PAGE_HEADERS[index][0]}页面")
+            button.clicked.connect(lambda _checked=False, page=index: self._show_page(page))
+            shortcuts_layout.addWidget(button, 1)
+        layout.addWidget(shortcuts)
 
         content = QHBoxLayout()
         content.setSpacing(16)
@@ -215,13 +233,14 @@ class FrontendLayout:
         preview_header = QHBoxLayout()
         preview_title = QLabel("实时画面")
         preview_title.setObjectName("cardTitle")
-        self.point_label = QLabel("单击选点 · 拖动框选模板")
+        self.point_label = QLabel("单击选点 · 拖动框选")
         self.point_label.setObjectName("muted")
         preview_header.addWidget(preview_title)
         preview_header.addStretch()
         preview_header.addWidget(self.point_label)
         preview_layout.addLayout(preview_header)
         self.screenshot = ScreenshotView()
+        self.screenshot.setMinimumHeight(328)
         self.screenshot.point_selected.connect(self._point_selected)
         self.screenshot.region_selected.connect(self._region_selected)
         preview_layout.addWidget(self.screenshot, 1)
@@ -263,12 +282,8 @@ class FrontendLayout:
         separate = QPushButton("独立窗口")
         separate.setObjectName("softButton")
         separate.clicked.connect(self._open_selected_window)
-        all_instances = QPushButton("管理多手机窗口")
-        all_instances.setObjectName("secondaryButton")
-        all_instances.clicked.connect(self._open_device_manager)
         action_grid.addWidget(launch, 0, 0)
         action_grid.addWidget(separate, 0, 1)
-        action_grid.addWidget(all_instances, 1, 0, 1, 2)
         device_layout.addSpacing(10)
         device_layout.addLayout(action_grid)
         right.addWidget(device_card)
@@ -292,17 +307,6 @@ class FrontendLayout:
         stats_layout.addWidget(label2, 2, 1)
         right.addWidget(stats)
 
-        note = Card(name="noticeCard")
-        note_layout = QVBoxLayout(note)
-        note_layout.setContentsMargins(18, 15, 18, 15)
-        note_title = QLabel("安全提示")
-        note_title.setObjectName("noticeTitle")
-        note_text = QLabel("打开窗口不会启动任务。每台手机单独开始 / 停止；F8 停止所有窗口。请勿同时手动操作正在自动运行的手机。")
-        note_text.setObjectName("noticeText")
-        note_text.setWordWrap(True)
-        note_layout.addWidget(note_title)
-        note_layout.addWidget(note_text)
-        right.addWidget(note)
         right.addStretch()
         content.addLayout(right, 2)
         layout.addLayout(content, 1)
@@ -326,9 +330,9 @@ class FrontendLayout:
         recognition = Card()
         form = QVBoxLayout(recognition)
         form.setContentsMargins(24, 22, 24, 24)
-        title = QLabel("识图点击")
+        title = QLabel("自定义识图")
         title.setObjectName("sectionTitle")
-        desc = QLabel("自动流程会识别主城、联盟主页和联盟互助页；仅点击已确认的绿色“全部帮助”。")
+        desc = QLabel("可使用已保存的模板，或在设备中心选取固定坐标。")
         desc.setObjectName("muted")
         desc.setWordWrap(True)
         form.addWidget(title)
@@ -368,6 +372,10 @@ class FrontendLayout:
         self.fixed_label.setObjectName("inputLike")
         form.addWidget(self.fixed_label)
         form.addStretch()
+        start_custom = QPushButton("开始自定义识图")
+        start_custom.setObjectName("softButton")
+        start_custom.clicked.connect(self._start_custom_clicker)
+        form.addWidget(start_custom)
         layout.addWidget(recognition, 1)
 
         limits = Card()
@@ -376,6 +384,13 @@ class FrontendLayout:
         limit_title = QLabel("运行设置")
         limit_title.setObjectName("sectionTitle")
         limit_layout.addWidget(limit_title)
+        self.start_button = QPushButton("开始联盟帮助")
+        self.start_button.setObjectName("primaryButton")
+        self.start_button.clicked.connect(self._start_help_preset)
+        limit_layout.addWidget(self.start_button)
+        help_hint = QLabel("从已识别的主城或联盟页进入互助，仅点击已确认的「全部帮助」。")
+        help_hint.setObjectName("muted")
+        limit_layout.addWidget(help_hint)
         limit_layout.addSpacing(14)
         self.interval_spin = QDoubleSpinBox()
         self.interval_spin.setRange(0.12, MAX_SINGLE_WAIT_SECONDS)
@@ -400,10 +415,6 @@ class FrontendLayout:
             limit_layout.addSpacing(10)
         limit_layout.addWidget(self.guard_check)
         limit_layout.addStretch()
-        start_custom = QPushButton("开始识图运行")
-        start_custom.setObjectName("primaryButton")
-        start_custom.clicked.connect(self._start_custom_clicker)
-        limit_layout.addWidget(start_custom)
         layout.addWidget(limits, 1)
         return page
 
@@ -421,33 +432,6 @@ class FrontendLayout:
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(18)
 
-        hero = Card(name="redPacketHero")
-        hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(28, 24, 26, 24)
-        hero_text = QVBoxLayout()
-        kicker = QLabel("联盟频道 · 熔炉升级红包")
-        kicker.setObjectName("redPacketKicker")
-        title = QLabel("发现红包浮标后，自动确认并开启目标红包")
-        title.setObjectName("redPacketTitle")
-        desc = QLabel("浮标仅用于唤醒检查。程序会依次确认聊天、联盟频道、熔炉升级红包和“开启”按钮；任一步不成立都不输入。")
-        desc.setObjectName("redPacketText")
-        desc.setWordWrap(True)
-        hero_text.addWidget(kicker)
-        hero_text.addWidget(title)
-        hero_text.addWidget(desc)
-        hero_layout.addLayout(hero_text, 1)
-        actions = QVBoxLayout()
-        self.red_packet_start_button = QPushButton("✦  开始自动抢红包")
-        self.red_packet_start_button.setObjectName("redPacketPrimaryButton")
-        self.red_packet_start_button.clicked.connect(self._start_red_packet_flow)
-        stop = QPushButton("■  停止")
-        stop.setObjectName("redPacketStopButton")
-        stop.clicked.connect(self.stop_all)
-        actions.addWidget(self.red_packet_start_button)
-        actions.addWidget(stop)
-        hero_layout.addLayout(actions)
-        layout.addWidget(hero)
-
         status_card = Card(name="redPacketStatusCard")
         status_layout = QHBoxLayout(status_card)
         status_layout.setContentsMargins(22, 17, 22, 17)
@@ -462,38 +446,11 @@ class FrontendLayout:
         state_text.addWidget(self.red_packet_state_label)
         state_text.addWidget(state_hint)
         status_layout.addLayout(state_text, 1)
-        all_instances = QPushButton("全部实例抢红包")
-        all_instances.setObjectName("redPacketSecondaryButton")
-        all_instances.clicked.connect(lambda: self._start_all_instances("red_packet"))
-        status_layout.addWidget(all_instances)
+        self.red_packet_start_button = QPushButton("开始红包监听")
+        self.red_packet_start_button.setObjectName("primaryButton")
+        self.red_packet_start_button.clicked.connect(self._start_red_packet_flow)
+        status_layout.addWidget(self.red_packet_start_button)
         layout.addWidget(status_card)
-
-        content = QHBoxLayout()
-        content.setSpacing(18)
-        safety = Card()
-        safety_layout = QVBoxLayout(safety)
-        safety_layout.setContentsMargins(24, 22, 24, 24)
-        safety_title = QLabel("确认链路")
-        safety_title.setObjectName("sectionTitle")
-        safety_desc = QLabel(
-            "① 连续两帧检测红包浮标\n"
-            "② 确认聊天页，再确认“联盟”已选中\n"
-            "③ 识别“熔炉升级红包”卡片\n"
-            "④ 标题与“开启”按钮同屏且几何关系正确\n"
-            "⑤ 识别奖励结果页后才关闭，随后重新监听"
-        )
-        safety_desc.setObjectName("redPacketRules")
-        safety_desc.setWordWrap(True)
-        safety_note = QLabel("不会滚动聊天记录；未看到目标卡、已领完、页面未知或游戏不在前台时，均不点击。")
-        safety_note.setObjectName("noticeText")
-        safety_note.setWordWrap(True)
-        safety_layout.addWidget(safety_title)
-        safety_layout.addSpacing(12)
-        safety_layout.addWidget(safety_desc)
-        safety_layout.addSpacing(14)
-        safety_layout.addWidget(safety_note)
-        safety_layout.addStretch()
-        content.addWidget(safety, 3)
 
         limits = Card()
         limit_layout = QVBoxLayout(limits)
@@ -525,8 +482,23 @@ class FrontendLayout:
             limit_layout.addSpacing(10)
         limit_layout.addWidget(self.red_packet_guard_check)
         limit_layout.addStretch()
-        content.addWidget(limits, 2)
-        layout.addLayout(content)
+        layout.addWidget(limits)
+
+        advanced = QWidget()
+        advanced_layout = QVBoxLayout(advanced)
+        advanced_layout.setContentsMargins(0, 0, 0, 2)
+        all_instances = QPushButton("全部实例抢红包")
+        all_instances.setObjectName("secondaryButton")
+        all_instances.clicked.connect(lambda: self._start_all_instances("red_packet"))
+        advanced_layout.addWidget(all_instances, 0, Qt.AlignmentFlag.AlignLeft)
+        rules = QLabel(
+            "连续确认红包浮标、联盟频道和熔炉升级红包后才开启。"
+            "仅检查当前聊天画面。领取后确认结果页，再返回主城继续监听。"
+        )
+        rules.setObjectName("muted")
+        rules.setWordWrap(True)
+        advanced_layout.addWidget(rules)
+        layout.addWidget(self._build_disclosure("批量运行与规则", advanced))
         layout.addStretch()
         return page
 
@@ -544,36 +516,6 @@ class FrontendLayout:
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(18)
 
-        hero = Card(name="dailyTaskHero")
-        hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(28, 24, 26, 24)
-        hero_text = QVBoxLayout()
-        kicker = QLabel("每日任务 · 活跃度自动化")
-        kicker.setObjectName("heroKicker")
-        title = QLabel("自动领取奖励，并执行已验证的每日任务")
-        title.setObjectName("heroTitle")
-        desc = QLabel(
-            "自动收取已完成奖励与活跃度宝箱；可执行已验证的采集、训练、建筑、联盟捐献、"
-            "竞技场和宠物寻宝。宠物派遣消耗 10 体力；耗时操作自然完成，不使用钻石、钥匙、加速或购买。"
-        )
-        desc.setObjectName("heroText")
-        desc.setWordWrap(True)
-        hero_text.addWidget(kicker)
-        hero_text.addWidget(title)
-        hero_text.addWidget(desc)
-        hero_layout.addLayout(hero_text, 1)
-        actions = QVBoxLayout()
-        self.daily_task_start_button = QPushButton("☀  开始每日任务自动化")
-        self.daily_task_start_button.setObjectName("primaryButton")
-        self.daily_task_start_button.clicked.connect(self._start_daily_rewards_flow)
-        stop = QPushButton("■  停止")
-        stop.setObjectName("dangerButton")
-        stop.clicked.connect(self.stop_all)
-        actions.addWidget(self.daily_task_start_button)
-        actions.addWidget(stop)
-        hero_layout.addLayout(actions)
-        layout.addWidget(hero)
-
         status_card = Card(name="dailyTaskStatusCard")
         status_layout = QHBoxLayout(status_card)
         status_layout.setContentsMargins(22, 17, 22, 17)
@@ -589,37 +531,16 @@ class FrontendLayout:
         state_text.addWidget(self.daily_task_state_label)
         state_text.addWidget(state_hint)
         status_layout.addLayout(state_text, 1)
-        all_instances = QPushButton("全部实例执行每日任务")
-        all_instances.setObjectName("secondaryButton")
-        all_instances.clicked.connect(lambda: self._start_all_instances("daily"))
-        status_layout.addWidget(all_instances)
+        self.daily_task_start_button = QPushButton("开始每日任务")
+        self.daily_task_start_button.setObjectName("primaryButton")
+        self.daily_task_start_button.clicked.connect(self._start_daily_rewards_flow)
+        status_layout.addWidget(self.daily_task_start_button)
         layout.addWidget(status_card)
-
-        content = QHBoxLayout()
-        content.setSpacing(18)
-        rules = Card()
-        rules_layout = QVBoxLayout(rules)
-        rules_layout.setContentsMargins(24, 22, 24, 24)
-        rules_title = QLabel("固定安全边界")
-        rules_title.setObjectName("sectionTitle")
-        rules_text = QLabel(
-            "① 仅确认主城“任务”入口后，最多点击一次进入每日任务。\n"
-            "② 仅在每日任务页、活跃度条与绿色“领取”按钮同屏时收取奖励或宝箱。\n"
-            "③ 仅执行已验证的日常路线；宠物派遣前记录账号状态，每个关键按钮需连续两帧确认。\n"
-            "④ 不会点击商店、购买、钻石完成、钥匙招募、加速、无关战斗、非任务升级或未知弹窗。"
-        )
-        rules_text.setObjectName("noticeText")
-        rules_text.setWordWrap(True)
-        rules_layout.addWidget(rules_title)
-        rules_layout.addSpacing(12)
-        rules_layout.addWidget(rules_text)
-        rules_layout.addStretch()
-        content.addWidget(rules, 3)
 
         limits = Card(name="dailyAccountSettingsCard")
         limit_layout = QVBoxLayout(limits)
         limit_layout.setContentsMargins(24, 22, 24, 24)
-        settings_header = QVBoxLayout()
+        settings_header = QHBoxLayout()
         settings_header.setSpacing(14)
         settings_copy = QVBoxLayout()
         settings_copy.setSpacing(4)
@@ -635,7 +556,7 @@ class FrontendLayout:
         self.mining_level_button.setAccessibleName("当前账号采矿设置")
         self.mining_level_button.setEnabled(False)
         self.mining_level_button.clicked.connect(self._open_mining_level_settings)
-        settings_header.addWidget(self.mining_level_button)
+        settings_header.addWidget(self.mining_level_button, 0, Qt.AlignmentFlag.AlignVCenter)
         limit_layout.addLayout(settings_header)
         limit_layout.addSpacing(14)
         runtime_title = QLabel("运行参数")
@@ -656,17 +577,33 @@ class FrontendLayout:
         self.daily_duration_spin.setSuffix(" 分钟")
         self.daily_guard_check = QCheckBox("仅当《无尽冬日》位于模拟器前台时点击")
         self.daily_guard_check.setChecked(True)
-        for label, widget in (
+        runtime_fields = QGridLayout()
+        for column, (label, widget) in enumerate((
             ("截图 / 检查间隔", self.daily_interval_spin),
             ("最长等待（0 = 不限）", self.daily_duration_spin),
-        ):
-            limit_layout.addWidget(self._field_label(label))
-            limit_layout.addWidget(widget)
-            limit_layout.addSpacing(10)
+        )):
+            runtime_fields.addWidget(self._field_label(label), 0, column)
+            runtime_fields.addWidget(widget, 1, column)
+            runtime_fields.setColumnStretch(column, 1)
+        limit_layout.addLayout(runtime_fields)
         limit_layout.addWidget(self.daily_guard_check)
-        limit_layout.addStretch()
-        content.addWidget(limits, 2)
-        layout.addLayout(content)
+        layout.addWidget(limits)
+
+        advanced = QWidget()
+        advanced_layout = QVBoxLayout(advanced)
+        advanced_layout.setContentsMargins(0, 0, 0, 2)
+        all_instances = QPushButton("全部实例执行每日任务")
+        all_instances.setObjectName("secondaryButton")
+        all_instances.clicked.connect(lambda: self._start_all_instances("daily"))
+        advanced_layout.addWidget(all_instances, 0, Qt.AlignmentFlag.AlignLeft)
+        rules = QLabel(
+            "自动领取已完成的奖励与活跃度宝箱，执行已验证的采集、训练、建筑、联盟捐献、竞技场和宠物寻宝。"
+            "执行范围为已验证的免费操作，宠物派遣消耗 10 体力。"
+        )
+        rules.setObjectName("muted")
+        rules.setWordWrap(True)
+        advanced_layout.addWidget(rules)
+        layout.addWidget(self._build_disclosure("批量运行与规则", advanced))
         layout.addStretch()
         return page
 
@@ -683,44 +620,6 @@ class FrontendLayout:
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(18)
 
-        hero = Card(name="dailyTaskHero")
-        hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(28, 24, 26, 24)
-        text = QVBoxLayout()
-        kicker = QLabel("冰原巨兽 · 独立自动化")
-        kicker.setObjectName("heroKicker")
-        title = QLabel("自动发起 3 分钟集结并监控出征状态")
-        title.setObjectName("heroTitle")
-        desc = QLabel(
-            "冰原巨兽 · 账号等级 · 3分钟 · 自选兵力或编组 · 同时集结数量可设。"
-            "体力按最终出征页实际数值记账；0 上限表示不限制。"
-        )
-        desc.setObjectName("heroText")
-        desc.setWordWrap(True)
-        text.addWidget(kicker)
-        text.addWidget(title)
-        text.addWidget(desc)
-        hero_layout.addLayout(text, 1)
-        actions = QVBoxLayout()
-        self.beast_rally_start_button = QPushButton("开始自动集结巨兽")
-        self.beast_rally_start_button.setObjectName("primaryButton")
-        self.beast_rally_start_button.clicked.connect(self._start_beast_rally_flow)
-        stop = QPushButton("停止")
-        stop.setObjectName("dangerButton")
-        stop.clicked.connect(self.stop_all)
-        actions.addWidget(self.beast_rally_start_button)
-        separate = QPushButton("为当前账号打开独立窗口")
-        separate.setObjectName("secondaryButton")
-        separate.clicked.connect(self._open_selected_window)
-        actions.addWidget(separate)
-        all_instances = QPushButton("全部实例分别启动")
-        all_instances.setObjectName("secondaryButton")
-        all_instances.clicked.connect(lambda: self._start_all_instances("beast_rally"))
-        actions.addWidget(all_instances)
-        actions.addWidget(stop)
-        hero_layout.addLayout(actions)
-        layout.addWidget(hero)
-
         status = Card(name="dailyTaskStatusCard")
         status_layout = QHBoxLayout(status)
         status_layout.setContentsMargins(22, 17, 22, 17)
@@ -732,6 +631,10 @@ class FrontendLayout:
         state_text.addWidget(state_title)
         state_text.addWidget(self.beast_rally_state_label)
         status_layout.addLayout(state_text, 1)
+        self.beast_rally_start_button = QPushButton("开始自动集结")
+        self.beast_rally_start_button.setObjectName("primaryButton")
+        self.beast_rally_start_button.clicked.connect(self._start_beast_rally_flow)
+        status_layout.addWidget(self.beast_rally_start_button)
         layout.addWidget(status)
 
         account = Card(name="beastAccountSettingsCard")
@@ -757,20 +660,28 @@ class FrontendLayout:
         account_layout.addWidget(self.beast_rally_settings_button)
         layout.addWidget(account)
 
-        bounds = Card()
-        bounds_layout = QVBoxLayout(bounds)
-        bounds_layout.setContentsMargins(24, 22, 24, 24)
-        heading = QLabel("严格操作边界")
-        heading.setObjectName("sectionTitle")
-        explanation = QLabel(
-            "只识别并点击冰原巨兽链路中的唯一控件；不会点击自动加入、其他集结时长、"
-            "体力购买、钻石、加速、其他战斗或未知弹窗。队列和归属需连续两张新截图确认。"
+        advanced = QWidget()
+        advanced_layout = QVBoxLayout(advanced)
+        advanced_layout.setContentsMargins(0, 0, 0, 2)
+        buttons = QHBoxLayout()
+        separate = QPushButton("打开当前账号独立窗口")
+        separate.setObjectName("softButton")
+        separate.clicked.connect(self._open_selected_window)
+        buttons.addWidget(separate)
+        all_instances = QPushButton("全部实例分别启动")
+        all_instances.setObjectName("secondaryButton")
+        all_instances.clicked.connect(lambda: self._start_all_instances("beast_rally"))
+        buttons.addWidget(all_instances)
+        buttons.addStretch()
+        advanced_layout.addLayout(buttons)
+        rules = QLabel(
+            "仅运行冰原巨兽。体力上限为 0 时不限。"
+            "队列与归属需新帧确认，不执行支付、加速或自动加入。"
         )
-        explanation.setObjectName("noticeText")
-        explanation.setWordWrap(True)
-        bounds_layout.addWidget(heading)
-        bounds_layout.addWidget(explanation)
-        layout.addWidget(bounds)
+        rules.setObjectName("muted")
+        rules.setWordWrap(True)
+        advanced_layout.addWidget(rules)
+        layout.addWidget(self._build_disclosure("批量运行与规则", advanced))
         layout.addStretch()
         return page
 
@@ -877,11 +788,11 @@ class FrontendLayout:
         title = QLabel(f"{APP_NAME}  {APP_VERSION}")
         title.setObjectName("sectionTitle")
         text = QLabel(
-            "这是一个只通过 MuMu 自带 ADB 截图、识图和模拟点击工作的本地工具。\n\n"
+            "这是一个使用 MuMu IPC 取帧、识图和 ADB 模拟点击的本地工具。\n\n"
             "• 不读取游戏内存，不修改 APK，不读取账号密码。\n"
             "• 每个窗口绑定一个独立 ADB 端口，同一实例带跨进程占用锁。\n"
             "• 游戏画面自动归一化；具体账号与分辨率仍需首次运行核验。\n"
-            "• F8 是全局急停；普通停止按钮只停止当前窗口。\n\n"
+            "• F8 停止所有助手窗口，顶部停止按钮只影响当前窗口。任务运行时请避免手动点击同一手机。\n\n"
             "游戏服务条款可能禁止 auto / macro / bot。无人值守自动化可能导致账号处罚，"
             "请保持有人观察；仅运行已配置的流程，不进行充值或额外购买。"
         )
@@ -893,6 +804,29 @@ class FrontendLayout:
         layout.addWidget(about)
         layout.addStretch()
         return page
+
+    @staticmethod
+    def _build_disclosure(title: str, content: QWidget) -> QWidget:
+        panel = Card()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 5, 16, 7)
+        toggle = QToolButton()
+        toggle.setObjectName("disclosureButton")
+        toggle.setText(title)
+        toggle.setCheckable(True)
+        toggle.setArrowType(Qt.ArrowType.RightArrow)
+        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(toggle, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(content)
+        content.hide()
+
+        def set_expanded(expanded: bool) -> None:
+            toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+            content.setVisible(expanded)
+
+        toggle.toggled.connect(set_expanded)
+        return panel
 
     @staticmethod
     def _field_label(text: str) -> QLabel:
@@ -912,32 +846,33 @@ class FrontendLayout:
             f"""
             * {{ font-family: 'Microsoft YaHei UI'; font-size: 14px; color: {COLORS['text']}; }}
             QMainWindow, QWidget#root, QWidget#main {{ background: {COLORS['window']}; }}
-            QFrame#sidebar {{ background: {COLORS['navy']}; }}
-            QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 13px; min-width: 42px; min-height: 42px; font-size: 24px; font-weight: 700; }}
-            QLabel#brand {{ color: white; font-size: 17px; font-weight: 700; }}
-            QLabel#brandSub {{ color: #8294B3; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
-            QPushButton#navButton {{ text-align: left; color: #93A4C0; background: transparent; border: none; border-radius: 9px; min-height: 0; padding: 8px 14px; font-weight: 600; }}
-            QPushButton#navButton:hover {{ color: white; background: #172947; }}
-            QPushButton#navButton:checked {{ color: white; background: #245FD0; }}
-            QFrame#sidebarCard {{ background: #172947; border: 1px solid #233A60; border-radius: 12px; }}
-            QLabel#sideCardTitle {{ color: #DCE8FB; font-weight: 700; }}
-            QLabel#sideCardText {{ color: #8294B3; font-size: 11px; line-height: 1.4; }}
-            QLabel#pageTitle {{ font-size: 26px; font-weight: 750; }}
+            QFrame#sidebar, QScrollArea#navigation, QWidget#navigationBody {{ background: {COLORS['navy']}; }}
+            QLabel#brandIcon {{ background: #2E6FE6; color: white; border-radius: 10px; min-width: 34px; min-height: 34px; font-size: 19px; font-weight: 700; }}
+            QLabel#brand {{ color: #F8FAFF; font-size: 15px; font-weight: 700; }}
+            QLabel#brandSub {{ color: #9CAEC9; font-size: 11px; }}
+            QLabel#navSection {{ color: #A2B3CC; font-size: 11px; font-weight: 600; padding: 10px 10px 1px; }}
+            QPushButton#navButton {{ text-align: left; color: #D3DFF1; background: transparent; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 7px; min-height: 31px; padding: 0 9px; font-size: 13px; font-weight: 600; }}
+            QPushButton#navButton:hover {{ color: white; background: #1A2C4A; }}
+            QPushButton#navButton:checked {{ color: #FFFFFF; background: #233E68; border-left-color: #72AAFF; }}
+            QPushButton#navButton:focus {{ border-color: #72AAFF; }}
+            QLabel#sidebarFooter {{ color: #B7C7DD; font-size: 12px; border-top: 1px solid #2C3C55; padding: 10px 7px 0; }}
+            QLabel#pageTitle {{ font-size: 23px; font-weight: 750; }}
             QLabel#pageSubtitle, QLabel#muted {{ color: {COLORS['muted']}; font-size: 12px; }}
             QLabel#statusPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
             QFrame#card, QFrame#noticeCard, QFrame#dailyTaskStatusCard {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 14px; }}
-            QFrame#hero, QFrame#dailyTaskHero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #183A73, stop:1 #2358B3); border-radius: 16px; }}
+            QFrame#deviceToolbar {{ background: white; border: 1px solid {COLORS['border']}; border-radius: 12px; }}
+            QFrame#deviceToolbar QPushButton {{ min-height: 32px; padding: 0 11px; }}
+            QFrame#deviceToolbar QComboBox {{ padding: 4px 9px; }}
+            QPushButton#stopCurrentButton {{ background: #FFF0F1; color: #A63142; border: 1px solid #F2CCD2; }}
+            QPushButton#stopCurrentButton:hover {{ background: #FCE1E4; }}
+            QPushButton#quickTask {{ text-align: left; color: #234B8F; border: 1px solid #D9E6F8; background: #F4F8FF; }}
+            QPushButton#quickTask:hover {{ color: #1747A0; border-color: #98B8EC; background: #EDF4FF; }}
+            QToolButton#disclosureButton {{ min-height: 31px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; font-weight: 650; }}
+            QToolButton#disclosureButton:hover {{ background: #F1F5FC; }}
+            QToolButton#disclosureButton:focus {{ border-color: #98B8EC; }}
             QFrame#dailyAccountSettingsCard, QFrame#beastAccountSettingsCard {{ background: #F8FAFE; border: 1px solid #D8E3F5; border-radius: 14px; }}
-            QLabel#heroKicker {{ color: #91B6FF; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#heroTitle {{ color: white; font-size: 23px; font-weight: 750; }}
-            QLabel#heroText {{ color: #C2D3EF; font-size: 12px; }}
-            QFrame#redPacketHero {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #8C2631, stop:.56 #C94734, stop:1 #E88338); border-radius: 16px; }}
-            QLabel#redPacketKicker {{ color: #FFE3A4; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#redPacketTitle {{ color: white; font-size: 23px; font-weight: 750; }}
-            QLabel#redPacketText {{ color: #FFF0D3; font-size: 12px; }}
             QFrame#redPacketStatusCard {{ background: #FFF8F0; border: 1px solid #F1D4B1; border-radius: 14px; }}
             QLabel#redPacketState {{ color: #B45624; font-size: 15px; font-weight: 750; }}
-            QLabel#redPacketRules {{ color: #52627A; font-size: 14px; line-height: 1.8; }}
             QLabel#cardTitle, QLabel#sectionTitle {{ font-size: 17px; font-weight: 750; }}
             QLabel#instanceName {{ font-size: 19px; font-weight: 750; }}
             QLabel#greenPill {{ background: {COLORS['green_soft']}; color: #11865B; border-radius: 12px; padding: 5px 9px; font-size: 11px; font-weight: 700; }}
@@ -951,12 +886,6 @@ class FrontendLayout:
             QPushButton {{ min-height: 38px; border-radius: 9px; padding: 0 16px; font-weight: 650; }}
             QPushButton#primaryButton {{ background: {COLORS['blue']}; color: white; border: none; min-height: 44px; }}
             QPushButton#primaryButton:hover {{ background: {COLORS['blue_dark']}; }}
-            QPushButton#redPacketPrimaryButton {{ background: #FFF5DF; color: #A63B20; border: none; min-height: 44px; }}
-            QPushButton#redPacketPrimaryButton:hover {{ background: #FFFFFF; color: #8E2D1B; }}
-            QPushButton#redPacketSecondaryButton {{ background: #FFF0DE; color: #AF5427; border: 1px solid #F0C594; }}
-            QPushButton#redPacketSecondaryButton:hover {{ background: #FFE6C7; }}
-            QPushButton#redPacketStopButton {{ background: rgba(77, 17, 21, .32); color: white; border: 1px solid rgba(255,255,255,.34); }}
-            QPushButton#redPacketStopButton:hover {{ background: rgba(77, 17, 21, .48); }}
             QPushButton#secondaryButton {{ background: #E9F0FE; color: #275FBF; border: 1px solid #CDDCF8; }}
             QPushButton#settingsButton {{ background: white; color: #255EC5; border: 1px solid #BFD1EF; min-width: 168px; }}
             QPushButton#settingsButton:hover {{ background: #EDF3FF; border-color: #8FB0E3; }}
@@ -991,20 +920,11 @@ class FrontendLayout:
         )
 
     def _show_page(self, index: int) -> None:
-        titles = [
-            ("设备中心", "选择实例、确认画面并快速启动"),
-            ("联盟帮助", "识图阈值与运行限制"),
-            ("联盟红包", "只开启已确认的熔炉升级红包"),
-            ("每日任务", "优先领取奖励，再执行当前账号已支持的日常流程"),
-            ("巨兽集结", "冰原巨兽 · 账号等级 · 3分钟 · 自选兵力或编组 · 体力上限"),
-            ("定时启动", "按手机预约开始时间 · 保存后仅触发一次"),
-            ("任务编排", "组合点击、等待、返回和识图步骤"),
-            ("运行日志", "每条记录都标注绑定的 ADB 端口"),
-            ("关于与安全", "版本、兼容范围与账号风险"),
-            ("备战积分", "录入榜单 · 账号快照 · 积分异动对比"),
-        ]
         self.stack.setCurrentIndex(index)
-        self.page_title.setText(titles[index][0])
-        self.page_subtitle.setText(titles[index][1])
+        title, subtitle = PAGE_HEADERS[index]
+        self.page_title.setText(title)
+        self.page_subtitle.setText(subtitle)
+        self.page_subtitle.setVisible(bool(subtitle))
         for number, button in enumerate(self.nav_buttons):
             button.setChecked(number == index)
+        self.nav_scroll.ensureWidgetVisible(self.nav_buttons[index], 0, 12)
