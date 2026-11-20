@@ -49,6 +49,14 @@ class MultiDeviceUITests(unittest.TestCase):
         window = self.window
         window.resize(1080, 720)
         window.show()
+        self.app.processEvents()
+        sidebar = window.appearance_combo.parentWidget()
+        self.assertEqual(sidebar.objectName(), "sidebar")
+        self.assertGreater(window.appearance_combo.y(), window.nav_scroll.geometry().bottom())
+        self.assertLess(
+            window.appearance_combo.geometry().bottom(),
+            sidebar.findChild(QLabel, "sidebarFooter").y(),
+        )
         titles = ["设备中心", "联盟帮助", "联盟红包", "每日任务", "巨兽集结",
                   "定时启动", "任务编排", "运行日志", "关于与安全", "备战积分"]
         if hasattr(window, "_build_fortress_page"):

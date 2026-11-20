@@ -120,6 +120,23 @@ class FrontendLayout:
         self.nav_buttons = [buttons_by_page[index] for index in range(len(PAGE_HEADERS))]
         self.nav_buttons[0].setChecked(True)
         side.addWidget(self.nav_scroll, 1)
+        appearance_row = QHBoxLayout()
+        appearance_row.setSpacing(8)
+        appearance_label = QLabel("外观")
+        appearance_label.setObjectName("appearanceLabel")
+        self.appearance_combo = QComboBox()
+        self.appearance_combo.setObjectName("appearanceCombo")
+        self.appearance_combo.setAccessibleName("全局外观")
+        self.appearance_combo.setToolTip("全局外观 · 跟随 Windows 设置，或固定使用浅色、深色")
+        for mode, label in APPEARANCE_MODES.items():
+            self.appearance_combo.addItem(label, mode)
+        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
+        self.appearance_combo.activated.connect(self._select_appearance)
+        self.appearance.changed.connect(self._apply_style)
+        appearance_label.setBuddy(self.appearance_combo)
+        appearance_row.addWidget(appearance_label)
+        appearance_row.addWidget(self.appearance_combo, 1)
+        side.addLayout(appearance_row)
         safety = QLabel("F8  全局急停")
         safety.setObjectName("sidebarFooter")
         safety.setToolTip("F8 停止所有助手窗口。顶部停止按钮只影响当前窗口。")
@@ -153,16 +170,6 @@ class FrontendLayout:
         self.device_manager_button.setObjectName("secondaryButton")
         self.device_manager_button.clicked.connect(self._open_device_manager)
         device_bar.addWidget(self.device_manager_button)
-        self.appearance_combo = QComboBox()
-        self.appearance_combo.setObjectName("appearanceCombo")
-        self.appearance_combo.setAccessibleName("全局外观")
-        self.appearance_combo.setToolTip("全局外观 · 跟随 Windows 设置，或固定使用浅色、深色")
-        for mode, label in APPEARANCE_MODES.items():
-            self.appearance_combo.addItem(label, mode)
-        self.appearance_combo.setCurrentIndex(self.appearance_combo.findData(self.appearance.mode))
-        self.appearance_combo.activated.connect(self._select_appearance)
-        self.appearance.changed.connect(self._apply_style)
-        device_bar.addWidget(self.appearance_combo)
         self.status_pill = QLabel("●  正在连接")
         self.status_pill.setObjectName("statusPill")
         self.status_pill.setProperty("statusKind", "idle")
@@ -871,6 +878,8 @@ class FrontendLayout:
             QPushButton#navButton:checked {{ color: {colors['accent']}; background: {colors['accent_bg']}; border-left-color: {colors['focus']}; }}
             QPushButton#navButton:focus {{ border-color: {colors['focus']}; }}
             QLabel#sidebarFooter {{ color: {colors['muted']}; font-size: 12px; border-top: 1px solid {colors['border']}; padding: 10px 7px 0; }}
+            QLabel#appearanceLabel {{ color: {colors['muted']}; font-size: 13px; padding-left: 7px; }}
+            QComboBox#appearanceCombo {{ min-height: 22px; padding: 4px 8px; }}
             QLabel#pageTitle {{ font-size: 23px; font-weight: 750; }}
             QLabel#pageSubtitle, QLabel#muted {{ color: {colors['muted']}; font-size: 12px; }}
             QLabel#statusPill {{ background: {colors['disabled_bg']}; color: {colors['muted']}; border-radius: 15px; padding: 8px 12px; font-weight: 700; }}
@@ -881,7 +890,6 @@ class FrontendLayout:
             QFrame#deviceToolbar {{ background: {colors['surface']}; border: 1px solid {colors['border']}; border-radius: 12px; }}
             QFrame#deviceToolbar QPushButton {{ min-height: 32px; padding: 0 11px; }}
             QFrame#deviceToolbar QComboBox {{ padding: 4px 9px; }}
-            QFrame#deviceToolbar QComboBox#appearanceCombo {{ min-width: 56px; padding-right: 28px; }}
             QPushButton#stopCurrentButton {{ background: {colors['danger_bg']}; color: {colors['danger']}; border: 1px solid {colors['danger_border']}; }}
             QPushButton#stopCurrentButton:hover {{ background: {colors['danger_hover']}; }}
             QPushButton#quickTask {{ text-align: left; color: {colors['accent']}; border: 1px solid {colors['accent_border']}; background: {colors['surface_alt']}; }}
