@@ -1,4 +1,4 @@
-"""Daily 325 workflow controller, invoked by the desktop window."""
+"""Daily task workflow controller, invoked by the desktop window."""
 
 from __future__ import annotations
 from PIL import Image
@@ -16,22 +16,32 @@ from wjdr_daily_visuals import (
     intel_expert,
     intel_expert_maybe_visible,
     intel_station_expert,
+    match_musk_ox_buff,
     recommended_tech,
+    normal_resource_donation,
+    normal_resource_donation_page,
 )
+from wjdr_daily_alliance_rewards import run_alliance_rewards
+from wjdr_daily_arena import expedition_arena_home, expedition_arena_list_close, run_expedition_arena
+from wjdr_daily_timer import donation_recovery_crop, read_countdown_pair
 from wjdr_daily_expedition import (
     ExpeditionClaimLedger,
     run_expedition_claim,
 )
 from wjdr_daily_intel import (
+    IntelBatchLedger,
     IntelExpertLedger,
     match_hero_preview_any_level,
     match_hero_victory,
     match_selected_hero_battle,
+    match_intel_wilderness_entry,
+    run_intel_bulk_action,
 )
 from PySide6.QtWidgets import (
     QMessageBox,
 )
 from wjdr_backend import (
+    _arena_numeric_reading,
     AdbError,
     APP_NAME,
     AlliancePage,
@@ -125,7 +135,6 @@ from wjdr_backend import (
     match_arena_result_exit,
     match_arena_reviewed_victory_exit,
     match_arena_setup,
-    match_daily_intel_map_entry,
     match_daily_intel_map_page,
     match_daily_intel_mission,
     match_daily_pet_treasure_mission,
@@ -196,19 +205,7 @@ from wjdr_runtime_config import (
 
 class DailyController:
     def _start_daily_rewards_flow(self) -> None:
-        """Collect every visible, verified Daily Tasks reward in one safe pass.
-
-        This is the collection half of the Daily 325 workflow.  It is broader
-        than the retained login-only compatibility flow above, but deliberately
-        remains input-conservative: only the confirmed city-task entry and a
-        green ``领取`` in the verified Daily Tasks action column are clickable.
-        After such a click it may dismiss the separately verified full-screen
-        reward result, and only while that result is correlated to the click
-        it just made.  It may also collect a reached activity milestone chest
-        once per run, then dismiss only its two-frame-verified contents sheet.
-        It never clicks ``前往``, shops, diamonds, keys, speed-ups,
-        prerequisite prompts, or an arbitrary popup close control.
-        """
+        """Run reviewed Daily tasks and collect the corresponding rewards."""
         if not self.adb:
             QMessageBox.warning(self, APP_NAME, "尚未连接 MuMu。")
             return
@@ -226,6 +223,7 @@ class DailyController:
         )
         duration = self.daily_duration_spin.value()
         guard = self.daily_guard_check.isChecked()
+        collect_alliance_chests = self.daily_alliance_chests_check.isChecked()
         threshold = 0.90
 
         def job() -> None:
@@ -319,9 +317,8 @@ class DailyController:
             open_chest_streaks: dict[int, int] = {}
             pending_chest: int | None = None
             activity_goal_streak = 0
-            activity_goal_confirmed = False
-            activity_goal_claim_drain_announced = False
-            activity_goal_claim_scan_started = False
+            last_verified_daily_score = 0.0
+            activity_milestone_confirmed = False
             daily_scrolls = 0
             # A bounded scan ends at the bottom of the task list. Every retry
             # must first return within this verified list viewport to scan
@@ -438,10 +435,13 @@ class DailyController:
                 pet_dispatch_ledger: PetDispatchLedger | None = PetDispatchLedger(target_identity, donation_day)
                 expedition_ledger: ExpeditionClaimLedger | None = ExpeditionClaimLedger(target_identity, donation_day)
                 intel_expert_ledger: IntelExpertLedger | None = IntelExpertLedger(target_identity, donation_day)
+                intel_execute_ledger = IntelBatchLedger(target_identity, donation_day, "execute")
+                intel_claim_ledger = IntelBatchLedger(target_identity, donation_day, "claim")
             except ValueError:
                 pet_dispatch_ledger = None
                 expedition_ledger = None
                 intel_expert_ledger = None
+                intel_execute_ledger = intel_claim_ledger = None
                 self._log_for_device(target.device, "宠物寻宝未取得完整账号身份；本轮不自动派遣。")
             expedition_attempted = False
             pet_failed_scan = False
@@ -490,6 +490,7 @@ class DailyController:
                             ),
                         ),
                         "retry_at": max(0.0, float(alliance_donation_retry_at)),
+                        "refill_at": alliance_donation_refill_at,
                         "prerequisite_blocked": alliance_donation_prerequisite_blocked,
                     },
                     ensure_ascii=False,
@@ -504,14 +505,21 @@ class DailyController:
                 alliance_donation_window_clicks,
                 alliance_donation_retry_at,
             ) = load_daily_donation_state()
+            alliance_donation_refill_at = 0.0
             try:
                 _saved_donation = json.loads(donation_state_path.read_text(encoding="utf-8"))
                 alliance_donation_prerequisite_blocked = bool(
                     _saved_donation.get("date") == donation_day and _saved_donation.get("prerequisite_blocked")
                 )
+                if _saved_donation.get("date") == donation_day:
+                    refill = float(_saved_donation.get("refill_at", 0.0))
+                    now = time.time()
+                    if now < refill <= now + 610:
+                        alliance_donation_refill_at = refill
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 alliance_donation_prerequisite_blocked = False
             alliance_donation_unavailable = alliance_donation_prerequisite_blocked
+            donation_checked_scan = False
 
             # Migrate historical 30-minute/two-hour retry epochs immediately;
             # repeated restarts must not roll an old failure lock forward.
@@ -529,10 +537,28 @@ class DailyController:
                 alliance_donation_retry_at = time.time() + delay
                 save_daily_donation_state()
 
+            def defer_exhausted_donation(
+                first: tuple[Image.Image, float], second: tuple[Image.Image, float],
+            ) -> None:
+                nonlocal alliance_donation_refill_at
+                crops = []
+                for frame, _ in (first, second):
+                    viewport = content_viewport(frame)
+                    crops.append(donation_recovery_crop(
+                        frame, (viewport.left, viewport.top, viewport.right, viewport.bottom),
+                    ))
+                timer = read_countdown_pair(crops[0], crops[1], first[1], second[1])
+                if timer is None or not 0 < timer.seconds <= 600:
+                    defer_daily_donation(DAILY_DONATION_WINDOW_RETRY_SECONDS)
+                    return
+                alliance_donation_refill_at = timer.due_at + 1.0
+                save_daily_donation_state()
+                self._log_for_device(target.device, f"普通捐献还需约 {timer.seconds} 秒恢复一次；等游戏倒计时结束再复查，本轮继续其他任务。")
+
             def daily_donation_is_deferred() -> bool:
                 """Refresh an expired window, otherwise suppress only donation."""
 
-                nonlocal alliance_donation_retry_at
+                nonlocal alliance_donation_retry_at, alliance_donation_refill_at
                 nonlocal alliance_donation_window_clicks
                 nonlocal alliance_donation_unavailable
                 if alliance_donation_prerequisite_blocked:
@@ -540,18 +566,19 @@ class DailyController:
                 if alliance_donation_confirmed_clicks >= DAILY_DONATION_TASK_TARGET:
                     return True
                 now = time.time()
-                if alliance_donation_retry_at > now:
+                if max(alliance_donation_retry_at, alliance_donation_refill_at) > now:
                     return True
-                if alliance_donation_retry_at > 0.0:
+                if alliance_donation_retry_at > 0.0 or alliance_donation_refill_at > 0.0:
                     # A deadline merely authorises a fresh availability probe;
                     # it never assumes that twenty-five clicks replenished.
                     alliance_donation_retry_at = 0.0
+                    alliance_donation_refill_at = 0.0
                     alliance_donation_window_clicks = 0
                     alliance_donation_unavailable = False
                     save_daily_donation_state()
                     self._log_for_device(
                         target.device,
-                        "联盟捐献等待期限已到；仅恢复一次普通粮食可用性复查，"
+                        "联盟捐献等待期限已到；仅恢复一次普通资源可用性复查，"
                         "仍要求精确蓝色普通捐献按钮和最终灰色状态。",
                     )
                     return False
@@ -881,6 +908,7 @@ class DailyController:
             # keep scanning later Daily items instead of retrying the same
             # card immediately.
             deferred_gather_recheck_at: dict[DailyMissionKind, float] = {}
+            gather_checked_scan: set[DailyMissionKind] = set()
             gather_deferral_state_path = CONFIG_DIR / f"daily_gather_defer_{donation_identity}.json"
             active_gather_retry_epoch: dict[DailyMissionKind, float] = {}
             natural_gather_queue_kinds: set[DailyMissionKind] = set()
@@ -987,6 +1015,7 @@ class DailyController:
                     natural_gather_queue_kinds.add(kind)
                 else:
                     natural_gather_queue_kinds.discard(kind)
+                    gather_checked_scan.add(kind)
                     delay = min(delay, DAILY_RETRY_LOCK_MAX_SECONDS)
                 active_gather_retry_epoch[kind] = time.time() + delay
                 deferred_gather_recheck_at[kind] = time.monotonic() + delay
@@ -1055,6 +1084,22 @@ class DailyController:
                     return first is second
                 return abs(first[0] - second[0]) <= 16 and abs(first[1] - second[1]) <= 16
 
+            def recheck_daily_go(expected, matcher):
+                deadline = time.monotonic() + 2.0
+                for _ in range(3):
+                    if self.stop_event.is_set() or time.monotonic() >= deadline:
+                        break
+                    frame = capture_daily_image()
+                    state = detect_daily_task_state(frame, threshold).state
+                    if state in (DailyTaskState.CLAIM_READY, DailyTaskState.TASK_CLAIM_READY, DailyTaskState.BLOCKED):
+                        break
+                    if state not in (DailyTaskState.DAILY_PAGE, DailyTaskState.DAILY_LOGIN_COMPLETED):
+                        continue
+                    candidate = matcher(frame, threshold)
+                    if candidate and stable(expected.go_point, candidate.go_point):
+                        return frame, candidate
+                return None
+
             def match_reviewed_gather_search(
                 image: Image.Image,
             ) -> tuple[tuple[int, int] | None, float]:
@@ -1085,6 +1130,8 @@ class DailyController:
                     return map_content_point((1330, 2395), (1440, 2560), image), overview_score
                 return None, max(score, overview_score)
 
+            verified_city_entry = None
+
             def match_reviewed_city_daily_entry(
                 image: Image.Image,
             ) -> tuple[tuple[int, int] | None, float]:
@@ -1096,10 +1143,13 @@ class DailyController:
                 proves the main city before the Daily coordinate is exposed.
                 """
 
-                daily_point, daily_score = match_daily_city_entry(image, threshold)
                 wilderness_point, wilderness_score = match_daily_city_wilderness_entry(
                     image, threshold
                 )
+                viewport = content_viewport(image)
+                if wilderness_point and verified_city_entry and viewport == verified_city_entry[0]:
+                    return verified_city_entry[1], wilderness_score
+                daily_point, daily_score = match_daily_city_entry(image, threshold)
                 if daily_point is None or wilderness_point is None:
                     return None, max(daily_score, wilderness_score)
                 return daily_point, min(daily_score, wilderness_score)
@@ -1233,7 +1283,7 @@ class DailyController:
 
                 add_epoch_retry(warehouse_supply_recheck_at, "仓库补给")
                 add_epoch_retry(hero_recruit_recheck_at, "绿色免费招募")
-                add_epoch_retry(alliance_donation_retry_at, "联盟捐献")
+                add_epoch_retry(max(alliance_donation_retry_at, alliance_donation_refill_at), "联盟捐献")
                 add_epoch_retry(
                     failed_training_retry_epoch if failed_training_kinds else 0.0,
                     "训练失败复查",
@@ -2002,7 +2052,7 @@ class DailyController:
             def run_arena_plan() -> bool:
                 """Run only reviewed free Arena attempts, then reopen Daily.
 
-                The only entry lineage is the exact one-attempt Daily card.
+                Entry requires the exact one- or five-attempt Daily card.
                 Once inside, all currently remaining free attempts are drained
                 to zero without revisiting Daily between fights.  The caller
                 returns once so the ordinary exact-claim loop can collect both
@@ -2041,11 +2091,30 @@ class DailyController:
 
                 home_step = wait_state(
                     "万国竞技场首页和免费次数",
-                    lambda frame: match_arena_home(frame, threshold),
+                    lambda frame: expedition_arena_home(frame) or match_arena_home(frame, threshold),
                 )
                 if not home_step:
                     return False
                 _home_image, home = home_step
+                if isinstance(home, tuple):
+                    if not run_expedition_arena(
+                        lambda: target.screenshot(timeout=3), target.tap, self.stop_event.wait,
+                        lambda message: self._log_for_device(target.device, message), _arena_numeric_reading,
+                    ):
+                        return False
+                    close_list = wait_state("万国竞技场列表关闭", expedition_arena_list_close)
+                    if not close_list or self.stop_event.is_set():
+                        return False
+                    target.tap(*close_list[1])
+                    home_return = wait_state("返回万国探险竞技场首页", expedition_arena_home)
+                    if not home_return or self.stop_event.is_set():
+                        return False
+                    target.tap(*map_content_point((78, 75), (1440, 2560), home_return[0]))
+                    city = wait_state("主城每日任务入口", lambda frame: match_reviewed_city_daily_entry(frame)[0])
+                    if not city or self.stop_event.is_set():
+                        return False
+                    target.tap(*city[1])
+                    return True
                 if home.remaining <= 0 or home.challenge_point is None:
                     self._log_for_device(target.device, "竞技场没有可证明的免费挑战次数；未点击挑战。")
                     return False
@@ -2650,6 +2719,8 @@ class DailyController:
                 map_image: Image.Image | None = None
                 image: Image.Image | None = None
                 station_sent = False
+                wilderness_sent = False
+                prior_wilderness = None
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     image = capture_daily_image()
                     page = detect_daily_task_state(image, threshold)
@@ -2674,13 +2745,23 @@ class DailyController:
                         if city_entry:
                             station_point, station_score = intel_station_expert(image)
                     if station_point is None:
-                        station_point, station_score = match_daily_intel_map_entry(
+                        station_point, station_score = match_intel_wilderness_entry(
                             image, threshold
                         )
                     if station_point is None and batch_count == 0:
                         station_point = match_daily_intel_tutorial_station(image)
                         if station_point is not None:
                             station_score = 1.0
+                    if (station_point is None and not station_sent and not wilderness_sent
+                            and batch_count == 0 and page.state is DailyTaskState.CITY_ENTRY):
+                        wilderness, _ = match_daily_city_wilderness_entry(image, threshold)
+                        if wilderness and stable(wilderness, prior_wilderness):
+                            target.tap(*wilderness)
+                            wilderness_sent = True
+                            self._log_for_device(target.device, "情报前往落在主城且无灯塔气泡；从双帧确认的荒野入口寻找情报快捷按钮。")
+                        prior_wilderness = wilderness
+                    else:
+                        prior_wilderness = None
                     if station_point and stable(station_point, prior_station):
                         station_streak += 1
                     elif station_point:
@@ -2761,12 +2842,35 @@ class DailyController:
                         self._log_for_device(target.device, "情报专家结果未确认；停止且不重复点击。")
                         return False
 
+                if intel_execute_ledger is not None and intel_claim_ledger is not None:
+                    outcome = run_intel_bulk_action(
+                        map_image, lambda: target.screenshot(timeout=3), target.tap, self.stop_event.wait,
+                        threshold, intel_execute_ledger, intel_claim_ledger,
+                    )
+                    if outcome in ("started", "running", "claimed"):
+                        verify_map = wait_for_gather_step(
+                            "快捷情报完成后的地图返回",
+                            lambda frame: ((daily_intel_map_back_point(frame), 1.0)
+                                           if match_daily_intel_map_page(frame, threshold)[0] else (None, 0.0)),
+                            5.0,
+                        )
+                        if not verify_map:
+                            return False
+                        if outcome == "claimed":
+                            self._log_for_device(target.device, "已一键领取情报奖励并复核地图，返回每日任务结算活跃度。")
+                        else:
+                            self._log_for_device(target.device, "已双帧确认情报批量执行，先继续其他每日任务，下一轮复查领取。")
+                        target.tap(*verify_map[1])
+                        return reopen_daily()
+                    if outcome != "unsupported":
+                        self._log_for_device(target.device, "情报快捷操作结果未确认；保留记录，停止且不重复输入。")
+                        return False
+
                 # The already-verified map frame is the first passive proof;
                 # do not throw it away and then wait to recapture two more.
                 # Two frames of one exact reviewed clue authorise one click.
                 # Prefer tents, then crossed swords. Wolves are never a
                 # fallback solely because they are green.
-                map_deadline = time.monotonic() + bounded_step_timeout(3.0)
                 initial_tent, _initial_tent_score = match_daily_intel_rescue_pin(
                     map_image, threshold
                 )
@@ -2786,6 +2890,10 @@ class DailyController:
                 )
                 prior_clue = initial_check or initial_tent or initial_swords
                 clue_streak = 1 if prior_clue else 0
+                # Candidate analysis itself can consume the old three-second
+                # window. Start a bounded passive recheck after that analysis,
+                # so a live animated pin can actually receive a second proof.
+                map_deadline = time.monotonic() + bounded_step_timeout(10.0)
                 page_streak = 1
                 last_map_image = map_image
                 clue_kind = ""
@@ -3656,6 +3764,8 @@ class DailyController:
                                 f"{label}采集无法证明资源点不少于任务所需 {required_amount:,}；已暂停，未点击搜索。",
                             )
                             return False
+                        if match_musk_ox_buff(filter_stage[1]) and match_musk_ox_buff(capture_daily_image()):
+                            self._log_for_device(target.device, f"{label}采集：已双帧确认麝牛重物搬运生效；抵达后复查，不再次激活。")
                         search_point = daily_gather_search_point(selector)
                         target.tap(*search_point)
                         self._log_for_device(target.device, f"{label}采集：已点击普通资源搜索 {search_point}。")
@@ -4588,7 +4698,7 @@ class DailyController:
                 self._log_for_device(target.device, "建筑任务启动后未复核到每日任务入口；未继续输入。")
                 return False
 
-            def run_alliance_help_cycle(daily_image: Image.Image) -> bool:
+            def run_alliance_help_cycle(daily_image: Image.Image, *, check_help: bool = True) -> bool:
                 """Clear available alliance help, then reopen Daily Tasks.
 
                 This is a bounded navigation loop made of the independently
@@ -4598,6 +4708,7 @@ class DailyController:
                 close.  The Daily Tasks X is used only while this same worker
                 has a verified Daily page in hand.
                 """
+                nonlocal claim_result_exit_count
                 target.tap(*daily_task_close_point(daily_image))
                 self._log_for_device(target.device, "每日流程：关闭已验证的每日任务页，开始检查联盟全部帮助。")
                 # Each exact all-help action is double-frame checked before
@@ -4619,6 +4730,7 @@ class DailyController:
                 prior_home_exit: tuple[int, int] | None = None
                 home_exit_streak = 0
                 city_to_alliance = False
+                city_to_alliance_at = 0.0
                 mutual_entry_tapped = False
                 prior_alliance_entry: tuple[int, int] | None = None
                 alliance_entry_streak = 0
@@ -4628,6 +4740,8 @@ class DailyController:
                 relocate_streak = 0
                 relocation_closed = False
                 daily_still_open_streak = 0
+                back_from_recent_reward = False
+                rewards_checked = False
                 close_settle_deadline = time.monotonic() + 1.5
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     if duration and time.monotonic() - started >= duration * 60:
@@ -4639,6 +4753,24 @@ class DailyController:
                         continue
                     image = daily_screenshot()
                     page = detect_alliance_page(image, threshold)
+                    if (not back_from_recent_reward and page.page is AlliancePage.UNKNOWN
+                            and time.monotonic() < recent_claim_result_deadline):
+                        result = diagnose_daily_abnormal_exit(image, threshold)
+                        if result.kind is DailyAbnormalExitKind.REWARD_TAP_ANYWHERE and result.point:
+                            verify = diagnose_daily_abnormal_exit(daily_screenshot(), threshold)
+                            if (verify.kind is not DailyAbnormalExitKind.REWARD_TAP_ANYWHERE
+                                    or not stable(result.point, verify.point)):
+                                continue
+                            if self.stop_event.is_set() or claim_result_exit_count >= claim_result_exit_cap:
+                                return False
+                            target.tap(*result.point)
+                            claim_result_exit_count += 1
+                            self._log_for_device(target.device, "联盟返回途中出现同次领取的关联奖励；已双帧确认并退出一层，继续复核主城。")
+                            # The next pass waits for a known page. The same
+                            # delayed layer has no second dismissal authority.
+                            back_from_recent_reward = True
+                            unknown_frames = 0
+                            continue
                     # The close can be consumed by the preceding reward
                     # animation.  Do not repeat an input with an unknown
                     # acknowledgement: if Daily itself remains visible in
@@ -4708,6 +4840,22 @@ class DailyController:
                             back_from_mutual = True
                             self._log_for_device(target.device, "联盟互助页无全部帮助，已从已验证页面返回联盟主页。")
                     elif page.page is AlliancePage.ALLIANCE_HOME:
+                        if collect_alliance_chests and not rewards_checked:
+                            rewards_checked = True
+                            if not run_alliance_rewards(
+                                lambda: target.screenshot(timeout=3), target.tap,
+                                lambda start, end: target.shell(
+                                    ["input", "swipe", *map(str, start), *map(str, end), "440"], timeout=4,
+                                ),
+                                self.stop_event.wait, lambda message: self._log_for_device(target.device, message),
+                                threshold,
+                            ):
+                                self._log_for_device(target.device, "可选联盟奖励路线未确认回到联盟主页；保留现场。")
+                                return False
+                            deadline = time.monotonic() + AUTOMATION_STEP_TIMEOUT_SECONDS
+                            continue
+                        if not check_help:
+                            mutual_entry_tapped = True
                         if not mutual_entry_tapped and page.point:
                             if stable(page.point, prior_mutual_entry):
                                 mutual_entry_streak += 1
@@ -4750,15 +4898,19 @@ class DailyController:
                             if alliance_entry_streak >= 2 and entry_point:
                                 target.tap(*entry_point)
                                 city_to_alliance = True
+                                city_to_alliance_at = time.monotonic()
                                 prior_alliance_entry, alliance_entry_streak = None, 0
                                 self._log_for_device(target.device, f"每日流程：从已验证主城进入联盟 {entry_point}。")
                             if adaptive_operation_wait(maximum=0.50):
                                 return False
                             continue
-                        # Returning to city is allowed only after the worker
-                        # has first visited Alliance Home and backed out from
-                        # the checked Mutual Help page.
-                        if not back_from_home:
+                        # If the Alliance entry did not settle and the game
+                        # stayed in the city, yield the optional route once.
+                        city_entry_unacknowledged = (
+                            not mutual_entry_tapped and city_to_alliance_at > 0
+                            and time.monotonic() - city_to_alliance_at >= 1.5
+                        )
+                        if not back_from_home and not city_entry_unacknowledged:
                             if adaptive_operation_wait(maximum=0.50):
                                 return False
                             continue
@@ -4771,7 +4923,10 @@ class DailyController:
                             prior_city, city_streak = None, 0
                         if city_streak >= 2 and city_point:
                             target.tap(*city_point)
-                            self._log_for_device(target.device, f"联盟帮助检查完成，已重开每日任务入口 {city_point}。")
+                            if city_entry_unacknowledged:
+                                self._log_for_device(target.device, "联盟入口点击后仍双帧确认在主城；本轮跳过互助，已重开每日任务。")
+                            else:
+                                self._log_for_device(target.device, f"联盟帮助检查完成，已重开每日任务入口 {city_point}。")
                             return True
                     else:
                         unknown_frames += 1
@@ -5146,6 +5301,7 @@ class DailyController:
                 image: Image.Image | None = None
                 food_streak = 0
                 grey_streak = 0
+                grey_sample: tuple[Image.Image, float] | None = None
                 previous_food: tuple[int, int] | None = None
                 prerequisite_streak = 0
                 prerequisite_sent: set[str] = set()
@@ -5161,6 +5317,7 @@ class DailyController:
                     and time.monotonic() < availability_deadline
                 ):
                     candidate = capture_daily_image()
+                    candidate_at = time.time()
                     locked_close = match_daily_deep_tech_locked_close(candidate)
                     if locked_close is not None:
                         locked_streak += 1
@@ -5175,10 +5332,10 @@ class DailyController:
                             break
                         continue
                     locked_streak = 0
-                    candidate_food, _ = match_daily_alliance_food_donation(
+                    candidate_food, _ = normal_resource_donation(
                         candidate, threshold
                     )
-                    candidate_page = daily_alliance_donation_page_is_visible(
+                    candidate_page = normal_resource_donation_page(
                         candidate, threshold
                     )
                     prerequisite = match_daily_sustain_prerequisite_go(candidate)
@@ -5213,12 +5370,10 @@ class DailyController:
                         grey_streak += 1
                         food_streak = 0
                         previous_food = None
-                        if grey_streak >= 2:
+                        if grey_streak >= 2 and grey_sample is not None:
                             image = candidate
                             alliance_donation_unavailable = True
-                            defer_daily_donation(
-                                DAILY_DONATION_UNAVAILABLE_RETRY_SECONDS
-                            )
+                            defer_exhausted_donation(grey_sample, (candidate, candidate_at))
                             self._log_for_device(
                                 target.device,
                                 "联盟捐献任务：连续两帧确认普通粮食按钮已灰；"
@@ -5226,6 +5381,7 @@ class DailyController:
                                 "黄色钻石捐献未触碰。",
                             )
                             break
+                        grey_sample = (candidate, candidate_at)
                     else:
                         food_streak = 0
                         grey_streak = 0
@@ -5271,32 +5427,38 @@ class DailyController:
                     # Consecutive recognition starts immediately: processing
                     # time is not padded by an intentional delay.  Exactly two
                     # frames are enough for this single reviewed hold.
-                    for _post_index in range(2):
+                    grey_sample = None
+                    for _post_index in range(4):
                         if (
                             self.stop_event.is_set()
                             or time.monotonic() >= donation_route_deadline
                         ):
                             break
                         candidate = capture_daily_image()
-                        candidate_food, _ = match_daily_alliance_food_donation(
+                        candidate_at = time.time()
+                        candidate_food, _ = normal_resource_donation(
                             candidate, threshold
                         )
                         disabled = (
                             candidate_food is None
-                            and daily_alliance_donation_page_is_visible(candidate, threshold)
+                            and normal_resource_donation_page(candidate, threshold)
                         )
                         post_blue_streak = post_blue_streak + 1 if candidate_food else 0
                         disabled_streak = disabled_streak + 1 if disabled else 0
                         post_image = candidate
+                        if disabled_streak >= 2 and grey_sample is not None:
+                            defer_exhausted_donation(grey_sample, (candidate, candidate_at))
+                            break
+                        grey_sample = (candidate, candidate_at) if disabled else None
+                        if post_blue_streak >= 2:
+                            break
                     if disabled_streak >= 2:
                         alliance_donation_window_clicks = DAILY_DONATION_WINDOW_CAP
                         alliance_donation_unavailable = True
-                        defer_daily_donation(DAILY_DONATION_WINDOW_RETRY_SECONDS)
                         self._log_for_device(
                             target.device,
                             "联盟捐献任务：10000ms 长按后连续两帧确认普通捐献按钮变灰，"
-                            "当前可用窗口耗尽；不按时长推断次数，具体增长由每日任务页复核，"
-                            "10 秒后仅复查下一窗口。",
+                            "当前可用窗口耗尽；具体增长由每日任务页复核。",
                         )
                     elif post_blue_streak >= 2:
                         alliance_donation_unavailable = True
@@ -5325,7 +5487,7 @@ class DailyController:
                         "联盟捐献关联路线已达到30秒总上限；未再发送返回或恢复输入。",
                     )
                     return False
-                if not locked_skipped and not daily_alliance_donation_page_is_visible(image, threshold):
+                if not locked_skipped and not normal_resource_donation_page(image, threshold):
                     self._log_for_device(target.device, "联盟捐献结束时未复核到捐献页；未执行返回输入。")
                     return False
                 # Android Back is permitted only after the dual donation
@@ -5381,14 +5543,7 @@ class DailyController:
                 return False
 
             def run_free_hero_recruit_plan() -> bool:
-                """Use exactly one verified green free hero recruit.
-
-                A yellow key recruit, a 10x recruit, and every paid option
-                fail the free-green template and consequently have no click
-                path. The current Daily card requires one recruit. Its reward
-                sheet is closed only with Android Back after a two-frame,
-                same-run match; no coordinate on that sheet is tappable.
-                """
+                """Check each free tier once, settling each reward before checking the next."""
                 nonlocal hero_recruit_unavailable
 
                 stage = wait_for_gather_step(
@@ -5428,7 +5583,7 @@ class DailyController:
                             match_daily_hero_recruit_duplicate_result(image, threshold)
                         )
                         summary_point, _summary_score = (
-                            match_daily_hero_recruit_summary_exit(image, threshold)
+                            match_daily_hero_recruit_summary_exit(image, threshold, at_phrase=True)
                         )
                         if summary_point:
                             kind, point = "summary", summary_point
@@ -5449,30 +5604,20 @@ class DailyController:
                             return None
                     return None
 
-                recruits = 0
-                for index in range(1):
+                for lower_tier, label in ((True, "史诗招募"), (False, "高级招募")):
                     stage = wait_for_gather_step(
-                        "绿色免费招募按钮",
-                        lambda image: match_daily_hero_free_recruit(image, threshold),
-                        16.0,
+                        f"绿色免费{label}按钮",
+                        lambda image: (match_daily_hero_free_recruit(image, threshold, lower_tier=lower_tier)
+                                       if daily_hero_recruit_page_is_visible(image, threshold) else (None, 0.0)),
+                        2.5,
                     )
                     if not stage:
-                        image = daily_screenshot()
-                        if daily_hero_recruit_page_is_visible(image, threshold):
-                            defer_hero_recruit()
-                            self._log_for_device(
-                                target.device,
-                                "英雄任务：当前没有已验证的绿色免费高级招募；保留钥匙/钻石按钮不点，"
-                                "记录本账号五分钟冷却并继续其他每日任务。",
-                            )
-                            break
-                        self._log_for_device(target.device, "英雄任务免费招募按钮未确认且页面变化；未继续输入。")
-                        return False
+                        continue
                     _image, free_point = stage
+                    if self.stop_event.is_set():
+                        return False
                     target.tap(*free_point)
-                    recruits += 1
-                    defer_hero_recruit()
-                    self._log_for_device(target.device, f"英雄任务：点击已验证的绿色免费招募 {free_point}（{recruits}/1）。")
+                    self._log_for_device(target.device, f"英雄任务：点击已双帧确认的免费{label} {free_point}。")
 
                     result = wait_for_correlated_hero_result(30.0)
                     if not result:
@@ -5498,7 +5643,7 @@ class DailyController:
                     self._log_for_device(
                         target.device,
                         f"英雄任务：完整‘点击任意位置退出’文字已双帧OCR确认；"
-                        f"只点击侧边空白点 {result_point}，未点击黄色招募、钥匙或钻石。",
+                        f"点击退出文字 {result_point}。",
                     )
                     if adaptive_operation_wait(maximum=0.50):
                         return False
@@ -5516,6 +5661,7 @@ class DailyController:
                 if not page_stage:
                     self._log_for_device(target.device, "英雄任务结束时未双帧确认招募页；未执行返回。")
                     return False
+                defer_hero_recruit()
                 _page_image, back_point = page_stage
                 target.tap(*back_point)
                 self._log_for_device(target.device, f"英雄任务：从已验证招募页返回主城 {back_point}。")
@@ -5953,7 +6099,7 @@ class DailyController:
                                             "每日启动恢复：已从双帧确认的行军中资源筛选页返回世界地图；"
                                             "未召回、未加速、未派新队，准备继续非行军每日项目。",
                                         )
-                                continue
+                                    continue
                             active_selector_recovery_streak = 0
                         if (
                             page.state is DailyTaskState.UNKNOWN
@@ -6501,7 +6647,7 @@ class DailyController:
                                             "每日流程：已从双帧确认的行军中资源筛选页返回世界地图；"
                                             "未召回、未加速、未派新队，准备继续非行军每日项目。",
                                         )
-                                continue
+                                    continue
                             active_selector_recovery_streak = 0
 
                         # A previous safe run can stop while the ordinary
@@ -6588,7 +6734,8 @@ class DailyController:
                                 f"双图OCR确认奖励页显示点击任意位置退出（{abnormal_streak}/2）"
                             )
                             if abnormal_streak >= 2 and abnormal.point is not None:
-                                exit_point = abnormal.point
+                                exit_point, _ = match_daily_hero_recruit_summary_exit(image, threshold, at_phrase=True)
+                                exit_point = exit_point or abnormal.point
                                 target.tap(*exit_point)
                                 claim_result_exit_count += 1
                                 pending_claim = False
@@ -6680,7 +6827,8 @@ class DailyController:
                                     f"双图OCR确认异常页显示点击任意位置退出（{abnormal_streak}/2）"
                                 )
                                 if abnormal_streak >= 2 and abnormal.point is not None:
-                                    target.tap(*abnormal.point)
+                                    exit_point, _ = match_daily_hero_recruit_summary_exit(image, threshold, at_phrase=True)
+                                    target.tap(*(exit_point or abnormal.point))
                                     claim_result_exit_count += 1
                                     pending_claim = False
                                     pending_claim_deadline = 0.0
@@ -6793,11 +6941,12 @@ class DailyController:
                                         expedition_reward_exit, expedition_ledger.reserve, expedition_ledger.confirm,
                                         lambda message: self._log_for_device(target.device, message),
                                     )
-                                    if outcome != "claimed":
+                                    if outcome not in ("claimed", "unavailable"):
                                         set_state("探险收益状态未完整确认，已停止且未重复输入")
                                         break
                                     last_state = None
                                     continue
+                                verified_city_entry = (content_viewport(image), city_point)
                                 target.tap(*city_point)
                                 city_entry_tapped = True
                                 transition_deadline = time.monotonic() + 8.0
@@ -6907,7 +7056,7 @@ class DailyController:
                                 self._log_for_device(
                                     target.device,
                                     f"点击已验证的每日领取按钮 {authorized_claim_point}"
-                                    f"（累计 {claims} 次）；达到325后仍允许排空当前已完成奖励，"
+                                    f"（累计 {claims} 次）；"
                                     "但不会为未完成项新增操作。",
                                 )
                             continue
@@ -6972,68 +7121,31 @@ class DailyController:
                                 continue
                             activity_ocr = read_daily_activity_score(image)
                             if activity_ocr is None:
-                                activity_points = 0.0
+                                activity_points = last_verified_daily_score
                                 activity_confidence = 0.0
                             else:
                                 activity_points = float(activity_ocr[0])
                                 activity_confidence = activity_ocr[1]
-                            # Check if target reached: score >= 325 with high confidence
-                            if (
-                                activity_confidence >= 0.70
-                                and activity_points >= 325.0
-                            ):
-                                activity_goal_streak += 1
+                                if activity_confidence >= 0.70:
+                                    last_verified_daily_score = activity_points
+                            if not activity_milestone_confirmed:
+                                if activity_confidence >= 0.70 and activity_points >= 325.0:
+                                    activity_goal_streak += 1
+                                else:
+                                    activity_goal_streak = 0
                                 if activity_goal_streak >= 2:
-                                    activity_goal_confirmed = True
-                            else:
-                                activity_goal_streak = 0
-
-                            # A single full-bar frame freezes new task routes
-                            # while the second frame is checked.  Once confirmed,
-                            # 325 is a minimum target rather than a reward ceiling:
-                            # completed claims and reached chests may still drain,
-                            # but no Go/training/gather/donation/build route may
-                            # begin.  The claim-only list scan below starts from a
-                            # freshly proven top boundary.
-                            if activity_goal_streak and not activity_goal_confirmed:
-                                set_state(
-                                    f"复核每日活跃度满格 325/325（{activity_goal_streak}/2）；暂不执行新任务"
-                                )
-                                if self.stop_event.wait(interval):
-                                    break
-                                continue
-                            if activity_goal_confirmed:
-                                if not activity_goal_claim_scan_started:
-                                    activity_goal_claim_scan_started = True
-                                    daily_completed_zone_wait_after_top = False
-                                    restart_daily_list_scan()
-                                    last_state = None
-                                if not activity_goal_claim_drain_announced:
-                                    activity_goal_claim_drain_announced = True
+                                    activity_milestone_confirmed = True
                                     self._log_for_device(
                                         target.device,
-                                        "每日活跃度已连续两帧可靠确认达到至少 325；"
-                                        "停止全部新增进度路线，改为从列表顶部只排空当前已完成奖励，"
-                                        "允许最终活跃度超过 325。",
+                                        '每日活跃度已达 325，继续处理剩余日常。',
                                     )
-                                set_state("已达到至少325：仅排空已完成奖励，不执行任何前往")
-                            elif not alliance_help_checked:
+                            if not alliance_help_checked:
                                 alliance_help_checked = True
-                                set_state("每日流程：检查联盟全部帮助")
-                                if not run_alliance_help_cycle(image):
-                                    set_state("联盟帮助步骤未完整确认，已停止且未作恢复输入")
+                                set_state("每日流程：检查联盟奖励和互助")
+                                if not run_alliance_help_cycle(image, check_help=True):
+                                    set_state("联盟步骤未完整确认，已停止且未作恢复输入")
                                     break
                                 city_entry_tapped = True
-                                # The helper has just tapped the verified
-                                # city entry itself.  Treat the following
-                                # task-sheet animation exactly like a direct
-                                # city-entry tap; it can otherwise produce a
-                                # single unknown frame before the daily page
-                                # is fully rendered.
-                                # One live high-level transition settled just
-                                # after the old eight-second boundary.  This
-                                # remains an absolute passive deadline, never
-                                # one long sleep or authority for a new input.
                                 transition_deadline = time.monotonic() + 16.0
                                 daily_tab_tapped = False
                                 restart_daily_list_scan()
@@ -7167,129 +7279,6 @@ class DailyController:
                                 set_state("复核每日任务页以安全回到列表顶部（1/2）")
                                 continue
 
-                            if activity_goal_confirmed:
-                                # Claim-only terminal scan.  Claim-ready page
-                                # states were handled before this branch, so
-                                # every frame here is observational evidence.
-                                # Starting from the proven top, stop as soon as
-                                # the sorted list reaches the completed-check
-                                # zone, or after two stationary bottom gestures.
-                                # No task matcher or Go coordinate is evaluated.
-                                completed_check, completed_check_score = (
-                                    match_daily_task_completed_check(image, threshold)
-                                )
-                                if completed_check:
-                                    daily_completed_zone_streak += 1
-                                else:
-                                    daily_completed_zone_streak = 0
-                                if daily_completed_zone_streak == 1:
-                                    set_state(
-                                        "达标后只领取扫描：复核已完成打勾区（1/2）"
-                                    )
-                                    continue
-                                if daily_completed_zone_streak >= 2:
-                                    set_state(
-                                        f"已排空当前完成奖励，最终活跃度约 {activity_points:.0f}"
-                                    )
-                                    self._log_for_device(
-                                        target.device,
-                                        "达标后已从双重确认顶部扫描到绿色打勾区，"
-                                        "期间无剩余领取按钮；"
-                                        f"最终活跃度约 {activity_points:.0f}，"
-                                        f"打勾模板 {completed_check_score:.4f}。"
-                                        "未点击任何前往或未完成任务。",
-                                    )
-                                    break
-
-                                if daily_list_scan_before_image is not None:
-                                    movement = daily_task_list_viewport_mean_change(
-                                        daily_list_scan_before_image, image
-                                    )
-                                    daily_list_scan_before_image = None
-                                    if (
-                                        movement
-                                        <= DAILY_TASK_LIST_BOUNDARY_MAX_MEAN_CHANGE
-                                    ):
-                                        daily_list_bottom_boundary_streak += 1
-                                    else:
-                                        daily_list_bottom_boundary_streak = 0
-                                    self._log_for_device(
-                                        target.device,
-                                        "达标后只领取扫描的列表平均变化为 "
-                                        f"{movement:.3f}；底部静止确认 "
-                                        f"{daily_list_bottom_boundary_streak}/"
-                                        f"{DAILY_TASK_LIST_BOUNDARY_CONFIRMATIONS}。",
-                                    )
-
-                                bottom_boundary_confirmed = (
-                                    daily_list_bottom_boundary_streak
-                                    >= DAILY_TASK_LIST_BOUNDARY_CONFIRMATIONS
-                                )
-                                if bottom_boundary_confirmed:
-                                    set_state(
-                                        f"已排空当前完成奖励，最终活跃度约 {activity_points:.0f}"
-                                    )
-                                    self._log_for_device(
-                                        target.device,
-                                        "达标后已从双重确认顶部扫描到双重确认底部，"
-                                        "期间无剩余领取按钮；"
-                                        f"最终活跃度约 {activity_points:.0f}。"
-                                        "未点击任何前往或未完成任务。",
-                                    )
-                                    break
-                                if daily_scrolls >= DAILY_TASK_LIST_MAX_SCAN_SWIPES:
-                                    set_state(
-                                        "达标后只领取扫描未在限次内确认边界：不输入并停止"
-                                    )
-                                    self._log_for_device(
-                                        target.device,
-                                        "达标后只领取扫描达到十二次手势上限，"
-                                        "但未证明绿色打勾区或列表底部；"
-                                        "没有点击前往，已安全停止。",
-                                    )
-                                    break
-                                if streak >= 2:
-                                    viewport = (
-                                        DAILY_TASK_LIST_GESTURE_X,
-                                        1750,
-                                        DAILY_TASK_LIST_GESTURE_X,
-                                        1000,
-                                    )
-                                    start_point = map_content_point(
-                                        (viewport[0], viewport[1]),
-                                        (1440, 2560),
-                                        image,
-                                    )
-                                    end_point = map_content_point(
-                                        (viewport[2], viewport[3]),
-                                        (1440, 2560),
-                                        image,
-                                    )
-                                    daily_list_scan_before_image = image.copy()
-                                    target.shell(
-                                        [
-                                            "input",
-                                            "swipe",
-                                            str(start_point[0]),
-                                            str(start_point[1]),
-                                            str(end_point[0]),
-                                            str(end_point[1]),
-                                            "900",
-                                        ]
-                                    )
-                                    daily_scrolls += 1
-                                    last_state = None
-                                    set_state(
-                                        "达标后只领取扫描：检查下一视口"
-                                        f"（{daily_scrolls}/"
-                                        f"{DAILY_TASK_LIST_MAX_SCAN_SWIPES}）"
-                                    )
-                                    if adaptive_operation_wait(maximum=0.50):
-                                        break
-                                    continue
-                                set_state("达标后只领取扫描：复核每日任务页（1/2）")
-                                continue
-
                             warehouse_mission = (
                                 None
                                 if warehouse_supply_is_deferred()
@@ -7406,32 +7395,14 @@ class DailyController:
                             if intel_mission:
                                 set_state(f"发现已验证的非战斗情报营救任务（{streak}/2）")
                                 if streak >= 2:
-                                    verify_image = daily_screenshot()
-                                    verify_page = detect_daily_task_state(
-                                        verify_image, threshold
-                                    )
-                                    verified_intel = match_daily_intel_mission(
-                                        verify_image, threshold
-                                    )
-                                    if not (
-                                        verify_page.state
-                                        in (
-                                            DailyTaskState.DAILY_PAGE,
-                                            DailyTaskState.DAILY_LOGIN_COMPLETED,
-                                        )
-                                        and verified_intel
-                                        and stable(
-                                            verified_intel.go_point,
-                                            intel_mission.go_point,
-                                        )
-                                    ):
-                                        set_state("情报任务二次复核未通过：不输入并停止")
-                                        self._log_for_device(
-                                            target.device,
-                                            "情报任务在二次复核中变化；未点击前往。",
-                                        )
-                                        break
+                                    checked = recheck_daily_go(intel_mission, match_daily_intel_mission)
+                                    if checked is None:
+                                        intel_failed_scan = True
+                                        last_state = None
+                                        continue
+                                    verify_image, verified_intel = checked
                                     intel_route_attempted = True
+                                    intel_failed_scan = True
                                     intel_route_retry_at = (
                                         time.monotonic()
                                         + DAILY_RETRY_LOCK_MAX_SECONDS
@@ -7536,36 +7507,33 @@ class DailyController:
                             donation_mission = (
                                 None
                                 if alliance_donation_confirmed_clicks >= DAILY_DONATION_TASK_TARGET
+                                or donation_checked_scan
                                 or daily_donation_is_deferred()
                                 else match_daily_alliance_donate_mission(image, threshold)
                             )
                             if donation_mission:
                                 set_state(f"发现已验证的联盟普通捐献任务（{streak}/2）")
                                 if streak >= 2:
-                                    verify_image = daily_screenshot()
-                                    verify_page = detect_daily_task_state(verify_image, threshold)
-                                    verified_donation = match_daily_alliance_donate_mission(verify_image, threshold)
-                                    if not (
-                                        verify_page.state in (DailyTaskState.DAILY_PAGE, DailyTaskState.DAILY_LOGIN_COMPLETED)
-                                        and verified_donation
-                                        and stable(verified_donation.go_point, donation_mission.go_point)
-                                    ):
-                                        set_state("联盟捐献任务二次复核未通过：不输入并停止")
-                                        self._log_for_device(target.device, "联盟捐献任务在二次复核中变化；未点击前往。")
-                                        break
+                                    checked = recheck_daily_go(donation_mission, match_daily_alliance_donate_mission)
+                                    if checked is None:
+                                        donation_checked_scan = True
+                                        last_state = None
+                                        continue
+                                    _, verified_donation = checked
+                                    donation_checked_scan = True
                                     target.tap(*verified_donation.go_point)
                                     self._log_for_device(
                                         target.device,
                                         f"点击已双帧确认的联盟捐献任务前往 {verified_donation.go_point}；"
-                                        "后续只允许对双帧蓝色普通肉类捐献按钮执行一次10000ms长按，"
+                                        "后续只允许对双帧蓝色普通资源捐献按钮执行一次10000ms长按，"
                                         "长按后立即双帧确认灰色状态且绝不连按"
                                         f"（持久化今日 "
                                         f"{alliance_donation_confirmed_clicks}/{DAILY_DONATION_TASK_TARGET}）。",
                                     )
                                     last_state = None
-                                    set_state("已进入联盟普通肉类捐献路线")
+                                    set_state("已进入联盟普通资源捐献路线")
                                     if not run_alliance_food_donation_plan():
-                                        set_state("联盟普通肉类捐献路线未完整确认，已停止且未作恢复输入")
+                                        set_state("联盟普通资源捐献路线未完整确认，已停止且未作恢复输入")
                                         break
                                     city_entry_tapped = True
                                     transition_deadline = time.monotonic() + 8.0
@@ -7581,21 +7549,10 @@ class DailyController:
                                 building_upgrade_retry_at = 0.0
                             building_mission = (
                                 None
-                                if building_upgrade_unavailable or building_failed_scan
+                                if building_upgrade_unavailable or building_failed_scan or building_upgrade_started
                                 else match_daily_building_upgrade_mission(image, threshold)
                             )
                             if building_mission:
-                                if building_upgrade_started:
-                                    # The exact unfinished task remains visible
-                                    # until its natural construction timer ends.
-                                    # Keep observing it rather than re-entering
-                                    # the building or touching any speed-up.
-                                    restart_daily_list_scan()
-                                    set_state("普通建筑升级进行中：等待自然完成，不使用加速")
-                                    if adaptive_operation_wait(maximum=1.0):
-                                        break
-                                    last_state = None
-                                    continue
                                 set_state(f"发现已验证的建筑升级任务（{streak}/2）")
                                 if streak >= 2:
                                     verify_image = daily_screenshot()
@@ -8032,6 +7989,8 @@ class DailyController:
                             if daily_completed_zone_streak >= 2:
                                 training_failed_scan_kinds.clear()
                                 intel_failed_scan = False
+                                donation_checked_scan = False
+                                gather_checked_scan.clear()
                                 pet_failed_scan = False
                                 building_failed_scan = False
                                 if alliance_donation_prerequisite_blocked:
@@ -8082,6 +8041,8 @@ class DailyController:
                             if bottom_boundary_confirmed:
                                 training_failed_scan_kinds.clear()
                                 intel_failed_scan = False
+                                donation_checked_scan = False
+                                gather_checked_scan.clear()
                                 pet_failed_scan = False
                                 building_failed_scan = False
                                 if alliance_donation_prerequisite_blocked:
@@ -8144,12 +8105,6 @@ class DailyController:
                                     break
                                 continue
                             if bottom_boundary_confirmed:
-                                # A fully scanned list below the requested
-                                # target is not a completion condition.  Some
-                                # Daily tasks settle on a timer or are exposed
-                                # only after refresh; keep the worker alive
-                                # and rescan later instead of declaring success
-                                # at (for example) 185/325.
                                 (
                                     idle_wait_seconds,
                                     idle_wait_label,
@@ -8163,12 +8118,12 @@ class DailyController:
                                 restart_daily_list_scan()
                                 last_state = None
                                 set_state(
-                                    f"每日活跃度 {estimated}/325，未找到已验证路线；{idle_wait_label}后重新扫描"
+                                    f"每日活跃度 {estimated}，当前无可执行项；{idle_wait_label}后重新扫描"
                                 )
                                 self._log_for_device(
                                     target.device,
                                     (
-                                        f"每日任务已从双重确认顶部扫描到双重确认底部但未到 325（估算 {estimated}）；"
+                                        f"每日任务已从双重确认顶部扫描到双重确认底部（活跃度估算 {estimated}）；"
                                         f"{'检测到刷新倒计时，' if refresh_visible else ''}保留运行并在 {idle_wait_label}后重扫。"
                                     ),
                                 )

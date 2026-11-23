@@ -4320,6 +4320,8 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
             command += ["--auto-red-packet", "--interval", str(self.red_packet_interval_spin.value())]
         elif startup_mode == "daily":
             command += ["--auto-daily", "--interval", str(self.daily_interval_spin.value())]
+            if self.daily_alliance_chests_check.isChecked():
+                command.append("--daily-alliance-chests")
         elif startup_mode == "beast_rally":
             command += ["--auto-beast-rally"]
         return command
@@ -4624,6 +4626,7 @@ def main() -> None:
     parser.add_argument("--all-auto-red-packet", action="store_true")
     parser.add_argument("--auto-daily", action="store_true")
     parser.add_argument("--all-auto-daily", action="store_true")
+    parser.add_argument("--daily-alliance-chests", action="store_true")
     parser.add_argument("--auto-beast-rally", action="store_true")
     parser.add_argument("--all-auto-beast-rally", action="store_true")
     parser.add_argument("--interval", type=float, help="自动流程的点击 / 识别间隔（秒）")
@@ -4647,6 +4650,7 @@ def main() -> None:
         args.all_auto_beast_rally,
         args.interval,
     )
+    window.daily_alliance_chests_check.setChecked(args.daily_alliance_chests)
     window.show()
     qa_page = os.environ.get("WJDR_QA_PAGE")
     if qa_page and qa_page.isdigit():

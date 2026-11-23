@@ -618,10 +618,6 @@ class FrontendLayout:
         self.daily_interval_spin.setSuffix(" 秒 / 动态检查")
         self.daily_duration_spin = QSpinBox()
         self.daily_duration_spin.setRange(0, 100000)
-        # The Daily Task request is target-bound: once 325 is independently
-        # confirmed, new-progress routes stop but already-completed rewards
-        # are drained before the worker ends.  Keep an explicit time cap
-        # available as an opt-in.
         self.daily_duration_spin.setValue(0)
         self.daily_duration_spin.setSuffix(" 分钟")
         self.daily_guard_check = QCheckBox("仅当《无尽冬日》位于模拟器前台时点击")
@@ -636,6 +632,8 @@ class FrontendLayout:
             runtime_fields.setColumnStretch(column, 1)
         limit_layout.addLayout(runtime_fields)
         limit_layout.addWidget(self.daily_guard_check)
+        self.daily_alliance_chests_check = QCheckBox("领取联盟宝箱（可选）")
+        limit_layout.addWidget(self.daily_alliance_chests_check)
         layout.addWidget(limits)
 
         advanced = QWidget()

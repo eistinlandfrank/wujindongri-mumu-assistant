@@ -7228,7 +7228,7 @@ def daily_gather_full_resources_filter_is_enabled(screenshot: Image.Image, thres
         max(0.985, float(threshold)),
         _relative_region(screenshot, 0.20, 0.82, 0.84, 0.93),
     )
-    return bool(
+    if (
         point
         and _daily_template_integrity_is_valid(
             screenshot,
@@ -7239,7 +7239,15 @@ def daily_gather_full_resources_filter_is_enabled(screenshot: Image.Image, thres
             min_chroma_ratio=0.94,
             max_colour_distance=0.05,
         )
-    )
+    ):
+        return True
+    # The tutorial hand can hide the caption while leaving this exact square
+    # intact. The already-proved selector fixes the meaning of its one box.
+    from wjdr_daily_visuals import _find
+
+    square, _ = _find(screenshot, "daily_gather_checked_square.png", (.265, .870, .350, .914), .96, 17.)
+    return square is not None
+
 
 
 def daily_gather_meat_is_selected(screenshot: Image.Image, threshold: float) -> bool:
@@ -9013,6 +9021,8 @@ def match_arena_opponent_list(screenshot: Image.Image, threshold: float = 0.90) 
 def match_arena_setup(
     screenshot: Image.Image,
     threshold: float = 0.90,
+    *,
+    require_power_advantage: bool = True,
 ) -> ArenaSetupState | None:
     """Prove power advantage, five selected heroes and ordinary green battle."""
     title, title_score = _match_arena_anchor(
@@ -9052,13 +9062,14 @@ def match_arena_setup(
         and 45 <= int(stats[index, cv2.CC_STAT_HEIGHT]) <= 85
         and int(stats[index, cv2.CC_STAT_AREA]) >= 1500
     )
-    if not (my_power > opponent_power and selected == 5):
+    if selected != 5 or (require_power_advantage and my_power <= opponent_power):
         return None
     return ArenaSetupState(
         my_power, opponent_power, selected,
         map_content_point((1050, 2380), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot),
         min(title_score, battle_score, my_score, opponent_score),
     )
+
 
 
 def match_arena_reviewed_victory_exit(screenshot: Image.Image) -> tuple[int, int] | None:
@@ -10181,9 +10192,13 @@ def daily_training_back_point(screenshot: Image.Image) -> tuple[int, int]:
 def match_daily_hero_free_recruit(
     screenshot: Image.Image,
     threshold: float,
+    *,
+    lower_tier: bool | None = None,
 ) -> tuple[tuple[int, int] | None, float]:
     """Find a green ``Recruit once / Free`` control, never its key version."""
-    region = _relative_region(screenshot, 0.02, 0.50, 0.56, 1.00)
+    region_top = 0.77 if lower_tier is True else 0.50
+    region_bottom = 0.77 if lower_tier is False else 1.00
+    region = _relative_region(screenshot, 0.02, region_top, 0.56, region_bottom)
     best_score = 0.0
     for asset, template_name in (
         (BUILTIN_DAILY_HERO_FREE_RECRUIT_ASSET, BUILTIN_DAILY_HERO_FREE_RECRUIT_TEMPLATE_NAME),
@@ -10207,6 +10222,7 @@ def match_daily_hero_free_recruit(
     return None, best_score
 
 
+
 def daily_hero_recruit_page_is_visible(screenshot: Image.Image, threshold: float) -> bool:
     """Recognise the hero-recruit screen before using its Back control."""
     point, _score = _match_daily_task_template(
@@ -10217,6 +10233,7 @@ def daily_hero_recruit_page_is_visible(screenshot: Image.Image, threshold: float
         _relative_region(screenshot, 0.62, 0.05, 1.00, 0.27),
     )
     return point is not None
+
 
 
 def match_daily_hero_recruit_duplicate_result(
@@ -10246,9 +10263,12 @@ def match_daily_hero_recruit_duplicate_result(
     return duplicate, score
 
 
+
 def match_daily_hero_recruit_summary_exit(
     screenshot: Image.Image,
     threshold: float,
+    *,
+    at_phrase: bool = False,
 ) -> tuple[tuple[int, int] | None, float]:
     """Return the reviewed side exit after the recruit-summary text proof.
 
@@ -10258,12 +10278,15 @@ def match_daily_hero_recruit_summary_exit(
     evidence but is not required: the complete native exit sentence is itself
     the game's explicit instruction for this screen.
     """
-    return match_daily_tap_anywhere_exit_text(screenshot, threshold)
+    return match_daily_tap_anywhere_exit_text(screenshot, threshold, at_phrase=at_phrase)
+
 
 
 def match_daily_tap_anywhere_exit_text(
     screenshot: Image.Image,
     threshold: float = 0.90,
+    *,
+    at_phrase: bool = False,
 ) -> tuple[tuple[int, int] | None, float]:
     """Recognise the complete native ``点击任意位置退出`` text line.
 
@@ -10319,10 +10342,11 @@ def match_daily_tap_anywhere_exit_text(
             strict_action=True,
         ):
             return (
-                map_content_point((96, 1500), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot),
+                hint if at_phrase else map_content_point((96, 1500), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot),
                 hint_score,
             )
     return None, best_hint_score
+
 
 
 def daily_hero_recruit_result_is_visible(screenshot: Image.Image, threshold: float) -> bool:

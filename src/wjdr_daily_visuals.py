@@ -54,6 +54,62 @@ def recommended_tech(image: Image.Image) -> tuple[tuple[int, int] | None, float]
     return _find(image, "daily_recommended_thumb.png", (0.04, 0.25, 0.96, 0.96))
 
 
+def _normal_resource_label(image: Image.Image, threshold: float, asset: str) -> tuple[tuple[int, int] | None, float]:
+    from wjdr_backend import (
+        _daily_template_integrity_is_valid, _match_daily_task_template,
+        BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_ASSET,
+        BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_TEMPLATE_NAME,
+        DAILY_ACTION_MIN_LUMA_RATIO, DAILY_ACTION_MIN_CHROMA_RATIO,
+        DAILY_ACTION_MAX_COLOUR_DISTANCE,
+    )
+    from wjdr_backend import _relative_region
+    from wjdr_backend import content_viewport
+
+    blue, blue_score = _find(image, asset,
+                             (.45, .68, 1.0, .91), minimum=.94, max_difference=20.0)
+    yellow, yellow_score = _match_daily_task_template(
+        image, BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_ASSET,
+        BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_TEMPLATE_NAME,
+        max(.94, threshold), _relative_region(image, 0.0, .68, .55, .91))
+    if not blue or not yellow:
+        return None, max(blue_score, yellow_score)
+    viewport = content_viewport(image)
+    if not (viewport.width * .30 <= blue[0] - yellow[0] <= viewport.width * .55
+            and abs(blue[1] - yellow[1]) <= viewport.height * .04):
+        return None, min(blue_score, yellow_score)
+    if not _daily_template_integrity_is_valid(
+        image, BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_ASSET,
+        BUILTIN_DAILY_ALLIANCE_DIAMOND_DONATE_TEMPLATE_NAME, yellow,
+        min_luma_ratio=DAILY_ACTION_MIN_LUMA_RATIO,
+        min_chroma_ratio=DAILY_ACTION_MIN_CHROMA_RATIO,
+        max_colour_distance=DAILY_ACTION_MAX_COLOUR_DISTANCE, strict_action=True):
+        return None, min(blue_score, yellow_score)
+    return blue, min(blue_score, yellow_score)
+
+
+def normal_resource_donation(image: Image.Image, threshold: float) -> tuple[tuple[int, int] | None, float]:
+    """Find the enabled blue ordinary-resource action beside yellow diamonds."""
+    result = _normal_resource_label(image, threshold, 'daily_normal_resource_donate_label.png')
+    if result[0] is not None:
+        return result
+    from wjdr_backend import match_daily_alliance_food_donation
+    return match_daily_alliance_food_donation(image, threshold)
+
+
+def normal_resource_donation_page(image: Image.Image, threshold: float) -> bool:
+    """Recognise enabled or disabled ordinary action; grey is never tappable."""
+    from wjdr_backend import daily_alliance_donation_page_is_visible
+    return bool(normal_resource_donation(image, threshold)[0] or
+                _normal_resource_label(image, threshold,
+                                       'daily_normal_resource_donate_disabled_label.png')[0] or
+                daily_alliance_donation_page_is_visible(image, threshold))
+
+
+def match_musk_ox_buff(image: Image.Image) -> bool:
+    """Recognise the active Heavy Lifting icon in the upper-left buffs."""
+    return _find(image, "daily_gather_musk_ox_active.png", (.078, .086, .155, .138), .96, 16.)[0] is not None
+
+
 def intel_expert(image: Image.Image) -> tuple[tuple[int, int] | None, float]:
     """Find the reviewed expert portrait on an already-proved Intel map."""
     matches = [_find(image, name, (0.0, 0.10, 0.20, 0.26)) for name in (

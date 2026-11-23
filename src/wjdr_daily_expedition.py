@@ -36,13 +36,23 @@ def run_expedition_claim(
     stage = "city"
     prior = None
     streak = 0
+    city_without_entry_streak = 0
+    returned_city_streak = 0
     deadline = time.monotonic() + min(max(timeout, 0.0), 24.0)
     while not stopped() and time.monotonic() < deadline:
         try:
             frame = capture()
             point = None
-            if stage == "city" and city(frame):
-                point = expedition_city_entry(frame)[0]
+            if stage == "city":
+                city_visible = city(frame)
+                point = expedition_city_entry(frame)[0] if city_visible else None
+                if city_visible and point is None:
+                    city_without_entry_streak += 1
+                    if city_without_entry_streak >= 2:
+                        log("主城已双帧确认，探险收益入口当前不可用；继续其他每日任务。")
+                        return "unavailable"
+                else:
+                    city_without_entry_streak = 0
             elif stage == "chest":
                 point = expedition_claim(frame)[0]
             elif stage == "idle":
@@ -51,8 +61,10 @@ def run_expedition_claim(
                 point = reward_exit(frame)
             elif stage == "back":
                 point = expedition_back(frame)[0]
-            elif stage == "done" and city(frame):
-                point = expedition_city_entry(frame)[0]
+            elif stage == "done":
+                returned_city_streak = returned_city_streak + 1 if city(frame) else 0
+                if returned_city_streak >= 2:
+                    return "claimed"
             if point is not None and prior is not None and max(abs(a-b) for a,b in zip(point, prior)) <= 4:
                 streak += 1
             elif point is not None:
@@ -61,8 +73,6 @@ def run_expedition_claim(
                 prior, streak = None, 0
             if streak >= 2 and point is not None:
                 old = stage
-                if old == "done":
-                    return "claimed"
                 if old == "idle" and not reserve():
                     log("探险领取记录不可用；未点击收益领取。")
                     return "unconfirmed"
@@ -80,4 +90,7 @@ def run_expedition_claim(
         except Exception as exc:
             log(f"探险收益状态未确认：{type(exc).__name__}。")
             return "unconfirmed"
-    return "stopped" if stopped() else "unconfirmed"
+    if stopped():
+        return "stopped"
+    log(f"探险收益未确认 {stage} 步骤，未重复输入。")
+    return "unconfirmed"
