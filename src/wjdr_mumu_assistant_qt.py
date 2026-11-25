@@ -1524,7 +1524,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
         """Run the selected level with the account's chosen troop mode."""
         from wjdr_beast_hunt import beast_soldier_rows, beast_mixed_single_shield, match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB, CycleActionPositions
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
-        from wjdr_beast_hunt import read_compact_marching_rows, only_joined_rallies, blue_pair_free, gathering_pair_free
+        from wjdr_beast_hunt import read_compact_marching_rows, read_compact_queue_icons, only_joined_rallies, blue_pair_free, gathering_pair_free
         from wjdr_beast_hunt import match_same_target_conflict
         from wjdr_beast_hunt import read_concurrent_snapshot, confirms_new_concurrent_rally, concurrent_dispatch_allowed, ConcurrentLineTracker, ConcurrentRallySnapshot, read_compact_numeric_capacity
         from wjdr_beast_hunt import save_beast_route_coordinates, load_beast_route_coordinates
@@ -2570,12 +2570,16 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                 return False
 
             def wait_queue_capacity_frame(seed=None):
-                """Reuse one fresh world frame for capacity, user limit and Search."""
+                """Reuse the current world frame, confirming any gathering discount twice."""
                 nonlocal baseline_concurrent, baseline_march_capacity
                 frame = seed
+                previous_gathering = None
+                limit = profile.max_concurrent_rallies
                 while not self.stop_event.is_set():
                     if frame is None:
                         frame = capture()
+                    if self.stop_event.is_set():
+                        return None
                     if daily_network_dialog_is_visible(frame, threshold):
                         self._log_for_device(target.device, "等待队列时游戏网络离线，停止输入。")
                         return None
@@ -2584,6 +2588,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                         if not ensure_compact_march_panel():
                             return None
                         frame = None
+                        previous_gathering = None
                         continue
                     search = match_world(frame)[0]
                     # Search and the non-expanded panel were already checked on
@@ -2593,14 +2598,36 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                                          and 0 <= cap.used <= cap.total and cap.total > 0)
                     hidden_idle = bool(cap and cap.evidence == 'hidden_idle'
                                        and cap.used == 0 and cap.total == 0)
-                    if valid_numeric or hidden_idle:
-                        if hidden_idle or cap.used < min(cap.total, profile.max_concurrent_rallies):
-                            baseline_concurrent = ConcurrentRallySnapshot(
-                                cap.used, cap.total, cap.evidence, ('unknown',) * cap.used)
-                            baseline_march_capacity = (cap.used, cap.total)
-                            return frame, search
-                        set_state(f"队列已满：{cap.used}/{cap.total}，上限 {profile.max_concurrent_rallies}，等待空位")
+                    gathering = None
+                    phases = None
+                    if hidden_idle or (valid_numeric and cap.used < min(cap.total, limit)):
+                        phases = ('unknown',) * cap.used
+                    elif valid_numeric and cap.used < cap.total:
+                        # Every queue occupies a game slot. Only a positively
+                        # identified gathering row can be excluded from the Beast limit.
+                        rows = read_compact_queue_icons(frame, cap)
+                        gather_points = tuple(row.point for row in rows if row.owner == 'gathering')
+                        if len(rows) == cap.used and cap.used - len(gather_points) < limit:
+                            gathering = (cap.used, cap.total, gather_points)
+                        if gathering is not None and gathering == previous_gathering:
+                            phases = tuple('gathering' if row.owner == 'gathering' else 'unknown' for row in rows)
+                            message = f"双帧确认 {len(gather_points)} 队采集中，左侧队列 {cap.used}/{cap.total}；采集队不计入巨兽并发，继续搜索。"
+                            self._log_for_device(target.device, message)
+                            set_state(message)
+                        elif gathering is not None and previous_gathering is None:
+                            previous_gathering = gathering
+                            frame = None
+                            continue
+                        else:
+                            set_state(f"等待巨兽出征空位（左侧 {cap.used}/{cap.total}，并发上限 {limit}）")
+                    elif valid_numeric:
+                        set_state(f"游戏行军槽位已满（{cap.used}/{cap.total}），等待空位")
+                    if phases is not None:
+                        baseline_concurrent = ConcurrentRallySnapshot(cap.used, cap.total, cap.evidence, phases)
+                        baseline_march_capacity = (cap.used, cap.total)
+                        return frame, search
                     frame = None
+                    previous_gathering = gathering
                     if pause():
                         return None
                 return None

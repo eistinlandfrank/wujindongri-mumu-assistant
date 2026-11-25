@@ -124,6 +124,7 @@ BUILTIN_BEAST_RALLY_OPEN_BUTTON_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_op
 BUILTIN_BEAST_RALLY_OPEN_LABEL_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_open_label.png"
 BUILTIN_BEAST_RALLY_SHEET_HEADER_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_sheet_header.png"
 BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_three_minutes_selected.png"
+BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_BLUE_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_three_minutes_selected_blue.png"
 BUILTIN_BEAST_RALLY_THREE_MINUTES_LABEL_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_three_minutes_label.png"
 BUILTIN_BEAST_RALLY_LAUNCH_BUTTON_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_launch_button.png"
 BUILTIN_BEAST_RALLY_FORMATION_ANCHOR_ASSET = f"{BEAST_RALLY_ASSET_DIR}/beast_rally_formation_anchor.png"
@@ -179,6 +180,7 @@ BEAST_RALLY_BUILTIN_ASSETS: tuple[str, ...] = (
     BUILTIN_BEAST_RALLY_OPEN_LABEL_ASSET,
     BUILTIN_BEAST_RALLY_SHEET_HEADER_ASSET,
     BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_ASSET,
+    BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_BLUE_ASSET,
     BUILTIN_BEAST_RALLY_THREE_MINUTES_LABEL_ASSET,
     BUILTIN_BEAST_RALLY_LAUNCH_BUTTON_ASSET,
     BUILTIN_BEAST_RALLY_FORMATION_ANCHOR_ASSET,
@@ -7713,6 +7715,20 @@ def match_beast_rally_open_button(
     return (point, score) if float(np.mean(orange)) >= 0.14 else (None, score)
 
 
+def _match_beast_rally_three_minutes_selected(screenshot, threshold, region):
+    selected, score = _match_beast_rally_template(
+        screenshot, BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_ASSET,
+        max(0.94, float(threshold)), region,
+    )
+    if selected:
+        return selected, score
+    asset = BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_BLUE_ASSET
+    selected, blue_score = _match_beast_rally_template(screenshot, asset, max(0.97, float(threshold)), region)
+    if selected and _beast_rally_template_integrity_is_valid(screenshot, asset, selected):
+        return selected, blue_score
+    return None, max(score, blue_score)
+
+
 def match_beast_rally_sheet(
     screenshot: Image.Image,
     threshold: float = 0.90,
@@ -7724,10 +7740,8 @@ def match_beast_rally_sheet(
         max(0.94, float(threshold)),
         _relative_region(screenshot, 0.20, 0.00 if fixture else 0.24, 0.80, 0.18 if fixture else 0.40),
     )
-    selected, selected_score = _match_beast_rally_template(
-        screenshot,
-        BUILTIN_BEAST_RALLY_THREE_MINUTES_SELECTED_ASSET,
-        max(0.94, float(threshold)),
+    selected, selected_score = _match_beast_rally_three_minutes_selected(
+        screenshot, threshold,
         _relative_region(screenshot, 0.02, 0.25 if fixture else 0.38, 0.48, 0.60 if fixture else 0.58),
     )
     launch, launch_score = _match_beast_rally_template(
@@ -7770,6 +7784,11 @@ def match_beast_rally_sheet_controls(
         max(0.93, float(threshold)),
         _relative_region(screenshot, 0.02, 0.25 if fixture else 0.38, 0.48, 0.60 if fixture else 0.58),
     )
+    if header and not three_minutes:
+        three_minutes, option_score = _match_beast_rally_three_minutes_selected(
+            screenshot, threshold,
+            _relative_region(screenshot, 0.02, 0.25 if fixture else 0.38, 0.48, 0.60 if fixture else 0.58),
+        )
     launch, launch_score = _match_beast_rally_template(
         screenshot,
         BUILTIN_BEAST_RALLY_LAUNCH_BUTTON_ASSET,
