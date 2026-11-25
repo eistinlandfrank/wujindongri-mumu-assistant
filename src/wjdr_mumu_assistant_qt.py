@@ -1525,7 +1525,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
         from wjdr_beast_hunt import beast_soldier_rows, beast_mixed_single_shield, match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB, CycleActionPositions
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
         from wjdr_beast_hunt import read_compact_marching_rows, read_compact_queue_icons, only_joined_rallies, blue_pair_free, gathering_pair_free
-        from wjdr_beast_hunt import compact_queue_countdown_text
+        from wjdr_beast_hunt import compact_queue_countdown_text, read_compact_countdown_rows
         from wjdr_beast_hunt import match_same_target_conflict
         from wjdr_beast_hunt import read_concurrent_snapshot, confirms_new_concurrent_rally, concurrent_dispatch_allowed, ConcurrentLineTracker, ConcurrentRallySnapshot, read_compact_numeric_capacity
         from wjdr_beast_hunt import save_beast_route_coordinates, load_beast_route_coordinates
@@ -2578,8 +2578,6 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                 limit = profile.max_concurrent_rallies
                 previous_timers = ()
                 timer_capacity = None
-                countdown = ''
-                next_timer_read = 0.0
                 while not self.stop_event.is_set():
                     if frame is None:
                         frame = capture()
@@ -2632,14 +2630,12 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                         capacity = (cap.used, cap.total)
                         if timer_capacity != capacity:
                             timer_capacity = capacity
-                            previous_timers, countdown, next_timer_read = (), '', 0.0
-                        now = time.monotonic()
-                        if now >= next_timer_read:
-                            # Read only for display and only while waiting for a slot.
-                            timers = read_compact_rally_rows(frame) + read_compact_marching_rows(frame)
-                            countdown = compact_queue_countdown_text(previous_timers, timers)
-                            previous_timers = timers
-                            next_timer_read = now + 0.5
+                            previous_timers = ()
+                        # The current queue frame already exists. Sample each frame
+                        # while waiting so a clock tick does not wait for a second poller.
+                        timers = read_compact_countdown_rows(frame)
+                        countdown = compact_queue_countdown_text(previous_timers, timers)
+                        previous_timers = timers
                         waiting = (f"游戏行军槽位已满（{cap.used}/{cap.total}），等待空位"
                                    if cap.used == cap.total else
                                    f"等待巨兽出征空位（左侧 {cap.used}/{cap.total}，并发上限 {limit}）")
@@ -2649,6 +2645,9 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                         set_state("巨兽队列识别中")
                     frame = None
                     previous_gathering = gathering
+                    if valid_numeric and any(row.owner == 'own' and row.seconds is not None for row in timers):
+                        # Capture the next observation immediately for a readable timer.
+                        continue
                     if pause():
                         return None
                 return None

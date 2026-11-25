@@ -275,7 +275,7 @@ def _compact_shifted_header(frame):
     Only the calibrated title scale and constrained left-hand lane qualify.
     An unproved title must not authorize a shifted-list interpretation.
     """
-    rgb = np.asarray(frame.convert('RGB'))
+    rgb = np.asarray(frame if frame.mode == 'RGB' else frame.convert('RGB'))
     lane = white_mask(rgb[300:700, 60:200])
     mask = compact_header_masks()[2]
     score, point = cv2.minMaxLoc(cv2.matchTemplate(lane, mask, cv2.TM_CCOEFF_NORMED))[1::2]
@@ -284,9 +284,11 @@ def _compact_shifted_header(frame):
 
 def read_compact_header_digits(image):
     """Keep bright map outside the opaque numeric header out of glyph filtering."""
-    viewport=content_viewport(image)
-    frame=image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560))
-    anchor = _compact_shifted_header(frame)
+    frame = _compact_queue_frame(image, content_viewport(image))
+    return _compact_header_digits_on_frame(frame, _compact_shifted_header(frame))
+
+
+def _compact_header_digits_on_frame(frame, anchor):
     top = anchor[1] - 9 if anchor else 400
     components=_daily_white_numeric_components(frame.crop((395,top,485,top+60)))
     if len(components)!=3 or not _daily_numeric_component_is_slash(components[1][4]):
@@ -305,10 +307,9 @@ def read_compact_numeric_capacity(image, threshold=.90, *, world_proven=False):
     if not world_proven and (not match_beast_rally_world_search(image, threshold)[0]
             or match_beast_rally_progress_sidebar_expanded(image, threshold)[0]):
         return None
-    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440, 2560))
-    if _compact_shifted_header(frame) is None:
-        return None
-    return read_compact_header_digits(image)
+    frame = _compact_queue_frame(image, viewport)
+    anchor = _compact_shifted_header(frame)
+    return _compact_header_digits_on_frame(frame, anchor) if anchor else None
 
 
 class GuardedBeastADB:
@@ -375,6 +376,19 @@ class CompactRallyRow:
     phase: str = 'rallying'
 
 
+def _compact_queue_frame(image, viewport):
+    # Keep full reference height so the header and row readers keep their coordinates.
+    box = (viewport.left, viewport.top, viewport.left + viewport.width * 520 / 1440, viewport.bottom)
+    return image.resize((520, 2560), box=box).convert('RGB')
+
+
+def read_compact_countdown_rows(image):
+    """Read both displayed phases from one normalized queue strip."""
+    frame = _compact_queue_frame(image, content_viewport(image))
+    rgb = np.asarray(frame)
+    return _read_compact_rally_rows(image, frame, rgb, read_timer=True) + _read_compact_marching_rows(image, rgb)
+
+
 def compact_queue_countdown_text(previous, current):
     """Display the nearest timer per phase when the same row agrees twice."""
     earlier = {(row.phase, row.point): row.seconds for row in previous if row.owner == 'own'}
@@ -404,8 +418,11 @@ def read_compact_marching_rows(image):
     Coordinates replace the rally title during marching. Ownership is only
     usable by a controller with an already correlated self-rally proof.
     """
-    viewport = content_viewport(image)
-    rgb = np.asarray(image.crop((viewport.left,viewport.top,viewport.right,viewport.bottom)).resize((1440,2560)).convert('RGB'))
+    frame = _compact_queue_frame(image, content_viewport(image))
+    return _read_compact_marching_rows(image, np.asarray(frame))
+
+
+def _read_compact_marching_rows(image, rgb):
     roi=rgb[390:1400,:140]
     scores=cv2.matchTemplate(white_mask(roi),compact_marching_icon(),cv2.TM_CCOEFF_NORMED)
     rows=[]
@@ -509,10 +526,10 @@ def read_compact_queue_icons(image, capacity):
     viewport = content_viewport(image)
     if viewport.width < 720 or abs(viewport.width / viewport.height - 9/16) > .008:
         return ()
-    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440,2560)).convert('RGB')
+    frame = _compact_queue_frame(image, viewport)
     anchor = _compact_shifted_header(frame)
     if anchor:
-        observed = read_compact_header_digits(image)
+        observed = _compact_header_digits_on_frame(frame, anchor)
         if not observed or (observed.used, observed.total) != (capacity.used, capacity.total):
             return ()
     rgb = np.asarray(frame)
@@ -796,9 +813,11 @@ def read_compact_rally_rows(image: Image.Image, *, read_timer: bool = True) -> t
     icon does not imply joined ownership, since the rally phase has ended.
     Empty results are unknown/absent, never proof that our troops returned.
     """
-    viewport = content_viewport(image)
-    frame = image.crop((viewport.left, viewport.top, viewport.right, viewport.bottom)).resize((1440,2560)).convert('RGB')
-    rgb = np.asarray(frame)
+    frame = _compact_queue_frame(image, content_viewport(image))
+    return _read_compact_rally_rows(image, frame, np.asarray(frame), read_timer=read_timer)
+
+
+def _read_compact_rally_rows(image, frame, rgb, *, read_timer):
     left, top = 90, 390
     mask = cv2.cvtColor(rgb[top:1400, left:440], cv2.COLOR_RGB2GRAY)
     template = compact_rally_title()
