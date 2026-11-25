@@ -1525,6 +1525,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
         from wjdr_beast_hunt import beast_soldier_rows, beast_mixed_single_shield, match_hunt_formation, SingleBeastCycle, read_compact_rally_rows, GuardedBeastADB, CycleActionPositions
         from wjdr_beast_hunt import read_compact_capacity as read_beast_rally_collapsed_march_capacity
         from wjdr_beast_hunt import read_compact_marching_rows, read_compact_queue_icons, only_joined_rallies, blue_pair_free, gathering_pair_free
+        from wjdr_beast_hunt import compact_queue_countdown_text
         from wjdr_beast_hunt import match_same_target_conflict
         from wjdr_beast_hunt import read_concurrent_snapshot, confirms_new_concurrent_rally, concurrent_dispatch_allowed, ConcurrentLineTracker, ConcurrentRallySnapshot, read_compact_numeric_capacity
         from wjdr_beast_hunt import save_beast_route_coordinates, load_beast_route_coordinates
@@ -2575,6 +2576,10 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                 frame = seed
                 previous_gathering = None
                 limit = profile.max_concurrent_rallies
+                previous_timers = ()
+                timer_capacity = None
+                countdown = ''
+                next_timer_read = 0.0
                 while not self.stop_event.is_set():
                     if frame is None:
                         frame = capture()
@@ -2589,6 +2594,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                             return None
                         frame = None
                         previous_gathering = None
+                        timer_capacity = None
                         continue
                     search = match_world(frame)[0]
                     # Search and the non-expanded panel were already checked on
@@ -2618,14 +2624,29 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                             previous_gathering = gathering
                             frame = None
                             continue
-                        else:
-                            set_state(f"等待巨兽出征空位（左侧 {cap.used}/{cap.total}，并发上限 {limit}）")
-                    elif valid_numeric:
-                        set_state(f"游戏行军槽位已满（{cap.used}/{cap.total}），等待空位")
                     if phases is not None:
                         baseline_concurrent = ConcurrentRallySnapshot(cap.used, cap.total, cap.evidence, phases)
                         baseline_march_capacity = (cap.used, cap.total)
                         return frame, search
+                    if valid_numeric:
+                        capacity = (cap.used, cap.total)
+                        if timer_capacity != capacity:
+                            timer_capacity = capacity
+                            previous_timers, countdown, next_timer_read = (), '', 0.0
+                        now = time.monotonic()
+                        if now >= next_timer_read:
+                            # Read only for display and only while waiting for a slot.
+                            timers = read_compact_rally_rows(frame) + read_compact_marching_rows(frame)
+                            countdown = compact_queue_countdown_text(previous_timers, timers)
+                            previous_timers = timers
+                            next_timer_read = now + 0.5
+                        waiting = (f"游戏行军槽位已满（{cap.used}/{cap.total}），等待空位"
+                                   if cap.used == cap.total else
+                                   f"等待巨兽出征空位（左侧 {cap.used}/{cap.total}，并发上限 {limit}）")
+                        set_state(f"{countdown} · {waiting}" if countdown else waiting)
+                    else:
+                        timer_capacity = None
+                        set_state("巨兽队列识别中")
                     frame = None
                     previous_gathering = gathering
                     if pause():

@@ -375,6 +375,23 @@ class CompactRallyRow:
     phase: str = 'rallying'
 
 
+def compact_queue_countdown_text(previous, current):
+    """Display the nearest timer per phase when the same row agrees twice."""
+    earlier = {(row.phase, row.point): row.seconds for row in previous if row.owner == 'own'}
+    next_by_phase = {}
+    for row in current:
+        seconds = row.seconds
+        before = earlier.get((row.phase, row.point))
+        if row.owner == 'own' and seconds is not None and before is not None and 0 <= before - seconds <= 3:
+            next_by_phase[row.phase] = min(seconds, next_by_phase.get(row.phase, seconds))
+    return ' · '.join(
+        f'{label} {seconds // 60:02}:{seconds % 60:02}'
+        for phase, label in (('rallying', '集结中'), ('marching', '行军中'))
+        if (seconds := next_by_phase.get(phase)) is not None
+    )
+
+
+
 @lru_cache(maxsize=1)
 def compact_marching_icon():
     with Image.open(resource_path('assets/beast_rally_compact_marching_icon.png')) as image:
