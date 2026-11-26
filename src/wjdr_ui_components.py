@@ -41,6 +41,19 @@ from wjdr_backend import (
 )
 from wjdr_ui_appearance import ApplicationAppearance, COLORS, THEMES
 
+
+def runtime_log_matches(line: str, device: str | None, level: str | None, keyword: str) -> bool:
+    """Filter structured and older records without matching device names in the message."""
+    prefix, marker, rest = line.partition("] [")
+    if not prefix.startswith("[") or not marker:
+        return False
+    serial, delimiter, message = rest.partition("] ")
+    if not delimiter or (device and serial not in (device, "未绑定")):
+        return False
+    tag, separator, _ = message.partition("] ")
+    actual_level = tag[1:] if separator and tag in {"[DEBUG", "[INFO", "[WARN", "[ERROR"} else ""
+    return (level is None or level == actual_level) and (not keyword or keyword in line.casefold())
+
 def set_style_property(widget: QWidget, name: str, value: str) -> None:
     if widget.property(name) != value:
         widget.setProperty(name, value)

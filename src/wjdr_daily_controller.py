@@ -14,8 +14,6 @@ from PIL import (
 )
 from wjdr_daily_visuals import (
     intel_coloured_candidates,
-    intel_expert,
-    intel_expert_maybe_visible,
     intel_station_expert,
     match_musk_ox_buff,
     recommended_tech,
@@ -37,6 +35,7 @@ from wjdr_daily_intel import (
     match_selected_hero_battle,
     match_intel_wilderness_entry,
     run_intel_bulk_action,
+    run_intel_expert,
 )
 from PySide6.QtWidgets import (
     QMessageBox,
@@ -2828,63 +2827,56 @@ class DailyController:
                     self._log_for_device(target.device, "情报站入口后未双帧确认情报地图；未点击任何线索。")
                     return False
 
-                # The expert creates more Intel. Reserve before its one input;
-                # an unknown acknowledgement stays blocked across restarts.
-                if not intel_expert_ledger or not intel_expert_ledger.available():
-                    self._log_for_device(target.device, "情报专家上次点击状态未确认；停止以避免重复输入。")
+                def leave_intel_map(label: str) -> bool:
+                    proof = wait_for_gather_step(
+                        label,
+                        lambda frame: ((daily_intel_map_back_point(frame), 1.0)
+                                       if match_daily_intel_map_page(frame, threshold)[0] else (None, 0.0)),
+                        5.0,
+                    )
+                    if not proof or self.stop_event.is_set():
+                        return False
+                    target.tap(*proof[1])
+                    return reopen_daily()
+
+                if intel_expert_ledger is None:
+                    self._log_for_device(target.device, "情报专家缺少账号记录，已停止。", level="WARN")
                     return False
-                first_expert, _ = intel_expert(map_image)
-                if first_expert:
-                    expert_verify = capture_daily_image()
-                    expert_map, _ = match_daily_intel_map_page(expert_verify, threshold)
-                    second_expert, _ = intel_expert(expert_verify)
-                    if not expert_map or not stable(first_expert, second_expert):
-                        self._log_for_device(target.device, "情报专家未双帧确认；未点击。")
-                        return False
-                    if not intel_expert_ledger.reserve():
-                        return False
-                    target.tap(*second_expert)
-                    self._log_for_device(target.device, "情报专家已点击一次，等待确认头像消失。")
-                    expert_deadline = time.monotonic() + bounded_step_timeout(8.0)
-                    expert_clear = 0
-                    while not self.stop_event.is_set() and time.monotonic() < expert_deadline:
-                        expert_frame = capture_daily_image()
-                        expert_map, _ = match_daily_intel_map_page(expert_frame, threshold)
-                        if expert_map and not intel_expert_maybe_visible(expert_frame):
-                            expert_clear += 1
-                            if expert_clear >= 2:
-                                if not intel_expert_ledger.confirm():
-                                    return False
-                                map_image = expert_frame
-                                break
-                        else:
-                            expert_clear = 0
-                        if adaptive_operation_wait(maximum=0.2):
-                            return False
-                    else:
-                        self._log_for_device(target.device, "情报专家结果未确认；停止且不重复点击。")
-                        return False
+                expert_outcome, map_image = run_intel_expert(
+                    map_image, capture_daily_image, target.tap, self.stop_event.wait,
+                    threshold, intel_expert_ledger,
+                    lambda text: self._log_for_device(target.device, text, level="DEBUG"),
+                )
+                if expert_outcome == "unstable":
+                    intel_failed_scan = True
+                    self._log_for_device(
+                        target.device, "情报专家画面仍不稳定，等待复查；先继续其他每日任务。",
+                        level="WARN",
+                    )
+                    return leave_intel_map("情报专家延后时确认地图返回")
+                if expert_outcome not in ("activated", "absent"):
+                    self._log_for_device(
+                        target.device, f"情报专家阶段={expert_outcome}，未重复输入。", level="WARN",
+                    )
+                    return False
+                if expert_outcome == "activated":
+                    self._log_for_device(target.device, "情报专家已激活并双帧确认，继续处理批量情报。")
 
                 if intel_execute_ledger is not None and intel_claim_ledger is not None:
                     outcome = run_intel_bulk_action(
                         map_image, lambda: target.screenshot(timeout=3), target.tap, self.stop_event.wait,
-                        threshold, intel_execute_ledger, intel_claim_ledger,
+                        threshold, intel_execute_ledger, intel_claim_ledger, settle=expert_outcome == "activated",
                     )
                     if outcome in ("started", "running", "claimed"):
-                        verify_map = wait_for_gather_step(
-                            "快捷情报完成后的地图返回",
-                            lambda frame: ((daily_intel_map_back_point(frame), 1.0)
-                                           if match_daily_intel_map_page(frame, threshold)[0] else (None, 0.0)),
-                            5.0,
-                        )
-                        if not verify_map:
-                            return False
                         if outcome == "claimed":
                             self._log_for_device(target.device, "已一键领取情报奖励并复核地图，返回每日任务结算活跃度。")
                         else:
                             self._log_for_device(target.device, "已双帧确认情报批量执行，先继续其他每日任务，下一轮复查领取。")
-                        target.tap(*verify_map[1])
-                        return reopen_daily()
+                        return leave_intel_map("快捷情报完成后的地图返回")
+                    if outcome == "unstable":
+                        intel_failed_scan = True
+                        self._log_for_device(target.device, "情报批量按钮尚未稳定，未提交操作；先继续其他任务。", level="WARN")
+                        return leave_intel_map("情报批量按钮不稳定时确认地图返回")
                     if outcome != "unsupported":
                         self._log_for_device(target.device, "情报快捷操作结果未确认；保留记录，停止且不重复输入。")
                         return False

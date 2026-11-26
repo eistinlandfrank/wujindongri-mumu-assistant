@@ -11,7 +11,7 @@ from PIL import Image
 
 import wjdr_backend as backend
 from wjdr_backend import PetDispatchLedger
-from wjdr_daily_visuals import _find
+from wjdr_daily_visuals import _find, intel_expert, intel_expert_maybe_visible
 
 
 def match_intel_wilderness_entry(image, threshold: float):
@@ -132,6 +132,71 @@ class IntelBatchLedger(IntelExpertLedger):
         self.path = self.path.with_name(self.path.name.replace("intel_expert_", f"intel_batch_{action}_"))
 
 
+def run_intel_expert(
+    first: Image.Image,
+    capture: Callable[[], Image.Image],
+    tap: Callable[[int, int], None],
+    wait: Callable[[float], bool],
+    threshold: float,
+    ledger: IntelExpertLedger,
+    trace: Callable[[str], None],
+) -> tuple[str, Image.Image]:
+    """Allow the portrait to settle while preserving two consecutive proofs."""
+    if not ledger.available():
+        return "pending", first
+    start = time.monotonic()
+    frame = first
+    prior = None
+    best = 0.0
+    samples = 0
+    absent = 0
+    seen = False
+    while not wait(0) and time.monotonic() - start < 4.0:
+        samples += 1
+        if backend.match_daily_intel_map_page(frame, threshold)[0]:
+            point, score = intel_expert(frame)
+            best = max(best, score)
+            if point is not None:
+                seen = True
+                absent = 0
+                if prior and max(abs(a - b) for a, b in zip(prior, point)) <= 16:
+                    if wait(0) or not ledger.reserve():
+                        return "pending", frame
+                    trace(f"情报专家双帧确认，采样={samples}，最高分={best:.3f}，坐标={point}。")
+                    tap(*point)
+                    break
+                prior = point
+            else:
+                prior = None
+                seen = seen or intel_expert_maybe_visible(frame)
+                absent = 0 if seen else absent + 1
+                if absent >= 2 and time.monotonic() - start >= .35:
+                    trace(f"情报地图已双帧确认无可用专家，采样={samples}。")
+                    return "absent", frame
+        else:
+            prior = None
+            absent = 0
+        if not prior and wait(.08):
+            return "stopped", frame
+        frame = capture()
+    else:
+        trace(f"情报专家未稳定，采样={samples}，最高分={best:.3f}，未提交点击。")
+        return ("stopped" if wait(0) else "unstable"), frame
+
+    cleared = 0
+    deadline = time.monotonic() + 8.0
+    while not wait(0) and time.monotonic() < deadline:
+        frame = capture()
+        gone = (backend.match_daily_intel_map_page(frame, threshold)[0]
+                and not intel_expert_maybe_visible(frame))
+        cleared = cleared + 1 if gone else 0
+        if cleared >= 2:
+            return ("activated" if ledger.confirm() else "pending"), frame
+        if not gone and wait(.08):
+            break
+    return "pending", frame
+
+
 def run_intel_bulk_action(
     first: Image.Image,
     capture: Callable[[], Image.Image],
@@ -140,6 +205,7 @@ def run_intel_bulk_action(
     threshold: float,
     execute_ledger: IntelBatchLedger,
     claim_ledger: IntelBatchLedger,
+    *, settle: bool = False,
 ) -> str:
     """Handle one exact bulk action and give the Daily scanner back control."""
     def same_action(first_point, second_point) -> bool:
@@ -159,19 +225,35 @@ def run_intel_bulk_action(
                 break
         return None
 
-    first_claim = match_intel_claim_all(first, threshold)
-    first_running = match_intel_batch_running(first, threshold)
-    first_execute = match_intel_execute_all(first, threshold)
-    if not (first_claim or first_running or first_execute):
+    def action(frame):
+        claim = match_intel_claim_all(frame, threshold)
+        if claim:
+            return "claim", claim
+        if match_intel_batch_running(frame, threshold):
+            return "running", None
+        execute = match_intel_execute_all(frame, threshold)
+        return ("execute", execute) if execute else None
+
+    prior = action(first)
+    if prior is None and not settle:
         return "unsupported"
-    if wait(0):
-        return "unconfirmed"
-    second = capture()
-    claim = match_intel_claim_all(second, threshold)
-    if claim is not None and same_action(first_claim, claim):
+    ready_by = time.monotonic() + 3.0
+    while not wait(0) and time.monotonic() < ready_by:
+        current = action(capture())
+        if (current and prior and current[0] == prior[0]
+                and (current[0] == "running" or same_action(prior[1], current[1]))):
+            kind, point = current
+            break
+        prior = current
+        if wait(.08):
+            return "unconfirmed"
+    else:
+        return "unstable"
+
+    if kind == "claim":
         if wait(0) or not claim_ledger.available() or not claim_ledger.reserve():
             return "unconfirmed"
-        tap(*claim)
+        tap(*point)
 
         def reward_result(frame):
             result = backend.diagnose_daily_abnormal_exit(frame, threshold)
@@ -187,14 +269,11 @@ def run_intel_bulk_action(
                           and match_intel_claim_all(frame, threshold) is None, 8.0)
         return "claimed" if settled is not None and claim_ledger.confirm() else "unconfirmed"
 
-    if first_running and match_intel_batch_running(second, threshold):
+    if kind == "running":
         return "running"
-    execute = match_intel_execute_all(second, threshold)
-    if execute is None or not same_action(first_execute, execute):
-        return "unstable"
     if wait(0) or not execute_ledger.available() or not execute_ledger.reserve():
         return "unconfirmed"
-    tap(*execute)
+    tap(*point)
     accepted = observe(lambda frame: match_intel_batch_running(frame, threshold)
                        or match_intel_claim_all(frame, threshold), 8.0)
     return "started" if accepted is not None and execute_ledger.confirm() else "unconfirmed"

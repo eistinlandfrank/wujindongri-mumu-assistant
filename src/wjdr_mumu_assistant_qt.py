@@ -24,6 +24,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["--wjdr-ipc-worker"]:
 
 from PIL import Image, ImageChops, ImageStat
 from wjdr_daily_visuals import intel_coloured_candidates, intel_expert, intel_expert_maybe_visible, intel_station_expert, recommended_tech
+from wjdr_ui_components import runtime_log_matches
 from wjdr_daily_expedition import ExpeditionClaimLedger, run_expedition_claim
 from wjdr_daily_intel import IntelExpertLedger, match_hero_preview_any_level, match_hero_victory, match_selected_hero_battle
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, QDateTime, QTime
@@ -1006,29 +1007,36 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
             labels[blocked_state] = "付费 / 遮挡页面"
         return labels.get(state, "未允许的页面")
 
+    def _log_filters(self) -> tuple[str | None, str | None, str]:
+        all_devices = self.log_scope_filter.currentData()
+        device = self.adb.device if self.adb and not all_devices else None
+        return device, self.log_level_filter.currentData(), self.log_keyword.text().strip().casefold()
+
     def _append_log(self, line: str) -> None:
-        device = self.adb.device if self.adb else None
-        if not device or f"[{device}]" in line or "[未绑定]" in line:
-            self.log_edit.append(line)
         try:
             with LOG_FILE.open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
         except OSError:
             pass
+        if runtime_log_matches(line, *self._log_filters()):
+            self.log_edit.appendPlainText(line)
 
     def _load_log_tail(self) -> None:
         try:
-            device = self.adb.device if self.adb else None
-            # Read only a bounded tail; a long-running multi-device installation
-            # must not load the complete shared log into each window.
+            filters = self._log_filters()
             with LOG_FILE.open("rb") as handle:
                 handle.seek(0, 2)
-                handle.seek(max(0, handle.tell() - 256_000))
+                offset = max(0, handle.tell() - 2_000_000)
+                handle.seek(offset)
+                if offset:
+                    handle.readline()
                 lines = handle.read().decode("utf-8", errors="replace").splitlines()
-            lines = [line for line in lines if not device or f"[{device}]" in line][-200:]
-            self.log_edit.setPlainText("\n".join(lines))
+            matches = [line for line in lines if runtime_log_matches(line, *filters)][-2000:]
+            self.log_edit.setPlainText("\n".join(matches))
+            bar = self.log_edit.verticalScrollBar()
+            bar.setValue(bar.maximum())
         except OSError:
-            pass
+            self.log_edit.clear()
 
     def _set_status(self, text: str, kind: str) -> None:
         self.status_pill.setText(text)

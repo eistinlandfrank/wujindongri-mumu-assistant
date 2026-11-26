@@ -16,14 +16,15 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
     QStackedWidget,
-    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -811,7 +812,33 @@ class FrontendLayout:
         header.addWidget(open_folder)
         header.addWidget(clear)
         layout.addLayout(header)
-        self.log_edit = QTextEdit()
+        filters = QHBoxLayout()
+        self.log_scope_filter = QComboBox()
+        self.log_scope_filter.setAccessibleName("日志实例范围")
+        self.log_scope_filter.addItem("当前实例", False)
+        self.log_scope_filter.addItem("全部实例", True)
+        self.log_level_filter = QComboBox()
+        self.log_level_filter.setAccessibleName("日志级别")
+        self.log_level_filter.addItem("全部级别", None)
+        for level in ("DEBUG", "INFO", "WARN", "ERROR"):
+            self.log_level_filter.addItem(level, level)
+        self.log_level_filter.addItem("旧格式", "")
+        self.log_keyword = QLineEdit()
+        self.log_keyword.setAccessibleName("日志关键词")
+        self.log_keyword.setPlaceholderText("搜索最近日志")
+        self.log_keyword.setClearButtonEnabled(True)
+        filters.addWidget(self.log_scope_filter)
+        filters.addWidget(self.log_level_filter)
+        filters.addWidget(self.log_keyword, 1)
+        layout.addLayout(filters)
+        refresh_log = QTimer(page)
+        refresh_log.setSingleShot(True)
+        refresh_log.setInterval(150)
+        refresh_log.timeout.connect(self._load_log_tail)
+        self.log_scope_filter.currentIndexChanged.connect(lambda _: refresh_log.start())
+        self.log_level_filter.currentIndexChanged.connect(lambda _: refresh_log.start())
+        self.log_keyword.textChanged.connect(lambda _: refresh_log.start())
+        self.log_edit = QPlainTextEdit()
         self.log_edit.setObjectName("logEdit")
         self.log_edit.setReadOnly(True)
         self.log_edit.document().setMaximumBlockCount(2000)
@@ -985,7 +1012,7 @@ class FrontendLayout:
             QCalendarWidget QToolButton {{ background: {colors['header']}; color: {colors['text']}; }}
             QListWidget::item {{ padding: 10px; border-radius: 7px; }}
             QListWidget::item:selected {{ background: {colors['selection']}; color: {colors['accent']}; }}
-            QTextEdit#logEdit {{ background: #0D1627; color: #D7E3F6; border: none; border-radius: 11px; padding: 12px; font-family: 'Cascadia Mono'; font-size: 12px; }}
+            QPlainTextEdit#logEdit {{ background: #0D1627; color: #D7E3F6; border: none; border-radius: 11px; padding: 12px; font-family: 'Cascadia Mono'; font-size: 12px; }}
             QScrollArea {{ background: transparent; border: none; }}
             QScrollBar:vertical {{ width: 10px; background: transparent; margin: 4px 0; }}
             QScrollBar::handle:vertical {{ background: {colors['scrollbar']}; border-radius: 5px; min-height: 30px; }}
