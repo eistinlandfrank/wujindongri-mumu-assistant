@@ -33,7 +33,7 @@ from wjdr_mumu_ipc import IpcScreenshots
 
 
 APP_NAME = "无尽冬日 MuMu 助手"
-APP_VERSION = "6.0.3"
+APP_VERSION = "6.0.4"
 GAME_PACKAGE = "com.gof.china"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "WJDRMuMuAssistant"
@@ -1276,6 +1276,7 @@ DAILY_BUILTIN_TEMPLATES: tuple[tuple[str, str], ...] = (
     ("assets/daily_intel_tutorial_bubble.png", "daily_intel_tutorial_bubble.png"),
     ("assets/daily_intel_tutorial_hand.png", "daily_intel_tutorial_hand.png"),
     ("assets/daily_pet_treasure_task.png", "daily_pet_treasure_task.png"),
+    ("assets/daily_pet_treasure_task_current.png", "daily_pet_treasure_task_current.png"),
     *((f"assets/daily_{name}", f"daily_{name}") for name in (
         "pet_map_title.png", "pet_map_first_check.png", "pet_chest_paw.png",
         "pet_completed_title.png", "pet_completed_text.png", "pet_completed_chest.png",
@@ -4402,20 +4403,40 @@ def _match_user_document_daily_mission(
     return DailyMissionMatch(kind, task_point, go_point, min(task_score, go_score))
 
 
+PET_TREASURE_CONCURRENT_LIMIT = 3
+
+
+class PetTreasureDispatchLedger(PetDispatchLedger):
+    """Keep the unresolved action guard; the treasure map owns available slots."""
+
+    def available(self) -> bool:
+        try:
+            data = self._read()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+        return data is None or (data["status"] == "confirmed" and data["day"] <= self.day)
+
+
+
+
 def match_daily_pet_treasure_mission(
     screenshot: Image.Image,
     threshold: float,
 ) -> DailyMissionMatch | None:
     """Pair the exact unfinished pet-treasure title with its own blue Go."""
-    return _match_user_document_daily_mission(
-        screenshot,
-        kind=DailyMissionKind.PET_TREASURE,
-        asset="assets/daily_pet_treasure_task.png",
-        template_name="daily_pet_treasure_task.png",
-        title_threshold=max(0.985, float(threshold)),
-        go_threshold=max(0.95, float(threshold)),
-        go_specs=_DAILY_MISSION_GO_SPECS,
-    )
+    for name in ("daily_pet_treasure_task.png", "daily_pet_treasure_task_current.png"):
+        match = _match_user_document_daily_mission(
+            screenshot,
+            kind=DailyMissionKind.PET_TREASURE,
+            asset=f"assets/{name}",
+            template_name=name,
+            title_threshold=max(0.985, float(threshold)),
+            go_threshold=max(0.95, float(threshold)),
+            go_specs=(*_DAILY_MISSION_GO_SPECS, *_USER_DOCUMENT_DAILY_MISSION_GO_SPECS),
+        )
+        if match:
+            return match
+    return None
 
 
 def _pet_anchor(
@@ -4438,68 +4459,135 @@ def _pet_anchor(
     return point
 
 
+
 def _pet_map_is_visible(screenshot: Image.Image) -> bool:
     return bool(_pet_anchor(screenshot, "pet_map_title", (130, 0, 520, 150), 0.97))
 
 
+def _current_pet_anchor(screenshot, name, region, threshold=.94, difference=21.):
+    from wjdr_daily_visuals import _find
+
+    return _find(screenshot, f"daily_pet_{name}.png", region, threshold, difference)[0]
+
+
+def match_pet_yard_treasure(screenshot: Image.Image) -> tuple[int, int] | None:
+    if _current_pet_anchor(screenshot, "current_yard_list", (.31, .957, .51, .999)):
+        return (_current_pet_anchor(screenshot, "current_yard_treasure", (.75, .925, .93, .974))
+                or _current_pet_anchor(screenshot, "current_yard_treasure_clean", (.76, .93, .94, .97)))
+    return None
+
+
+def match_pet_yard_back(screenshot: Image.Image) -> tuple[int, int] | None:
+    if (_current_pet_anchor(screenshot, "current_yard_list", (.31, .957, .51, .999))
+            and _current_pet_anchor(screenshot, "current_yard_attrs", (.19, .956, .325, .999))):
+        return _current_pet_anchor(screenshot, "current_yard_back", (.006, .003, .125, .062))
+    return None
+
+
+
 def match_pet_checked_treasure(screenshot: Image.Image) -> tuple[int, int] | None:
-    """The reviewed completed treasure at the upper-left map location."""
+    """A checked treasure and its corresponding chest on the proved Pet map."""
     if not _pet_map_is_visible(screenshot):
         return None
-    check = _pet_anchor(screenshot, "pet_map_first_check", (530, 480, 730, 700), 0.93)
-    chest = _pet_anchor(screenshot, "pet_chest_paw", (370, 520, 670, 800), 0.93)
-    if not check or not chest:
-        return None
+    check = _pet_anchor(screenshot, "pet_map_first_check", (0, 350, 1440, 1900), 0.93)
+    chest = _pet_anchor(screenshot, "pet_chest_paw", (0, 350, 1440, 1900), 0.93)
     viewport = content_viewport(screenshot)
-    if not (60 / 1440 * viewport.width <= check[0] - chest[0] <= 180 / 1440 * viewport.width
-            and -150 / 2560 * viewport.height <= check[1] - chest[1] <= 0):
-        return None
-    return chest
+    if check and chest and (60 / 1440 * viewport.width <= check[0] - chest[0] <= 180 / 1440 * viewport.width
+                            and -150 / 2560 * viewport.height <= check[1] - chest[1] <= 0):
+        return chest
+
+    area = (.01, .132, .98, .79)
+    check = _current_pet_anchor(screenshot, "focused_check", area, .97, 14.)
+    chest = _current_pet_anchor(screenshot, "focused_paw", area, .96, 17.)
+    if check and chest and (60 / 1440 * viewport.width <= check[0] - chest[0] <= 180 / 1440 * viewport.width
+                            and -150 / 2560 * viewport.height <= check[1] - chest[1] <= 0):
+        return chest
+
+    view = _pet_map_pixels(screenshot)
+    checks = _pet_map_positions(view, "map_check_settled", .93)
+    chests = _pet_map_positions(view, "map_paw_basic_settled", .92)
+    chests += _pet_map_positions(view, "map_paw_gold_settled", .91)
+    for check_x, check_y in sorted(checks, key=lambda point: point[1]):
+        for chest_x, chest_y in chests:
+            if 20 <= check_x - chest_x <= 69 and 0 <= chest_y - check_y <= 60:
+                return map_content_point((chest_x, chest_y), (540, 960), screenshot)
+    return None
+
+
+def _pet_completed_title(screenshot: Image.Image) -> tuple[int, int] | None:
+    return (_pet_anchor(screenshot, "pet_completed_title", (480, 390, 950, 550), 0.96)
+            or _current_pet_anchor(screenshot, "completed_basic_title", (.34, .162, .66, .213), .955, 17.)
+            or _current_pet_anchor(screenshot, "completed_basic_title_alt", (.34, .162, .66, .213), .955, 17.))
 
 
 def match_pet_completed_chest(screenshot: Image.Image) -> tuple[int, int] | None:
-    title = _pet_anchor(screenshot, "pet_completed_title", (480, 390, 950, 550), 0.96)
+    title = _pet_completed_title(screenshot)
     completed = _pet_anchor(screenshot, "pet_completed_text", (520, 500, 920, 680), 0.90)
-    chest = _pet_anchor(screenshot, "pet_completed_chest", (500, 1300, 1000, 1900), 0.90)
+    basic_chest = _current_pet_anchor(screenshot, "completed_basic_chest", (.42, .55, .72, .71), .96, 18.)
+    if basic_chest and not completed:
+        completed = _current_pet_anchor(screenshot, "completed_basic_text", (.40, .203, .60, .252), .86, 26.)
+    chest = (_pet_anchor(screenshot, "pet_completed_chest", (500, 1300, 1000, 1900), 0.90)
+             or basic_chest)
     if not (title and completed and chest):
         return None
     return map_content_point((720, 1620), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
 
 
+
 def match_pet_completed_close(screenshot: Image.Image) -> tuple[int, int] | None:
-    if not _pet_anchor(screenshot, "pet_completed_title", (480, 390, 950, 550), 0.96):
+    if not _pet_completed_title(screenshot):
         return None
     return _pet_anchor(screenshot, "pet_completed_x", (1190, 400, 1360, 560), 0.96)
+
 
 
 def match_pet_unassigned_treasure(screenshot: Image.Image) -> tuple[int, int] | None:
     if not _pet_map_is_visible(screenshot):
         return None
-    return _pet_anchor(screenshot, "pet_new_node_context", (520, 300, 1100, 850), 0.96)
+    return (_pet_anchor(screenshot, "pet_new_node_context", (520, 300, 1100, 850), 0.96)
+            or _current_pet_anchor(screenshot, "basic_node", (.10, .20, .81, .84)))
+
 
 
 def match_pet_dispatch_entry(screenshot: Image.Image) -> tuple[int, int] | None:
-    if not _pet_anchor(screenshot, "pet_new_detail_title", (480, 320, 950, 490), 0.96):
-        return None
-    return _pet_anchor(screenshot, "pet_new_dispatch", (400, 1900, 1050, 2250), 0.96)
+    if _pet_anchor(screenshot, "pet_new_detail_title", (480, 320, 950, 490), 0.96):
+        point = _pet_anchor(screenshot, "pet_new_dispatch", (400, 1900, 1050, 2250), 0.96)
+        if point:
+            return point
+    title_region = (.35, .139, .66, .192)
+    if (_current_pet_anchor(screenshot, "basic_title", title_region)
+            or _current_pet_anchor(screenshot, "advanced_title", title_region)
+            or _pet_anchor(screenshot, "pet_completed_title", (475, 325, 965, 545), .96)):
+        return _current_pet_anchor(screenshot, "basic_dispatch", (.36, .789, .66, .857))
+    return None
+
 
 
 def match_pet_start_ten_stamina(screenshot: Image.Image) -> tuple[int, int] | None:
     """Only the reviewed selected-pet panel and blue 10-stamina control."""
-    if not _pet_anchor(screenshot, "pet_dispatch_select_title", (500, 350, 950, 510), 0.96):
-        return None
-    left = _pet_anchor(screenshot, "pet_selected_left", (80, 1100, 220, 1250), 0.90)
-    right = _pet_anchor(screenshot, "pet_selected_right", (330, 1100, 480, 1250), 0.90)
-    viewport = content_viewport(screenshot)
-    if not left or not right or not (220 / 1440 * viewport.width <= right[0] - left[0] <= 280 / 1440 * viewport.width
-                                     and abs(right[1] - left[1]) <= 5 / 2560 * viewport.height):
-        return None
-    return _pet_anchor(screenshot, "pet_dispatch_start_cost10", (400, 1850, 1050, 2150), 0.96)
+    if _pet_anchor(screenshot, "pet_dispatch_select_title", (500, 350, 950, 510), 0.96):
+        left = _pet_anchor(screenshot, "pet_selected_left", (80, 1100, 220, 1250), 0.90)
+        right = _pet_anchor(screenshot, "pet_selected_right", (330, 1100, 480, 1250), 0.90)
+        viewport = content_viewport(screenshot)
+        if (left and right and 220 / 1440 * viewport.width <= right[0] - left[0] <= 280 / 1440 * viewport.width
+                and abs(right[1] - left[1]) <= 5 / 2560 * viewport.height):
+            point = _pet_anchor(screenshot, "pet_dispatch_start_cost10", (400, 1850, 1050, 2150), 0.96)
+            if point:
+                return point
+    if (_current_pet_anchor(screenshot, "current_select_title", (.37, .144, .62, .2))
+            and _current_pet_anchor(screenshot, "current_select_first", (.063, .435, .147, .484))
+            and _current_pet_anchor(screenshot, "current_select_second", (.251, .547, .329, .592))):
+        return _current_pet_anchor(screenshot, "current_select_start", (.375, .744, .625, .828))
+    return None
+
 
 
 def match_pet_active_close(screenshot: Image.Image) -> tuple[int, int] | None:
     """A just-started treasure must show its yellow natural countdown bar."""
-    if not _pet_anchor(screenshot, "pet_active_title", (480, 450, 950, 600), 0.94):
+    old_title = _pet_anchor(screenshot, "pet_active_title", (480, 450, 950, 600), 0.94)
+    basic = (_current_pet_anchor(screenshot, "basic_active_personal", (.39, .494, .61, .53))
+             and _current_pet_anchor(screenshot, "basic_active_alliance", (.39, .664, .61, .706)))
+    if not old_title and not basic:
         return None
     crop = np.asarray(_daily_reference_crop(screenshot, (240, 1110, 500, 1180)))
     if crop.size == 0:
@@ -4507,13 +4595,143 @@ def match_pet_active_close(screenshot: Image.Image) -> tuple[int, int] | None:
     yellow = ((crop[:, :, 0] > 190) & (crop[:, :, 1] > 130) & (crop[:, :, 2] < 100))
     if float(np.mean(yellow)) < 0.50:
         return None
+    if basic:
+        if not _current_pet_anchor(screenshot, "basic_active_status", (.40, .224, .59, .279)):
+            from wjdr_daily_timer import read_countdown
+
+            digits = np.asarray(_daily_reference_crop(screenshot, (600, 1116, 842, 1171)).convert("RGB"))
+            dark_text = Image.fromarray(np.where(np.min(digits, axis=2) > 184, 0, 255).astype(np.uint8))
+            seconds = read_countdown(dark_text, timeout=2.)
+            if seconds is None or not 0 < seconds <= 5 * 60 * 60:
+                return None
+        return map_content_point((1284, 538), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot)
     return _pet_anchor(screenshot, "pet_active_x_final", (1190, 450, 1360, 650), 0.96)
+
 
 
 def match_pet_map_back(screenshot: Image.Image) -> tuple[int, int] | None:
     if not _pet_map_is_visible(screenshot):
         return None
     return _pet_anchor(screenshot, "pet_map_back", (0, 0, 200, 170), 0.96)
+
+
+@dataclass(frozen=True)
+class PetTreasureBoard:
+    active: int
+    remaining: int
+    free_points: tuple[tuple[int, int], ...]
+
+
+@lru_cache(maxsize=8)
+def _pet_map_asset(name):
+    with Image.open(resource_path(f"assets/daily_pet_{name}.png")) as asset:
+        rgb = asset.convert("RGB")
+        reference = rgb.resize((round(rgb.width * 540 / 1035), round(rgb.height * 960 / 1841)),
+                               Image.Resampling.LANCZOS)
+    return np.asarray(reference)
+
+
+def _pet_map_positions(source, name, minimum):
+    """Locate distinct reviewed map icons in one canonical map crop."""
+    template = _pet_map_asset(name)
+    scores = cv2.matchTemplate(source, template, cv2.TM_CCOEFF_NORMED)
+    height, width = template.shape[:2]
+    found = []
+    for _ in range(8):
+        _, score, _, (x, y) = cv2.minMaxLoc(scores)
+        if score < minimum:
+            break
+        patch = source[y:y + height, x:x + width]
+        if np.mean(np.abs(patch.astype(np.int16) - template.astype(np.int16))) <= 20:
+            found.append((x + width // 2, y + height // 2 + 155))
+        scores[max(0, y - height):y + height, max(0, x - width):x + width] = -1
+    return found
+
+
+def _pet_remaining(screenshot):
+    if not _current_pet_anchor(screenshot, "map_daily_remaining", (.35, .078, .71, .132)):
+        return None
+    reading = _arena_numeric_reading(screenshot, (995, 236, 1065, 308), "white")
+    if reading and reading[1] >= .90 and 0 <= reading[0] <= 9:
+        return reading[0]
+    from wjdr_daily_timer import _read_ocr_lines
+
+    region = _daily_reference_crop(screenshot, (546, 219, 1088, 307))
+    values = [int(match[1]) for text in _read_ocr_lines(region, timeout=2.)
+              if (match := re.fullmatch(r"今日剩余寻宝次数[:：]?(\d{1,2})", "".join(text.split())))]
+    return values[0] if len(values) == 1 else None
+
+
+def _pet_map_pixels(screenshot):
+    viewport = content_viewport(screenshot)
+    portrait = screenshot.crop((viewport.left, viewport.top, viewport.right, viewport.bottom))
+    return np.asarray(portrait.convert("RGB").resize((540, 960), Image.Resampling.LANCZOS))[155:856]
+
+
+def read_pet_treasure_board(screenshot: Image.Image) -> PetTreasureBoard | None:
+    if not _pet_map_is_visible(screenshot):
+        return None
+    remaining = _pet_remaining(screenshot)
+    if remaining is None:
+        return None
+    view = _pet_map_pixels(screenshot)
+    clocks = []
+    for name in ("map_timer_chip", "map_timer_chip_lower", "map_timer_chip_middle"):
+        for x, y in _pet_map_positions(view, name, .91):
+            if not any(abs(x - cx) <= 14 and abs(y - cy) <= 14 for cx, cy in clocks):
+                clocks.append((x, y))
+    if len(clocks) > PET_TREASURE_CONCURRENT_LIMIT:
+        return None
+    free = []
+    checked = _pet_map_positions(view, "map_check_settled", .93)
+    for name, minimum in (("basic_node", .92), ("basic_node_lower", .92),
+                          ("advanced_node", .92), ("map_paw_gold_settled", .91)):
+        for x, y in _pet_map_positions(view, name, minimum):
+            if any(20 <= x - cx <= 78 and 48 <= cy - y <= 115 for cx, cy in clocks):
+                continue
+            if any(19 <= cx - x <= 73 and 0 <= y - cy <= 60 for cx, cy in checked):
+                continue
+            if not any(abs(x - fx) <= 35 and abs(y - fy) <= 35 for fx, fy in free):
+                free.append((x, y))
+    # Without a complete view of the three slots, a cropped timer could be
+    # mistaken for an open slot. Claim-ready nodes are handled separately first.
+    if len(clocks) + len(free) < PET_TREASURE_CONCURRENT_LIMIT:
+        return None
+    points = tuple(map_content_point(point, (540, 960), screenshot) for point in sorted(free, key=lambda p: (p[1], p[0])))
+    return PetTreasureBoard(len(clocks), remaining, points)
+
+
+def match_pet_alliance_notice(frame: Image.Image) -> tuple[int, int] | None:
+    from wjdr_daily_alliance_rewards import _red_badge
+
+    if _pet_map_is_visible(frame) and _red_badge(frame, (.908, .899, .946, .923)):
+        return _current_pet_anchor(frame, "alliance_map_entry", (.79, .889, .969, .999))
+    return None
+
+
+def _pet_alliance_panel(frame):
+    return _current_pet_anchor(frame, "alliance_header", (.37, .093, .63, .147))
+
+
+def _pet_alliance_remaining(frame):
+    if not _pet_alliance_panel(frame):
+        return None
+    from wjdr_daily_timer import _read_ocr_lines
+
+    region = _daily_reference_crop(frame, (466, 553, 990, 658))
+    values = [int(match[1]) for line in _read_ocr_lines(region, timeout=1.3)
+              if (match := re.fullmatch(r"今日剩余领取次数[:：]?(\d{1,2})", "".join(line.split())))]
+    return values[0] if len(values) == 1 else None
+
+
+def _pet_alliance_bulk(frame):
+    return _current_pet_anchor(frame, "alliance_bulk", (.32, .80, .68, .89))
+
+
+def _pet_alliance_close(frame):
+    if _pet_alliance_panel(frame):
+        return _current_pet_anchor(frame, "alliance_close", (.88, .096, .975, .149))
+    return None
 
 
 def run_pet_treasure_cycle(
@@ -4526,21 +4744,35 @@ def run_pet_treasure_cycle(
     log: Callable[[str], None],
     *,
     timeout: float = 24.0,
+    allow_dispatch: bool = True,
+    return_to_daily: bool = True,
+    fill_slots: bool = False,
+    take_alliance_reward: bool = False,
+    keep_map: bool = False,
 ) -> str:
-    """Run one correlated Pet Daily route with one durable dispatch intent.
+    """Run the Pet Daily route with durable, individually confirmed dispatch intents.
 
     The caller owns the per-account lease and has just sent a double-checked
-    Pet Daily Go.  A state transition is recorded before each input; an
+    Pet Daily Go or entered the verified Pet Treasure map from the city.
+    With slot filling enabled, the next dispatch requires a fresh board
+    with the newly active slot and the decremented daily count.
+    A state transition is recorded before each input; an
     unacknowledged input is never repeated.  Return values are ``dispatched``,
     ``skipped``, ``unconfirmed`` or ``stopped``.  The game countdown is never
     waited out here.  Capture and input callbacks must each have a short
     transport timeout so the 24-second deadline remains bounded.
     """
-    deadline = time.monotonic() + min(24.0, max(0.1, float(timeout)))
+    deadline = time.monotonic() + min(27.0, max(0.1, float(timeout)))
     stage = "map_find"
     stage_started = time.monotonic()
-    skipped = False
-    checked_used = False
+    dispatched = False
+    claimed_centres: list[tuple[int, int]] = []
+    yard_back_sent = False
+    town_sent = False
+    before_dispatch = None
+    expected_after_dispatch = None
+    alliance_tab_selected = False
+    alliance_remaining = None
 
     def pair(matcher: Callable[[Image.Image], tuple[int, int] | None],
              first: Image.Image, second: Image.Image, tolerance: int = 8) -> tuple[int, int] | None:
@@ -4559,19 +4791,55 @@ def run_pet_treasure_cycle(
         point: tuple[int, int] | None = None
         next_stage = stage
         if stage == "map_find":
-            point = pair(match_pet_unassigned_treasure, first, second, 20)
-            if point:
-                next_stage = "detail"
-            elif not checked_used:
-                point = pair(match_pet_checked_treasure, first, second, 25)
+            if take_alliance_reward and alliance_remaining is None:
+                alliance = pair(match_pet_alliance_notice, first, second)
+                if alliance:
+                    stage = "alliance_open"
+                    stage_started = time.monotonic()
+                    tap(*alliance)
+                    continue
+            if fill_slots and (allow_dispatch or expected_after_dispatch is not None):
+                a, b = read_pet_treasure_board(first), read_pet_treasure_board(second)
+                confirmed_count = (
+                    (b.active, b.remaining) if a is not None and b is not None
+                    and (a.active, a.remaining) == (b.active, b.remaining) else None
+                )
+                if expected_after_dispatch is not None:
+                    if confirmed_count != expected_after_dispatch:
+                        if time.monotonic() - stage_started >= 4.0:
+                            log("宠物寻宝派遣后，地图队伍数和剩余次数未能同时复核；已停止追加派遣。")
+                            return "unconfirmed"
+                        if wait(.12):
+                            return "stopped"
+                        continue
+                    expected_after_dispatch = None
+                    log(f"宠物寻宝已复核 {b.active} 队在途，今日剩余 {b.remaining} 次。")
+            else:
+                a = b = confirmed_count = None
+            checked = pair(match_pet_checked_treasure, first, second, 25)
+            if checked and all(max(abs(x-y) for x,y in zip(checked, previous)) > 45
+                               for previous in claimed_centres):
+                claimed_centres.append(checked)
+                point, next_stage = checked, "completed"
+            elif not checked and allow_dispatch:
+                if not fill_slots:
+                    point = pair(match_pet_unassigned_treasure, first, second, 20)
+                elif confirmed_count is not None:
+                    if b.active >= PET_TREASURE_CONCURRENT_LIMIT or b.remaining == 0:
+                        log(f"宠物寻宝已核对 {b.active} 队在途，今日剩余 {b.remaining} 次。")
+                        stage = "map_back"
+                        continue
+                    point = next((p for p in b.free_points
+                                  if any(max(abs(x-y) for x,y in zip(p, old)) <= 20
+                                         for old in a.free_points)), None)
+                    if point:
+                        before_dispatch = confirmed_count
                 if point:
-                    checked_used = True
-                    next_stage = "completed"
+                    next_stage = "detail"
             if not point and time.monotonic() - stage_started >= 3.0:
                 # No matching free point: return only via the exact Pet map
                 # back control. This does not infer a successful dispatch.
                 if pair(match_pet_map_back, first, second):
-                    skipped = True
                     stage = "map_back"
                     continue
                 daily_states = (DailyTaskState.DAILY_PAGE, DailyTaskState.DAILY_LOGIN_COMPLETED,
@@ -4579,6 +4847,45 @@ def run_pet_treasure_cycle(
                 if (detect_daily_task_state(first, 0.90).state in daily_states
                         and detect_daily_task_state(second, 0.90).state in daily_states):
                     return "skipped"
+        elif stage in ("alliance_open", "alliance_verify"):
+            first_count = _pet_alliance_remaining(first)
+            second_count = _pet_alliance_remaining(second)
+            if first_count is not None and first_count == second_count:
+                if stage == "alliance_open":
+                    if second_count > 0:
+                        point = pair(_pet_alliance_bulk, first, second)
+                        if point:
+                            alliance_remaining, next_stage = second_count, "alliance_result"
+                    else:
+                        point = pair(_pet_alliance_close, first, second)
+                        if point:
+                            alliance_remaining, next_stage = 0, "alliance_map"
+                elif second_count < alliance_remaining:
+                    point = pair(_pet_alliance_close, first, second)
+                    if point:
+                        log(f"宠物联盟宝藏领取次数：{alliance_remaining} → {second_count}。")
+                        next_stage = "alliance_map"
+            elif (stage == "alliance_open" and not alliance_tab_selected
+                  and first_count is None and second_count is None):
+                def friend_tab(frame):
+                    if _pet_alliance_panel(frame):
+                        return _current_pet_anchor(frame, "alliance_friend_tab", (.58, .15, .84, .23))
+                    return None
+
+                point = pair(friend_tab, first, second)
+                alliance_tab_selected = point is not None
+        elif stage == "alliance_result":
+
+            point = pair(lambda frame: match_daily_hero_recruit_summary_exit(frame, .90, at_phrase=True)[0],
+                         first, second)
+            next_stage = "alliance_verify"
+        elif stage == "alliance_map":
+            if (pair(match_pet_map_back, first, second)
+                    and not match_pet_alliance_notice(first) and not match_pet_alliance_notice(second)):
+                log("宠物联盟宝藏红点已复核消失。")
+                stage = "map_find"
+                stage_started = time.monotonic()
+                continue
         elif stage == "completed":
             point = pair(match_pet_completed_chest, first, second)
             next_stage = "reward"
@@ -4592,7 +4899,17 @@ def run_pet_treasure_cycle(
                     and second_exit.kind is first_exit.kind and first_exit.point and second_exit.point
                     and max(abs(x - y) for x, y in zip(first_exit.point, second_exit.point)) <= 8):
                 point, next_stage = second_exit.point, "completed_close"
+            else:
+
+                point = pair(lambda f: match_daily_hero_recruit_summary_exit(f, .90, at_phrase=True)[0],
+                             first, second)
+                if point:
+                    next_stage = "completed_close"
         elif stage == "completed_close":
+            if pair(match_pet_map_back, first, second):
+                stage = "map_find"
+                stage_started = time.monotonic()
+                continue
             point = pair(match_pet_completed_close, first, second)
             next_stage = "map_find"
         elif stage == "detail":
@@ -4611,15 +4928,39 @@ def run_pet_treasure_cycle(
                 if not confirm_dispatch():
                     log("宠物寻宝已显示自然倒计时，但确认记录写入失败；未继续输入。")
                     return "unconfirmed"
-                next_stage = "map_back"
+                dispatched = True
+                if fill_slots and before_dispatch is not None:
+                    expected_after_dispatch = (before_dispatch[0] + 1, before_dispatch[1] - 1)
+                    next_stage = "map_find"
+                else:
+                    next_stage = "map_back"
         elif stage == "map_back":
             point = pair(match_pet_map_back, first, second)
+            if point and keep_map:
+                return "dispatched" if dispatched else "skipped"
             next_stage = "city"
         elif stage == "city":
             def city(image: Image.Image) -> tuple[int, int] | None:
                 return match_daily_city_entry(image, 0.90)[0]
             point = pair(city, first, second)
-            next_stage = "done"
+            if point:
+                if not return_to_daily:
+                    return "dispatched" if dispatched else "skipped"
+                next_stage = "done"
+            elif not yard_back_sent:
+                point = pair(match_pet_yard_back, first, second)
+                yard_back_sent = point is not None
+            if not point and not town_sent:
+                def world_town(image: Image.Image) -> tuple[int, int] | None:
+                    town, _ = match_daily_world_town_entry(image, .91)
+                    if town:
+                        return town
+                    if match_daily_world_overview_search_entry(image, .91)[0]:
+                        return map_content_point((1330, 2395), (1440, 2560), image)
+                    return None
+
+                point = pair(world_town, first, second)
+                town_sent = point is not None
         if point:
             prior = stage
             # Advance before input. A delayed or missing acknowledgement can
@@ -4629,11 +4970,31 @@ def run_pet_treasure_cycle(
             tap(*point)
             log(f"宠物寻宝：{prior} 已确认并执行一次输入。")
             if stage == "done":
-                return "skipped" if skipped else "dispatched"
+                return "dispatched" if dispatched else "skipped"
             continue
         if wait(0.10):
             return "stopped"
     return "stopped" if stopped() else "unconfirmed"
+
+
+
+def run_pet_daily(capture, tap, stopped, wait, ledger, log, *, return_to_daily=True):
+    """Use separate bounded passes for rewards, dispatches, and cleanup."""
+    args = (capture, tap, stopped, wait, ledger.reserve, ledger.confirm, log)
+    normal = ("dispatched", "skipped")
+    rewards = run_pet_treasure_cycle(*args, allow_dispatch=False, keep_map=True, timeout=27.)
+    if rewards not in normal:
+        return rewards
+    dispatched = run_pet_treasure_cycle(
+        *args, allow_dispatch=ledger.available(), fill_slots=True, keep_map=True, timeout=27.,
+    )
+    if dispatched not in normal:
+        return dispatched
+    closed = run_pet_treasure_cycle(
+        *args, allow_dispatch=False, return_to_daily=return_to_daily,
+        take_alliance_reward=True, timeout=27.,
+    )
+    return dispatched if closed in normal else closed
 
 
 def match_daily_intel_mission(
@@ -6733,9 +7094,16 @@ def match_daily_city_wilderness_entry(
         max(0.97, float(threshold)),
         _relative_region(screenshot, 0.78, 0.84, 1.00, 1.00),
     )
-    if not low_point:
-        return None, max(score, city_score, tight_score, low_score)
-    return map_content_point((1310, 2430), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), low_score
+    if low_point:
+        return map_content_point((1310, 2430), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), low_score
+
+    from wjdr_daily_visuals import _find
+    current, current_score = _find(
+        screenshot, "daily_earth_city_wilderness.png", (.81, .895, .995, .998), .93, 22.,
+    )
+    if current:
+        return map_content_point((1310, 2430), BUILTIN_DAILY_TASK_REFERENCE_SIZE, screenshot), current_score
+    return None, max(score, city_score, tight_score, low_score, current_score)
 
 
 def match_daily_world_overview_entry(

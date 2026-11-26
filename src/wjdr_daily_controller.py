@@ -24,6 +24,7 @@ from wjdr_daily_visuals import (
 from wjdr_daily_alliance_rewards import run_alliance_rewards
 from wjdr_daily_arena import expedition_arena_home, expedition_arena_list_close, run_expedition_arena
 from wjdr_daily_timer import donation_recovery_crop, read_countdown_pair
+from wjdr_daily_earth import confirm_earth_view, earth_daily_go, run_earth_from_map
 from wjdr_daily_expedition import (
     ExpeditionClaimLedger,
     run_expedition_claim,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 from wjdr_backend import (
     _arena_numeric_reading,
+    _match_daily_mission_go_control,
     AdbError,
     APP_NAME,
     AlliancePage,
@@ -139,8 +141,8 @@ from wjdr_backend import (
     match_daily_intel_map_page,
     match_daily_intel_mission,
     match_daily_pet_treasure_mission,
-    run_pet_treasure_cycle,
-    PetDispatchLedger,
+    run_pet_daily,
+    PetTreasureDispatchLedger,
     match_daily_intel_rescue_active,
     match_daily_intel_rescue_pin,
     match_daily_intel_rescue_preview,
@@ -435,7 +437,7 @@ class DailyController:
             donation_state_path = CONFIG_DIR / f"daily_donation_{donation_identity}.json"
             donation_day = time.strftime("%Y-%m-%d")
             try:
-                pet_dispatch_ledger: PetDispatchLedger | None = PetDispatchLedger(target_identity, donation_day)
+                pet_dispatch_ledger: PetTreasureDispatchLedger | None = PetTreasureDispatchLedger(target_identity, donation_day)
                 expedition_ledger: ExpeditionClaimLedger | None = ExpeditionClaimLedger(target_identity, donation_day)
                 intel_expert_ledger: IntelExpertLedger | None = IntelExpertLedger(target_identity, donation_day)
                 intel_execute_ledger = IntelBatchLedger(target_identity, donation_day, "execute")
@@ -672,6 +674,7 @@ class DailyController:
             intel_route_retry_at = 0.0
             arena_route_retry_at = 0.0
             arena_route_done = False
+            earth_route_attempted = False
             # A missing green-free control is a five-minute cooldown, not a
             # process-lifetime ban.  The deadline is account-scoped and is
             # revisited only when the scanner is already back at the Daily
@@ -7418,9 +7421,9 @@ class DailyController:
                                     def pet_tap(x: int, y: int) -> None:
                                         target.shell(["input", "tap", str(x), str(y)], timeout=2)
 
-                                    outcome = run_pet_treasure_cycle(
+                                    outcome = run_pet_daily(
                                         pet_capture, pet_tap, self.stop_event.is_set, self.stop_event.wait,
-                                        pet_dispatch_ledger.reserve, pet_dispatch_ledger.confirm,
+                                        pet_dispatch_ledger,
                                         lambda message: self._log_for_device(target.device, message),
                                     )
                                     pet_failed_scan = True
@@ -7437,6 +7440,50 @@ class DailyController:
                                     restart_daily_list_scan()
                                     last_state = None
                                     continue
+
+                            earth_go = None if earth_route_attempted else earth_daily_go(
+                                image, _match_daily_mission_go_control,
+                            )
+                            if earth_go and streak >= 2:
+                                def earth_wait(seconds):
+                                    return (self.stop_event.wait(seconds)
+                                            or bool(duration and time.monotonic() - started >= duration * 60)
+                                            or (guard and not cached_foreground_is_game()))
+
+                                def earth_capture():
+                                    return target.screenshot(timeout=3)
+
+                                verified_earth = confirm_earth_view(
+                                    earth_capture, earth_wait,
+                                    lambda frame: earth_daily_go(frame, _match_daily_mission_go_control),
+                                    2.0,
+                                )
+                                earth_route_attempted = True
+                                if not verified_earth or not stable(earth_go, verified_earth[1]) or earth_wait(0):
+                                    self._log_for_device(target.device, "地心探险任务入口未复核，继续扫描。", level="WARN")
+                                    continue
+                                target.tap(*verified_earth[1])
+                                self._log_for_device(target.device, "地心探险任务入口已双帧确认，开始检查开放区域。")
+                                earth_result, city = run_earth_from_map(
+                                    earth_capture, target.tap,
+                                    lambda: target.shell(["input", "keyevent", "4"], timeout=3),
+                                    earth_wait, lambda message: self._log_for_device(target.device, message),
+                                    _arena_numeric_reading, lambda f: match_reviewed_city_daily_entry(f)[0],
+                                    lambda f: match_reviewed_world_town_entry(f)[0],
+                                )
+                                if city is None or earth_wait(0):
+                                    set_state("地心探险未确认返回主城")
+                                    self._log_for_device(target.device, f"地心探险结果={earth_result}，保留当前页面。", level="WARN")
+                                    break
+                                if earth_result != "done":
+                                    self._log_for_device(target.device, "地心探险未确认耗尽次数，已回主城继续其他日常。", level="WARN")
+                                target.tap(*city)
+                                city_entry_tapped = True
+                                daily_tab_tapped = False
+                                transition_deadline = time.monotonic() + 8.0
+                                restart_daily_list_scan()
+                                last_state = None
+                                continue
 
                             if (
                                 intel_route_attempted
