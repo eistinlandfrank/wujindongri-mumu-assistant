@@ -184,7 +184,18 @@ def expedition_claim(image: Image.Image) -> tuple[tuple[int, int] | None, float]
 
 def expedition_city_entry(image: Image.Image) -> tuple[tuple[int, int] | None, float]:
     """Locate the bottom Expedition entry on an independently proved city."""
-    return _find(image, "daily_expedition_city_entry.png", (0.03, 0.91, 0.18, 1.0), 0.94)
+    point, score = _find(image, "daily_expedition_city_entry.png", (0.03, 0.91, 0.18, 1.0), 0.94)
+    if point:
+        return point, score
+    return _find(image, "daily_expedition_city_entry_current.png", (.015, .917, .165, .999), .94, 20.0)
+
+
+def expedition_disabled_back(image: Image.Image) -> tuple[int, int] | None:
+    """A proven empty/charging chest is distinct from an unknown transition."""
+    back, _ = expedition_back(image)
+    if back and _find(image, "daily_expedition_claim_disabled.png", (.74, .65, .966, .712), .94, 15.0)[0]:
+        return back
+    return None
 
 
 def expedition_idle_claim(image: Image.Image) -> tuple[tuple[int, int] | None, float]:

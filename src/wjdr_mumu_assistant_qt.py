@@ -956,9 +956,9 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
         device = self.adb.device if self.adb and self.adb.device else "未绑定"
         self._log_for_device(device, message)
 
-    def _log_for_device(self, device: str, message: str) -> None:
+    def _log_for_device(self, device: str, message: str, *, level: str = "INFO") -> None:
         stamp = time.strftime("%H:%M:%S")
-        self.signals.log.emit(f"[{stamp}] [{device}] {message}")
+        self.signals.log.emit(f"[{stamp}] [{device}] [{level}] {message}")
 
     @staticmethod
     def _page_label(page: AlliancePage) -> str:
@@ -4314,7 +4314,7 @@ class MainWindow(FrontendLayout, ScoreboardUI, ScheduleUI, FortressUI, BearUI, Q
                         schedule_state("failed", f"流程异常结束：{type(exc).__name__}: {exc}")
                     except Exception:
                         pass
-                self.log(f"任务线程异常：{type(exc).__name__}: {exc}")
+                self._log_for_device(device, f"任务线程异常：{type(exc).__name__}: {exc}", level="ERROR")
                 self.signals.alert.emit(
                     APP_NAME,
                     f"任务线程已安全停止。\n{type(exc).__name__}: {exc}",

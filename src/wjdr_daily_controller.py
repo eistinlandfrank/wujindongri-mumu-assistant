@@ -4,6 +4,7 @@ from __future__ import annotations
 from PIL import Image
 import json
 import time
+from traceback import extract_tb
 from pathlib import (
     Path,
 )
@@ -1065,6 +1066,8 @@ class DailyController:
             last_point: tuple[int, int] | None = None
             state_streak = 0
             last_ui_state = ""
+            last_logged_stage = ""
+            last_recognized_page = None
             last_loop_diagnostic_at = 0.0
             idle_no_input_until = 0.0
             idle_no_input_label = ""
@@ -1073,11 +1076,17 @@ class DailyController:
             # until this worker itself taps a reviewed city or task-tab entry.
             transition_deadline = 0.0
 
-            def set_state(text: str) -> None:
-                nonlocal last_ui_state
+            def set_state(text: str, *, level: str = "DEBUG") -> None:
+                nonlocal last_ui_state, last_logged_stage
                 if text != last_ui_state:
                     last_ui_state = text
                     self.signals.daily_task_state.emit(text)
+                    stage = text.split("（", 1)[0]
+                    if stage.startswith("无输入等待中"):
+                        stage = stage.split("；", 1)[0]
+                    if level != "DEBUG" or stage != last_logged_stage:
+                        last_logged_stage = stage
+                        self._log_for_device(target.device, f"每日阶段：{text}", level=level)
 
             def stable(first: tuple[int, int] | None, second: tuple[int, int] | None) -> bool:
                 if first is None or second is None:
@@ -1335,6 +1344,8 @@ class DailyController:
                 deadline = time.monotonic() + bounded_step_timeout(timeout)
                 prior_point: tuple[int, int] | None = None
                 streak = 0
+                best_score = 0.0
+                last_page = None
                 while not self.stop_event.is_set() and time.monotonic() < deadline:
                     if duration and time.monotonic() - started >= duration * 60:
                         return None
@@ -1348,10 +1359,12 @@ class DailyController:
                     # existing daily blocker uses narrow, reviewed anchors and
                     # does not treat an ordinary world-map screen as payment.
                     page = detect_daily_task_state(image, threshold)
+                    last_page = page.state.value
                     if page.state is getattr(DailyTaskState, "BLOCKED", None):
                         self._log_for_device(target.device, f"采集流程在{label}看到付费页面；未输入并停止。")
                         return None
                     point, _score = probe(image)
+                    best_score = max(best_score, _score)
                     if point and stable(point, prior_point):
                         streak += 1
                     elif point:
@@ -1359,10 +1372,20 @@ class DailyController:
                     else:
                         prior_point, streak = None, 0
                     if streak >= 2 and point:
+                        self._log_for_device(
+                            target.device, f"每日控件识别：{label} 双帧确认，分数={_score:.3f}，坐标={point}。",
+                            level="DEBUG",
+                        )
                         return image, point
                     set_state(f"等待已验证的{label}（{streak}/2）")
                     if self.stop_event.wait(interval):
                         return None
+                if not self.stop_event.is_set():
+                    self._log_for_device(
+                        target.device, f"每日控件识别：{label} 未在限时内双帧确认，"
+                        f"最高分={best_score:.3f}，最后页面={last_page or '无帧'}，有效连续帧={streak}/2。",
+                        level="DEBUG",
+                    )
                 return None
 
             def wait_for_gather_selector(timeout: float) -> Image.Image | None:
@@ -5897,8 +5920,17 @@ class DailyController:
                             continue
 
                         page = detect_daily_task_state(image, threshold)
-                        if emit_diagnostic:
-                            self._log_for_device(target.device, f"每日流程心跳：页面识别为 {page.state.value}。")
+                        proof = (page.state, tuple(name for name, _ in page.anchors))
+                        if emit_diagnostic or proof != last_recognized_page:
+                            last_recognized_page = proof
+                            anchors = ", ".join(f"{name}={point}" for name, point in page.anchors) or "无"
+                            self._log_for_device(
+                                target.device,
+                                f"每日页面识别：状态={page.state.value}，分数={page.score:.3f}，"
+                                f"阈值={threshold:.2f}，操作点={page.point}，锚点={anchors}，"
+                                f"取帧均耗={capture_latency_ewma * 1000:.0f}ms。",
+                                level="DEBUG",
+                            )
 
                         carnival_close = (
                             match_daily_carnival_sale_close(image)
@@ -6940,8 +6972,10 @@ class DailyController:
                                         lambda frame: match_daily_city_entry(frame, threshold)[0] is not None,
                                         expedition_reward_exit, expedition_ledger.reserve, expedition_ledger.confirm,
                                         lambda message: self._log_for_device(target.device, message),
+                                        trace=lambda message: self._log_for_device(target.device, message, level="DEBUG"),
                                     )
                                     if outcome not in ("claimed", "unavailable"):
+                                        self._log_for_device(target.device, f"探险收益阶段结束为 {outcome}；每日入口未发送。", level="WARN")
                                         set_state("探险收益状态未完整确认，已停止且未重复输入")
                                         break
                                     last_state = None
@@ -8143,11 +8177,21 @@ class DailyController:
                             continue
 
                         set_state("检测到未允许的每日状态：不输入并停止")
-                        self._log_for_device(target.device, "每日奖励流程遇到未允许状态；未执行输入。")
+                        self._log_for_device(target.device, "每日奖励流程遇到未允许状态；未执行输入。", level="WARN")
                         break
+                except InterruptedError as exc:
+                    self._log_for_device(target.device, f"每日流程已取消：{exc}")
+                    break
                 except Exception as exc:
                     set_state("每日奖励识别异常：不输入并停止")
-                    self._log_for_device(target.device, f"每日奖励流程异常；未执行恢复输入：{exc}")
+                    location = " -> ".join(
+                        f"{Path(part.filename).name}:{part.lineno}:{part.name}"
+                        for part in extract_tb(exc.__traceback__)
+                    )
+                    self._log_for_device(
+                        target.device, f"每日流程异常：{type(exc).__name__}: {exc}，调用位置={location}。",
+                        level="ERROR",
+                    )
                     break
                 if self.stop_event.wait(interval):
                     break
