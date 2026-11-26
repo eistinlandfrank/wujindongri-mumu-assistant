@@ -13,6 +13,7 @@ from PIL import (
     ImageStat,
 )
 from wjdr_daily_visuals import (
+    hero_recruit_summary_back,
     intel_coloured_candidates,
     intel_station_expert,
     match_musk_ox_buff,
@@ -385,6 +386,8 @@ class DailyController:
             # cannot cause a no-op navigation loop.
             startup_hero_recruit_return_streak = 0
             startup_hero_recruit_back_sent = False
+            startup_recruit_summary_point = None
+            startup_recruit_summary_sent = False
             # The ordinary Alliance donation can become grey/disabled while
             # the yellow diamond sibling remains enabled.  Startup recovery
             # may only leave that exact reviewed dual-control page after two
@@ -5600,7 +5603,10 @@ class DailyController:
                         summary_point, _summary_score = (
                             match_daily_hero_recruit_summary_exit(image, threshold, at_phrase=True)
                         )
-                        if summary_point:
+                        summary_back, _back_score = hero_recruit_summary_back(image, threshold)
+                        if summary_back:
+                            kind, point = "summary_back", summary_back
+                        elif summary_point:
                             kind, point = "summary", summary_point
                         elif duplicate_point:
                             kind, point = "duplicate", duplicate_point
@@ -5647,19 +5653,18 @@ class DailyController:
                             "等待其关联奖励汇总页，未点击任何英雄、技能、钥匙或钻石。",
                         )
                         result = wait_for_correlated_hero_result(20.0)
-                        if not result or result[0] != "summary":
+                        if not result or result[0] not in ("summary", "summary_back"):
                             self._log_for_device(
                                 target.device,
                                 "重复英雄揭示页返回后未双帧确认关联奖励汇总页；未继续输入。",
                             )
                             return False
-                        _summary_kind, _summary_image, result_point = result
+                        result_kind, _summary_image, result_point = result
+                    if self.stop_event.is_set():
+                        return False
                     target.tap(*result_point)
-                    self._log_for_device(
-                        target.device,
-                        f"英雄任务：完整‘点击任意位置退出’文字已双帧OCR确认；"
-                        f"点击退出文字 {result_point}。",
-                    )
+                    exit_label = "专用左上返回" if result_kind == "summary_back" else "完整退出文字"
+                    self._log_for_device(target.device, f"英雄任务：双帧确认{exit_label}，已点击一次 {result_point}。")
                     if adaptive_operation_wait(maximum=0.50):
                         return False
 
@@ -5674,7 +5679,7 @@ class DailyController:
                     20.0,
                 )
                 if not page_stage:
-                    self._log_for_device(target.device, "英雄任务结束时未双帧确认招募页；未执行返回。")
+                    self._log_for_device(target.device, "英雄任务结束时未双帧确认招募页；未执行返回。", level="WARN")
                     return False
                 defer_hero_recruit()
                 _page_image, back_point = page_stage
@@ -6291,6 +6296,32 @@ class DailyController:
                                         f"{tech_state}页返回联盟主页；未点击任何科技节点。",
                                     )
                                 continue
+
+                        if page.state is DailyTaskState.UNKNOWN and not level_verified:
+                            recruit_back, recruit_score = hero_recruit_summary_back(image, threshold)
+                            if recruit_back:
+                                if startup_recruit_summary_sent:
+                                    if time.monotonic() < transition_deadline:
+                                        continue
+                                    set_state("招募奖励页返回结果未确认")
+                                    self._log_for_device(
+                                        target.device, "招募奖励页仍可见，未重复点击返回。", level="WARN",
+                                    )
+                                    break
+                                if stable(recruit_back, startup_recruit_summary_point):
+                                    if self.stop_event.is_set():
+                                        break
+                                    startup_recruit_summary_sent = True
+                                    target.tap(*recruit_back)
+                                    transition_deadline = time.monotonic() + 8.0
+                                    last_state = None
+                                    self._log_for_device(
+                                        target.device, f"每日启动恢复：招募奖励页左上返回双帧确认"
+                                        f"（{recruit_score:.3f}），已点击一次 {recruit_back}。",
+                                    )
+                                startup_recruit_summary_point = recruit_back
+                                continue
+                            startup_recruit_summary_point = None
 
                         if (
                             page.state is DailyTaskState.UNKNOWN

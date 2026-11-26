@@ -161,6 +161,28 @@ def intel_coloured_candidates(image: Image.Image) -> list[tuple[str, str, tuple[
     return found
 
 
+def hero_recruit_summary_back(image: Image.Image, threshold: float) -> tuple[tuple[int, int] | None, float]:
+    """Return the arrow only on the exact recruit reward summary."""
+    title, title_score = _find(image, "daily_hero_recruit_summary_title.png", (.40, .164, .60, .227), .98, 15.)
+    if title is None:
+        return None, title_score
+    # The ordinary-looking reward title is also used by other screens.
+    # The repeat recruit label distinguishes this summary, but is never tapped.
+    repeat_label, repeat_score = _find(
+        image, "daily_hero_recruit_summary_button_label.png", (.40, .803, .62, .855), .98, 15.,
+    )
+    if repeat_label is None:
+        return None, repeat_score
+    back, back_score = _find(image, "daily_hero_recruit_summary_back.png", (.002, .001, .121, .063), .98, 15.)
+    if back is None:
+        return None, back_score
+    from wjdr_backend import match_daily_hero_recruit_summary_exit
+
+    phrase, phrase_score = match_daily_hero_recruit_summary_exit(image, threshold, at_phrase=True)
+    score = min(title_score, repeat_score, back_score, phrase_score)
+    return (back if phrase else None), score
+
+
 def expedition_claim(image: Image.Image) -> tuple[tuple[int, int] | None, float]:
     """Return a claim button only when its Expedition header also matches."""
     header, header_score = _find(image, "daily_expedition_header.png", (0.08, 0.0, 0.30, 0.08))
