@@ -300,10 +300,12 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     current = fortress.read_control_reward(image, lines, ocr)
     if current and not outstanding(current.target, current.stamp):
         _detail_back(target, ocr, stop_event)
+        _, image, lines = fortress._alliance_frame(target, ocr, stop_event)
         current = None
 
     if current is None:
-        image, lines = fortress.open_game_screen(target, ocr, stop_event, "mail")
+        if not fortress.alliance_mail_selected(image, lines):
+            image, lines = fortress.open_game_screen(target, ocr, stop_event, "mail")
 
         def row(im, ln):
             if not fortress.alliance_mail_selected(im, ln):
@@ -403,14 +405,10 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             raise ValueError(f"[{tag}] 入盟时已超过钥匙返回截止")
         notify(f"[{tag}] 已在截止前返回")
         _member_to_root(target, ocr, stop_event, tag)
-        fortress.open_game_screen(target, ocr, stop_event, "mail")
     else:
         _, image, lines = fortress._alliance_frame(target, ocr, stop_event)
         if fortress.joined_tag_matches(image, lines, ocr, tag):
             _member_to_root(target, ocr, stop_event, tag)
-            fortress.open_game_screen(target, ocr, stop_event, "mail")
-        elif fortress.is_game_root(lines) or fortress.is_regular_activity(lines) or fortress.is_mail_list(lines):
-            fortress.open_game_screen(target, ocr, stop_event, "mail")
     notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(due)} 的钥匙")
     while not stop_event.is_set() and tag not in run["keys"]:
         try:
@@ -419,10 +417,6 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             stop_event.wait(1)
             continue
         if mail is None:
-            try:
-                _refresh_alliance_mail(target, ocr, stop_event)
-            except fortress.PageNotVerified:
-                pass
             stop_event.wait(1)
             continue
         notify(f"[{tag}] 已确认领取 {mail.target} 钥匙 · {fortress.format_stamp(mail.stamp)}")
