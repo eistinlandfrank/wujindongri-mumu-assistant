@@ -35,6 +35,7 @@ CLAIM_POINT = (336, 762)
 SOLO_INTERVAL = timedelta(minutes=3)
 KEY_MAIL_DELAY = timedelta(minutes=30)
 KEY_MARCH_GAP = timedelta(seconds=20)
+KEY_RALLY_PRIORITY = timedelta(minutes=5)
 VICTORY_MAIL_LEAD = timedelta(seconds=15)
 MARCH_TIME_TOLERANCE = timedelta(seconds=2)
 APPLICATION_TIMEOUT = 180

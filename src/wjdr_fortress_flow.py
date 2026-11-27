@@ -321,11 +321,13 @@ def _clipped_rally(lines):
     return any(text.startswith(("行军中", "集结中")) for text in at_bottom)
 
 
-def _scroll_war_list(target, stop_event, frame):
+def _scroll_war_list(target, stop_event, frame, *, up=True):
     if stop_event.is_set() or not target.foreground_is_game():
         raise InterruptedError()
     start = fortress.map_content_point((172, 973), fortress.REFERENCE, frame)
     end = fortress.map_content_point((172, 596), fortress.REFERENCE, frame)
+    if not up:
+        start, end = end, start
     target.shell(["input", "swipe", *map(str, (*start, *end)), "260"], timeout=2)
 
 
@@ -341,8 +343,9 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
     next_switch = monotonic() + (2 if selected in tabs else 0)
     previous = ()
     page_seen = monotonic()
-    clipped = False
-    scrolled = False
+    search_needed = False
+    search_step = 0
+    last_rallies = {}
     completed = False
     try:
         while not stop_event.is_set():
@@ -380,21 +383,28 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
             elif confirmed:
                 completed = True
                 return confirmed
-            cut_off = (selected == "集结" and selected in tabs
-                       and not names_by_tab[selected] <= {name for name, _ in current} and _clipped_rally(lines))
-            if cut_off and clipped and not scrolled:
-                _scroll_war_list(target, stop_event, frame)
-                scrolled = True
-                next_switch = max(next_switch, monotonic() + 0.45)
-                stop_event.wait(0.12)
-                continue
-            clipped = cut_off
+            if selected == "集结" and selected in tabs:
+                visible = {name for name, _ in current}
+                last_rallies.update(confirmed)
+                matching = names_by_tab[selected]
+                missing = any(name not in visible and arrival > observed for name, arrival in last_rallies.items())
+                if matching <= visible:
+                    search_step = 0
+                need_search = missing or (not matching <= visible and (search_step == 1 or _clipped_rally(lines)))
+                if need_search and search_needed and search_step < 2:
+                    _scroll_war_list(target, stop_event, frame, up=search_step == 0)
+                    search_step += 1
+                    search_needed = False
+                    next_switch = max(next_switch, monotonic() + 0.45)
+                    stop_event.wait(0.12)
+                    continue
+                search_needed = need_search
             if (selected not in tabs or len(tabs) == 2) and monotonic() >= next_switch:
                 next_tab = "单人" if selected == "集结" else "集结"
                 started_switch = monotonic()
                 _, selected = _switch_war_tab(target, ocr, stop_event, frame, next_tab)
                 previous = ()
-                clipped = False
+                search_needed = False
                 page_seen = monotonic()
                 next_switch = started_switch + 2
             else:
@@ -511,7 +521,8 @@ def _watch_station_marches(target, ocr, stop_event, run, station, occupied, chec
                                     uncertainty=fortress.MARCH_TIME_TOLERANCE)
             if key:
                 return key
-        return victory_watch_for((arrival for _, arrival in upcoming), clock)
+        present = {name for name, _ in live}
+        return victory_watch_for((arrival for name, arrival in upcoming if name in present or arrival <= clock), clock)
 
     return read_march_arrivals(target, ocr, stop_event, station, None, decide=decide)
 
@@ -688,7 +699,8 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
 
     frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
     current = fortress.read_control_reward(image, lines, ocr)
-    if current and not outstanding(current.target, current.stamp):
+    if ((current and not outstanding(current.target, current.stamp))
+            or (current is None and fortress.reward_detail_titles(lines) - {fortress.CONTROL_MAIL})):
         _detail_back(target, ocr, stop_event)
         _, image, lines = fortress._alliance_frame(target, ocr, stop_event)
         current = None
@@ -810,6 +822,25 @@ def _currently_returned(run, tag):
     return max(filter(None, (run["returned"].get(tag), run.get("current_alliance_entered_at"))), default=None)
 
 
+def _key_after_rally(run, station, receipts):
+    sent = max(fortress.victory_stamp(stamp) for stamp, state in receipts.items() if state == "claimed")
+    if any(target["mode"] != "集结" for target in station["targets"]):
+        names = {f"{target['kind']}{target['number']}" for target in station["targets"]}
+        tolerance = fortress.MARCH_TIME_TOLERANCE + timedelta(seconds=fortress.RECOVERY_SECONDS)
+        tabs = {row["tab"] for row in run.get("march_forecast", {}).get(station["alliance"], ())
+                if row["target"] in names and abs(fortress.parse_stamp(row["arrival"]) - sent) <= tolerance}
+        if tabs != {"集结"}:
+            return None
+    now = datetime.now(fortress.SHANGHAI)
+    end = sent + fortress.KEY_RALLY_PRIORITY
+    eligible = [(cutoff, due, tag) for due, tag in fortress.key_windows(run)
+                if now < (cutoff := fortress.key_return_by(run, tag, due)) <= end]
+    if eligible:
+        _, due, tag = min(eligible)
+        return due, tag
+    return None
+
+
 def _next_key(run, *, start_return):
     now = datetime.now(fortress.SHANGHAI)
     waiting = run.get("key_waiting")
@@ -919,14 +950,22 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         pending_victory = "pending" in mails.values()
         if (all(entry["number"] is not None for entry in station["targets"])
                 and sum(state == "claimed" for state in mails.values()) >= wanted):
+            priority = None
             if normal_station:
                 run["index"] += 1
+                if run["index"] < len(run["route"]):
+                    priority = _key_after_rally(run, station, mails)
+                    if priority:
+                        due, key_tag = priority
+                        run["key_waiting"] = [fortress.format_stamp(due), key_tag]
             else:
                 deferred.pop(tag)
             run.get("march_forecast", {}).pop(tag, None)
             watch = None
             waiting_on_list = False
             save()
+            if priority:
+                notify(f"[{key_tag}] [{tag}] 集结奖励已领齐，先返回等待 {due:%H:%M:%S} 的钥匙")
             continue
 
         checked_detail = None
