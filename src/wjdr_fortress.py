@@ -5,11 +5,12 @@ import json
 import re
 import time
 import unicodedata
-from collections import Counter
+from collections import Counter, deque
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 from statistics import median
 from threading import Event, Lock, Thread
@@ -53,6 +54,14 @@ TARGET_CARD_LEFTS = (36, 226, 416)
 
 def compact(text: str) -> str:
     return "".join(unicodedata.normalize("NFKC", text).split())
+
+
+def fortress_reward_title(text: str) -> str | None:
+    title = compact(text)
+    if title in FORTRESS_MAIL:
+        return title
+    match = re.fullmatch(r"(堡垒|要塞)争夺[(\[【〔〖]?参与奖励[)\]】〕〗]?", title)
+    return f"{match[1]}争夺(参与奖励)" if match else None
 
 
 @dataclass(frozen=True)
@@ -531,6 +540,7 @@ class RewardMail:
     stamp: datetime
     title: str
     claimed: bool
+    claim_point: tuple[int, int] = CLAIM_POINT
 
 
 def _mail_detail_stamp(image, lines, ocr):
@@ -571,24 +581,35 @@ def _mail_detail_stamp(image, lines, ocr):
     return sent
 
 
+def reward_detail_titles(lines: list[dict]) -> set[str]:
+    headings = _text_in(lines, (188, 248, 454, 301))
+    titles = {title for text in headings if (title := fortress_reward_title(text))}
+    if CONTROL_MAIL in headings:
+        titles.add(CONTROL_MAIL)
+    return titles
+
+
 def read_mail(image: Image.Image, lines: list[dict], ocr=None) -> RewardMail | None:
     if not any(text.endswith("邮件") for text in _text_in(lines, (0, 0, 120, 66))):
         return None
-    titles = set(_text_in(lines, (200, 248, 454, 301))) & FORTRESS_MAIL
-    buttons = _text_in(lines, (260, 730, 430, 792))
+    titles = reward_detail_titles(lines) - {CONTROL_MAIL}
     if len(titles) != 1:
         return None
+    title = titles.pop()
     sent = _mail_detail_stamp(image, lines, ocr)
     if sent is None:
         return None
-    pixels = np.asarray(image.crop((232, 739, 438, 783)).convert("RGB"), dtype=np.int16)
-    red, green, blue = pixels.transpose(2, 0, 1)
-    claim_green = ((green > 130) & (green - red > 55) & (green - blue > 48)).mean()
-    disabled_gray = ((abs(red - green) < 32) & (abs(blue - green) < 32) & (green < 155)).mean()
-    if buttons == ["领取"] and claim_green > 0.62:
-        return RewardMail(sent, titles.pop(), False)
-    if buttons == ["已领取"] and disabled_gray > 0.62:
-        return RewardMail(sent, titles.pop(), True)
+    button_rows = (CLAIM_POINT[1], 627) if title not in FORTRESS_MAIL else (CLAIM_POINT[1],)
+    for y in button_rows:
+        buttons = _text_in(lines, (260, y - 32, 430, y + 30))
+        pixels = np.asarray(image.crop((232, y - 23, 438, y + 21)).convert("RGB"), dtype=np.int16)
+        red, green, blue = pixels.transpose(2, 0, 1)
+        claim_green = ((green > 130) & (green - red > 55) & (green - blue > 48)).mean()
+        disabled_gray = ((abs(red - green) < 32) & (abs(blue - green) < 32) & (green < 155)).mean()
+        if buttons == ["领取"] and claim_green > 0.62:
+            return RewardMail(sent, title, False, (336, y))
+        if buttons == ["已领取"] and disabled_gray > 0.62:
+            return RewardMail(sent, title, True, (336, y))
     return None
 
 
@@ -985,6 +1006,26 @@ def is_member_announcement(lines):
             and "仅限联盟成员阅读" in _text_in(lines, (33, 319, 255, 369)))
 
 
+def is_member_announcement_editor(lines):
+    return (any(matches_ui_label(text, "联盟公告") for text in _text_in(lines, (240, 106, 464, 188)))
+            and "仅限联盟成员阅读" in _text_in(lines, (31, 258, 254, 321))
+            and "即时发布" in _text_in(lines, (112, 195, 275, 253))
+            and "预约发布" in _text_in(lines, (407, 195, 575, 253)))
+
+
+def _join_button_under_notice(banner):
+    rgb = np.asarray(banner.resize((672, 94), Image.Resampling.BILINEAR).convert("RGB"), dtype=np.int16)
+    light = (rgb.min(axis=2) > 155) & (np.ptp(rgb, axis=2) < 80)
+    rules = np.flatnonzero((light[:, :15].mean(axis=1) > .65)
+                           & (light[:, -15:].mean(axis=1) > .65) & (light.mean(axis=1) > .75))
+    if not any(35 <= right - left <= 64 for left in rules for right in rules):
+        return False
+    # A transient notice tints the button and the adjacent row at the same opacity.
+    hue = rgb[:, :, 1] - rgb[:, :, 0]
+    contrast = np.median(hue[:, 495:519], axis=1) - np.median(hue[:, 444:471], axis=1)
+    return bool((contrast[27:59] > 26).mean() > .72)
+
+
 def is_unaffiliated_alliance_page(lines: list[dict]) -> bool:
     return (
         "联盟" in _text_in(lines, (65, 2, 187, 65))
@@ -1277,12 +1318,14 @@ class PageNotVerified(ValueError):
     pass
 
 
-def _wait_alliance_page(target, ocr, stop_event, identify, error, *, timeout=RECOVERY_SECONDS):
+def _wait_alliance_page(target, ocr, stop_event, identify, error, *, timeout=RECOVERY_SECONDS, identify_frame=None):
     previous = None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         frame, image, lines = _alliance_frame(target, ocr, stop_event)
         match = identify(image, lines)
+        if not match and identify_frame is not None:
+            match = identify_frame(frame)
         if match and match == previous:
             return frame, match
         previous = match
@@ -1290,6 +1333,22 @@ def _wait_alliance_page(target, ocr, stop_event, identify, error, *, timeout=REC
         if stop_event.is_set():
             raise InterruptedError()
     raise PageNotVerified(error)
+
+
+def dismiss_member_announcement_editor(target, ocr, stop_event):
+    def editor(_image, lines):
+        if is_member_announcement_editor(lines):
+            return "keyboard" if "OK" in _text_in(lines, (418, 330, 672, 1100)) else "editor"
+        return None
+
+    frame, state = _wait_alliance_page(target, ocr, stop_event, editor, "联盟公告编辑页未核对")
+    if state == "keyboard":
+        if stop_event.is_set() or not target.foreground_is_game():
+            raise InterruptedError()
+        target.shell(["cmd", "input", "keyevent", "4"], timeout=2)
+        frame, _ = _wait_alliance_page(target, ocr, stop_event,
+                                       lambda im, ln: editor(im, ln) == "editor", "公告输入框未关闭")
+    tap_verified_transition(target, stop_event, frame, (622, 148))
 
 
 def dismiss_inactive_alliance_warning(target, ocr, stop_event) -> None:
@@ -1509,6 +1568,8 @@ def rapid_join_anchor(target, ocr, stop_event, tag: str):
         for left, y, right, bottom in boxes
     ]
     signatures = [np.asarray(frame.crop(box).convert("RGB"), dtype=np.int16) for box in physical_boxes[:2]]
+    notice_box = (*map_content_point((0, top + 23), REFERENCE, frame),
+                  *map_content_point((672, top + 117), REFERENCE, frame))
 
     def same_page(current):
         if current.size != frame.size or not all(
@@ -1517,7 +1578,8 @@ def rapid_join_anchor(target, ocr, stop_event, tag: str):
         ):
             return False
         red, green, blue = np.asarray(current.crop(physical_boxes[2]).convert("RGB"), dtype=np.int16).transpose(2, 0, 1)
-        return ((green > 90) & (green - red > 36) & (green - blue > 26)).mean() > .45
+        return (((green > 90) & (green - red > 36) & (green - blue > 26)).mean() > .45
+                or _join_button_under_notice(current.crop(notice_box)))
 
     return map_content_point((549, button_y), REFERENCE, frame), same_page
 
@@ -1558,7 +1620,7 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
         try:
             tick = started
             while not stop_event.is_set() and time.monotonic() < deadline:
-                if done.wait(max(0.0, tick - time.monotonic())):
+                if interval is not None and done.wait(max(0.0, tick - time.monotonic())):
                     break
                 now = time.monotonic()
                 if now >= deadline or stop_event.is_set():
@@ -1568,6 +1630,10 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
                 if allowed and not done.is_set():
                     tap()
                     count += 1
+                if interval is None:
+                    if not allowed and done.wait(.005):
+                        break
+                    continue
                 # A stalled transport drops ticks instead of sending a catch-up burst.
                 tick += interval
                 after = time.monotonic()
@@ -1601,7 +1667,7 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
     return count
 
 
-def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_SECONDS) -> None:
+def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_SECONDS, retry_ready=None) -> bool:
     handled = set()
 
     def identify(image, lines):
@@ -1615,6 +1681,8 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             return "recommendation"
         if "relocation" not in handled and is_alliance_relocation_prompt(lines):
             return "relocation"
+        if "announcement_editor" not in handled and is_member_announcement_editor(lines):
+            return "announcement_editor"
         if "announcement" not in handled and is_member_announcement(lines):
             return "announcement"
         if ("recommendation" in handled and "exact_result" not in handled
@@ -1632,11 +1700,14 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             and "加入" in _text_in(lines, (273, 903, 420, 968))
         )
 
+    raw = {"identify_frame": lambda candidate: "retry" if retry_ready(candidate) else None} if retry_ready else {}
     for _ in range(6):
         frame, outcome = _wait_alliance_page(
-            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout)
+            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout, **raw)
         if outcome == "joined":
-            return
+            return True
+        if outcome == "retry":
+            return False
         if isinstance(outcome, tuple):
             handled.add("exact_result")
             tap_verified_transition(target, stop_event, frame, (125, outcome[1] + 58))
@@ -1653,6 +1724,8 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
             tap_game_point(target, frame, (622, 285))
+        elif outcome == "announcement_editor":
+            dismiss_member_announcement_editor(target, ocr, stop_event)
         elif outcome in {"relocation", "recommendation"}:
             tap_verified_transition(target, stop_event, frame, (622, 195 if outcome == "recommendation" else 148))
         else:
@@ -1684,7 +1757,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
         raise ValueError(f"[{tag}] 正在审核，请继续查看审核结果")
     point, same_page = rapid_join_anchor(target, ocr, stop_event, tag)
     checked_focus = time.monotonic()
-    ticks = []
+    ticks = deque(maxlen=512)
 
     def inspect():
         nonlocal checked_focus
@@ -1694,75 +1767,83 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
             checked_focus = time.monotonic()
         return same_page(target.screenshot(timeout=1.5))
 
-    with (target.touch_session() if rate == 100 else nullcontext()) as touch:
-        def send_touch():
-            if touch is not None:
-                touch.touch_request(None if check_only else point)
-            elif not check_only:
-                target.shell(["cmd", "input", "tap", str(point[0]), str(point[1])], timeout=0.8)
+    started = time.monotonic()
+    count = 0
+    if not check_only:
+        started_at = (prior["started_at"] if prior and prior.get("method") == "direct"
+                      and prior["state"] == "waiting" else time.time())
+        records[tag] = {"started_at": started_at, "state": "waiting", "confirmed": False, "method": "direct"}
+        save()
 
-        def tap():
-            ticks.append(time.monotonic())
-            send_touch()
+    while True:
+        with (target.touch_session() if rate in {None, 100} else nullcontext()) as touch:
+            def tap():
+                ticks.append(time.monotonic())
+                if touch is not None:
+                    touch.touch_request(None if check_only else point)
+                elif not check_only:
+                    target.shell(["cmd", "input", "tap", str(point[0]), str(point[1])], timeout=0.8)
 
-        started = time.monotonic()
-        count = 0
-        run_clicker = check_only or not single_first
-        if not check_only:
-            started_at = (prior["started_at"] if prior and prior.get("method") == "direct"
-                          and prior["state"] == "waiting" else time.time())
-            records[tag] = {"started_at": started_at, "state": "waiting", "confirmed": False, "method": "direct"}
-            save()
-            if single_first and not stop_event.is_set() and target.foreground_is_game() and inspect():
-                send_touch()
-                count = 1
+            run_clicker = check_only or not single_first
+            if not check_only and single_first and not stop_event.is_set() and target.foreground_is_game() and inspect():
+                tap()
+                count += 1
                 if notify:
                     notify(f"[{tag}] 已单点加入，正在核对入盟或提示框")
                 run_clicker = _join_page_still_ready(inspect, stop_event)
-        if run_clicker:
-            remaining = (None if duration is None else max(0, duration - (time.monotonic() - started)))
-            if notify:
-                limit = "不限时" if remaining is None else f"剩余 {remaining:.1f} 秒"
-                notify(f"[{tag}] 开始连点 · 目标每秒 {rate} 次 · {limit}")
-            count += rapid_join_taps(tap, inspect, stop_event, duration=2.1 if check_only else remaining,
-                                     interval=1 / rate, missing_timeout=3.5 if duration is None and not check_only else 0.5)
-        reached_limit = duration is not None and time.monotonic() - started >= duration
+            if run_clicker:
+                remaining = None if duration is None else max(0, duration - (time.monotonic() - started))
+                if notify:
+                    limit = "不限时" if remaining is None else f"剩余 {remaining:.1f} 秒"
+                    speed = "MuMu IPC 最快速度" if rate is None else f"目标每秒 {rate} 次"
+                    notify(f"[{tag}] 开始连点 · {speed} · {limit}")
+                repeated = rapid_join_taps(tap, inspect, stop_event, duration=2.1 if check_only else remaining,
+                                            interval=None if rate is None else 1/rate)
+                count += repeated
 
-    rhythm = ""
-    if len(ticks) >= 2:
-        spacing = median(right - left for left, right in zip(ticks, ticks[1:]))
-        rhythm = f" · 中位发送间隔 {spacing * 1000:.2f} ms"
-    if check_only:
-        if count < 2:
-            raise ValueError("加入按钮画面在只读检测期间变化")
-        return AllianceVisit(False, f"[{tag}] 只读连点检查 {count} 个节拍{rhythm}")
-    if notify and run_clicker:
-        notify(f"[{tag}] 连点已停止 · 连点发送 {len(ticks)} 次{rhythm}")
+        rhythm = ""
+        if len(ticks) >= 2:
+            spacing = median(right - left for left, right in pairwise(ticks))
+            rhythm = f" · 近期中位发送间隔 {spacing * 1000:.2f} ms"
+        if check_only:
+            if count < 2:
+                raise ValueError("加入按钮画面在只读检测期间变化")
+            return AllianceVisit(False, f"[{tag}] 只读连点检查 {count} 个节拍{rhythm}")
+        if notify and run_clicker:
+            notify(f"[{tag}] 连点已停止 · 本段发送 {repeated} 次{rhythm}")
+        if stop_event.is_set() or not target.foreground_is_game():
+            message = f"[{tag}] 连点已停止"
+            break
+        def retry_ready(frame):
+            return (duration is None or time.monotonic() - started < duration) and same_page(frame)
+
+        try:
+            outcome = confirm_direct_join(target, ocr, stop_event, tag, retry_ready=retry_ready)
+        except ValueError:
+            reached_limit = duration is not None and time.monotonic() - started >= duration
+            if reached_limit:
+                if count:
+                    records[tag]["state"] = "timed_out"
+                    save()
+                message = f"[{tag}] 连点时间已到，仍未确认入盟。可选择继续连点。"
+                if on_timeout:
+                    on_timeout(message)
+            else:
+                message = f"[{tag}] 连点已停止，入盟结果待核对"
+            break
+        if outcome is False:
+            single_first = False
+            continue
+        records[tag]["state"] = "joined"
+        save()
+        return AllianceVisit(True, f"已进入 [{tag}]")
     if count == 0:
         if prior is None:
             records.pop(tag)
         else:
             records[tag] = prior
         save()
-    if stop_event.is_set() or not target.foreground_is_game():
-        return AllianceVisit(False, f"[{tag}] 连点已停止")
-    try:
-        confirm_direct_join(target, ocr, stop_event, tag)
-    except ValueError:
-        if reached_limit:
-            if count:
-                records[tag]["state"] = "timed_out"
-                save()
-            message = f"[{tag}] 连点时间已到，仍未确认入盟。可选择继续连点。"
-            if on_timeout:
-                on_timeout(message)
-            return AllianceVisit(False, message)
-        return AllianceVisit(False, f"[{tag}] 连点已停止，入盟结果待核对")
-    records[tag] = (records.get(tag) or
-                    {"started_at": time.time(), "confirmed": False, "method": "direct"})
-    records[tag]["state"] = "joined"
-    save()
-    return AllianceVisit(True, f"已进入 [{tag}]")
+    return AllianceVisit(False, message)
 
 
 def open_alliance_application(
@@ -2195,28 +2276,38 @@ class MailClaimUnconfirmed(ValueError):
 
 def open_recent_victory_mail(
     target, ocr, stop_event, since: datetime, known: set[datetime], *, expected=None, repeatable=frozenset(),
+    arrival_windows=(),
 ):
     """Open one visible candidate; the detail header remains the claim gate."""
     open_game_screen(target, ocr, stop_event, "mail")
     reviewed = set()
+
+    def within_arrival_window(stamp):
+        return not arrival_windows or any(start <= stamp <= end for start, end in arrival_windows)
 
     def row(image, lines):
         if not alliance_mail_selected(image, lines):
             return None
         candidates = []
         for line in lines:
-            title = compact(line["text"])
-            if title not in FORTRESS_MAIL or not line.get("words"):
+            title = fortress_reward_title(line["text"])
+            if not title or not line.get("words"):
                 continue
             position = line["words"][0]
             x, y = position["x"], round(position["y"])
             if 140 < x < 215 and 156 < y < 1070:
                 candidates.append((y, title))
         choices = []
-        for y, title in candidates:
-            stamp = mail_row_stamp(image, lines, y, ocr)
+        stamped = [(y, title, mail_row_stamp(image, lines, y, ocr)) for y, title in candidates]
+        victory_times = {stamp for _, title, stamp in stamped if title in FORTRESS_MAIL and stamp is not None}
+        for y, title, stamp in stamped:
+            victory = title in FORTRESS_MAIL
+            if not victory and (stamp is None or stamp in known or stamp in victory_times):
+                continue
             gift = control_gift_visible(image, y)
             if stamp is not None and (stamp < since or (stamp in known and not (stamp in repeatable and gift))):
+                continue
+            if stamp is not None and not within_arrival_window(stamp):
                 continue
             if expected is not None and stamp != expected:
                 continue
@@ -2239,7 +2330,9 @@ def open_recent_victory_mail(
         if mail.title != title:
             raise PageNotVerified("邮件列表与详情标题不一致")
         if (since <= mail.stamp <= datetime.now(SHANGHAI)
-                and (mail.stamp not in known or (mail.stamp in repeatable and not mail.claimed))
+                and within_arrival_window(mail.stamp)
+                and (mail.stamp not in known or (mail.title in FORTRESS_MAIL
+                     and mail.stamp in repeatable and not mail.claimed))
                 and (expected is None or mail.stamp == expected)):
             return frame, mail
         reviewed.add((y, title, stamp))
@@ -2367,13 +2460,16 @@ def collect_reward(target, ocr, stop_event, record, *, claim: bool,
     record(first, "pending")
     if stop_event.is_set():
         raise InterruptedError()
-    claim_reward(target, frame)
+    if first.claim_point == CLAIM_POINT:
+        claim_reward(target, frame)
+    else:
+        tap_game_point(target, frame, first.claim_point)
     deadline = time.monotonic() + RECOVERY_SECONDS
     while time.monotonic() < deadline:
         if stop_event.is_set():
             raise InterruptedError()
         confirmed_frame, observed = capture_reward(target, ocr)
-        if observed == RewardMail(first.stamp, first.title, True):
+        if observed == RewardMail(first.stamp, first.title, True, first.claim_point):
             return complete(confirmed_frame, observed)
         stop_event.wait(min(0.08, max(0, deadline - time.monotonic())))
     raise MailClaimUnconfirmed("领取结果未确认，等待游戏显示「已领取」")

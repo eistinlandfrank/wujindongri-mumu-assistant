@@ -1013,8 +1013,9 @@ class FortressUI:
                 if not ok:
                     return
                 duration = minutes * 60
-            fixed = "固定坐标，不限速"
-            rates = ["100", "10"]
+            automatic = "最快速度（进盟自动停）"
+            fixed = "固定坐标，不限速（手动停）"
+            rates = [automatic, "100", "10"]
             if duration is None:
                 rates.append(fixed)
             rate, ok = QInputDialog.getItem(
@@ -1022,6 +1023,7 @@ class FortressUI:
             if not ok:
                 return
             identity = self.fortress_identity
+            join_rate = None if rate in {automatic, fixed} else int(rate)
 
             def click_and_watch(target, active_run, ocr, save):
                 def notify(message):
@@ -1030,7 +1032,7 @@ class FortressUI:
                 if rate == fixed:
                     return fortress.run_fixed_join(target, ocr, self.stop_event, tag, notify)
                 result = fortress.run_rapid_join(
-                    target, ocr, self.stop_event, active_run, tag, save, rate=int(rate), duration=duration,
+                    target, ocr, self.stop_event, active_run, tag, save, rate=join_rate, duration=duration,
                     notify=notify,
                     on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
                         identity, target.device, message + (" 入盟后续跑本轮。" if continue_flow else "")),
@@ -1043,7 +1045,7 @@ class FortressUI:
                         save()
                 if result.joined and continue_flow:
                     return flow.run_route(
-                        target, ocr, self.stop_event, active_run, save, rate=int(rate),
+                        target, ocr, self.stop_event, active_run, save, rate=join_rate or 100,
                         notify=lambda message: self.signals.fortress_result.emit(identity, target.device, message),
                         on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
                             identity, target.device, message + " 入盟后续跑本轮。"),
