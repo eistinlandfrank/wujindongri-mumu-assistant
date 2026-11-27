@@ -7,6 +7,11 @@ from time import monotonic
 import wjdr_fortress as fortress
 from wjdr_schedule import GRACE_SECONDS
 
+
+class RecoveryFailed(ValueError):
+    """A verified continuation was unavailable after the recovery attempt."""
+
+
 def claim_scheduled_start(run: dict, start_at: datetime, save, *, now: datetime | None = None) -> None:
     current = now if now is not None else datetime.now(fortress.SHANGHAI)
     if current < start_at:
@@ -64,11 +69,11 @@ def _close_known_overlay(target, ocr, stop_event):
         fortress.tap_verified_transition(target, stop_event, frame, (636, 36))
         frame, visible = fortress._wait_alliance_page(
             target, ocr, stop_event, after_detail,
-            "关闭奖励邮件详情后的页面未确认", timeout=5)
+            "关闭奖励邮件详情后的页面未确认")
     if visible in {"activity", "mail"}:
         fortress.tap_verified_transition(target, stop_event, frame, (37, 36) if visible == "activity" else (636, 36))
         fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),
-                                      "返回野外的结果未确认", timeout=5)
+                                      "返回野外的结果未确认")
 
 
 def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due=None):
@@ -172,7 +177,7 @@ def _occupation(target, ocr, stop_event, station):
             failures = 0
         except fortress.PageNotVerified:
             failures += 1
-            if failures >= 3 or not target.foreground_is_game():
+            if failures >= 2 or not target.foreground_is_game():
                 raise
         next_tap = monotonic() + 1
     return False
@@ -232,14 +237,6 @@ def _detail_back(target, ocr, stop_event):
                                   "已返回邮件列表的结果未确认")
 
 
-def _refresh_alliance_mail(target, ocr, stop_event):
-    frame, _ = fortress._wait_alliance_page(
-        target, ocr, stop_event, fortress.alliance_mail_selected, "待刷新联盟邮件列表未确认")
-    _tap(target, stop_event, frame, (636, 36))
-    fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),
-                                "邮件刷新前返回野外未确认")
-
-
 def _paired_victory_times(target, ocr, stop_event, run, pair, save):
     if "stamps" in pair:
         return tuple(fortress.parse_stamp(stamp) for stamp in pair["stamps"])
@@ -296,6 +293,38 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
         return prior is None or (prior["state"] == "pending"
                                  and (sent is None or fortress.format_stamp(sent) == prior["stamp"]))
 
+    def row(image, lines, *, unclaimed=None):
+        if not fortress.alliance_mail_selected(image, lines):
+            return None
+        for line in lines:
+            word = (line.get("words") or [None])[0]
+            if not word or fortress.compact(line["text"]) != fortress.CONTROL_MAIL:
+                continue
+            y = round(word["y"])
+            if not (142 < word["x"] < 226 and 155 < y < 1063):
+                continue
+            body = "".join(fortress._text_in(lines, (142, y + 19, 590, y + 53)))
+            label = fortress._control_mail_target(body)
+            sent = fortress.mail_row_stamp(image, lines, y, ocr)
+            if not outstanding(label, sent):
+                continue
+            if unclaimed and ((label, sent) != (unclaimed.target, unclaimed.stamp)
+                              or not fortress.control_gift_visible(image, y)):
+                continue
+            return (312, y + 36), label, sent
+        return None
+
+    def open_row(identify):
+        frame, (point, label, listed_stamp) = fortress._wait_alliance_page(
+            target, ocr, stop_event, identify, "成功控制堡垒邮件列表在打开前发生变化")
+        _tap(target, stop_event, frame, point)
+        frame, opened = fortress._wait_alliance_page(
+            target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr),
+            "钥匙邮件详情和右上角时间未确认")
+        if opened.target != label or listed_stamp is not None and opened.stamp != listed_stamp:
+            raise ValueError("钥匙邮件详情与列表不一致")
+        return frame, opened
+
     frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
     current = fortress.read_control_reward(image, lines, ocr)
     if current and not outstanding(current.target, current.stamp):
@@ -306,58 +335,76 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     if current is None:
         if not fortress.alliance_mail_selected(image, lines):
             image, lines = fortress.open_game_screen(target, ocr, stop_event, "mail")
-
-        def row(im, ln):
-            if not fortress.alliance_mail_selected(im, ln):
-                return None
-            for line in ln:
-                word = (line.get("words") or [None])[0]
-                if not word or fortress.compact(line["text"]) != fortress.CONTROL_MAIL:
-                    continue
-                y = round(word["y"])
-                if not (142 < word["x"] < 226 and 155 < y < 1063):
-                    continue
-                body = "".join(fortress._text_in(ln, (142, y + 19, 590, y + 53)))
-                label = fortress._control_mail_target(body)
-                sent = fortress.mail_row_stamp(im, ln, y, ocr)
-                if outstanding(label, sent):
-                    return (312, y + 36), label, sent
-            return None
-
         if not row(image, lines):
             return None
-        frame, (point, label, listed_stamp) = fortress._wait_alliance_page(
-            target, ocr, stop_event, row, "成功控制堡垒邮件列表在打开前发生变化")
-        _tap(target, stop_event, frame, point)
-        _, current = fortress._wait_alliance_page(
-            target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr),
-            "钥匙邮件详情和右上角时间未确认")
-        if current.target != label or listed_stamp is not None and current.stamp != listed_stamp:
-            raise ValueError("钥匙邮件详情与列表不一致")
+        frame, current = open_row(row)
 
     if not outstanding(current.target, current.stamp):
         raise ValueError("当前邮件不属于本站到期的钥匙奖励")
     key, stamp = current.target, fortress.format_stamp(current.stamp)
-    if not current.claimed:
-        prior = receipts.get(key)
-        if prior is not None:
+    def recover(reward, prior):
+        elapsed = datetime.now(fortress.SHANGHAI).timestamp() - prior.get("attempt_at", 0)
+        if elapsed < fortress.RECOVERY_SECONDS:
             raise fortress.MailClaimUnconfirmed("这封钥匙邮件已有领取操作，等待结果")
+        if prior.get("recovery_checked") or prior.get("verified_recovery_sent"):
+            raise RecoveryFailed(f"[{tag}] 钥匙领取纠错后仍未确认，流程已停止")
+        prior["recovery_checked"] = True
+        save()
+        try:
+            _detail_back(target, ocr, stop_event)
+            verified_frame, checked = open_row(lambda im, ln: row(im, ln, unclaimed=reward))
+        except fortress.PageNotVerified as error:
+            raise RecoveryFailed(f"[{tag}] 无法重新核对钥匙邮件或礼物图标，流程已停止 · {error}") from error
+        if not checked.claimed:
+            _tap(target, stop_event, verified_frame, checked.point)
+        return checked
+
+    def acknowledge(reward):
+        fortress._wait_alliance_page(
+            target, ocr, stop_event,
+            lambda im, ln: ((mail := fortress.read_control_reward(im, ln, ocr)) is not None
+                            and (mail.target, mail.stamp) == (reward.target, reward.stamp) and mail.claimed),
+            "钥匙领取结果待核对")
+
+    def confirm_recovery(reward):
+        if not reward.claimed:
+            try:
+                acknowledge(reward)
+            except fortress.PageNotVerified as error:
+                raise RecoveryFailed(f"[{tag}] 钥匙补领仍无回执，流程已停止") from error
+
+    prior = receipts.get(key)
+    if not current.claimed and prior is not None:
+        current = recover(current, prior)
+        confirm_recovery(current)
+    elif not current.claimed:
         with target.touch_session() as touch:
             frame, _ = fortress._wait_alliance_page(
                 target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr) == current,
                 "钥匙领取控件已变化")
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
-            receipts[key] = {"stamp": stamp, "state": "pending"}
+            receipts[key] = {"stamp": stamp, "state": "pending",
+                             "attempt_at": datetime.now(fortress.SHANGHAI).timestamp()}
             save()
             if stop_event.is_set():
                 raise InterruptedError()
             touch.touch_request(fortress.map_content_point(current.point, fortress.REFERENCE, frame))
-        fortress._wait_alliance_page(
-            target, ocr, stop_event,
-            lambda im, ln: ((mail := fortress.read_control_reward(im, ln, ocr)) is not None
-                            and (mail.target, mail.stamp) == (current.target, current.stamp) and mail.claimed),
-            "钥匙领取结果待核对", timeout=6.0)
+
+        try:
+            acknowledge(current)
+        except fortress.PageNotVerified:
+            reward = current
+            try:
+                _, latest = fortress._wait_alliance_page(
+                    target, ocr, stop_event,
+                    lambda im, ln: (mail if (mail := fortress.read_control_reward(im, ln, ocr)) is not None
+                                    and (mail.target, mail.stamp) == (reward.target, reward.stamp) else None),
+                    "未重新确认同一封钥匙邮件")
+            except fortress.PageNotVerified as error:
+                raise RecoveryFailed(f"[{tag}] 钥匙纠错时无法确认同一封邮件，流程已停止") from error
+            current = latest if latest.claimed else recover(latest, receipts[key])
+            confirm_recovery(current)
     if key in receipts and receipts[key]["stamp"] != stamp:
         raise ValueError("当前邮件与本站钥匙发件时间记录不一致")
     receipts[key] = {"stamp": stamp, "state": "claimed"}
@@ -378,8 +425,16 @@ def _member_to_root(target, ocr, stop_event, tag):
     frame, page = fortress._wait_alliance_page(target, ocr, stop_event, state, f"[{tag}] 的成员页未确认")
     if page == "member":
         _tap(target, stop_event, frame, (37, 36))
-        fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, ln: fortress.is_game_root(ln),
-                                      "返回野外未确认")
+        try:
+            fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, ln: fortress.is_game_root(ln),
+                                          "返回野外未确认")
+        except fortress.PageNotVerified:
+            frame, page = fortress._wait_alliance_page(target, ocr, stop_event, state,
+                                                       f"[{tag}] 纠错时未确认成员页或野外")
+            if page == "member":
+                fortress.tap_verified_transition(target, stop_event, frame, (37, 36))
+                fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, ln: fortress.is_game_root(ln),
+                                              "返回野外纠错失败，流程已停止")
 
 
 def _next_key(run, *, start_return):
@@ -410,12 +465,19 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
         if fortress.joined_tag_matches(image, lines, ocr, tag):
             _member_to_root(target, ocr, stop_event, tag)
     notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(due)} 的钥匙")
+    read_failed = False
     while not stop_event.is_set() and tag not in run["keys"]:
         try:
             mail = claim_key_mail(target, ocr, stop_event, run, tag, save)
-        except (fortress.PageNotVerified, fortress.MailClaimUnconfirmed):
+        except fortress.PageNotVerified as error:
+            if read_failed:
+                raise RecoveryFailed(f"[{tag}] 无法核对联盟邮件，流程已停止 · {error}") from error
+            read_failed = True
+            continue
+        except fortress.MailClaimUnconfirmed:
             stop_event.wait(1)
             continue
+        read_failed = False
         if mail is None:
             stop_event.wait(1)
             continue
@@ -424,6 +486,7 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
 
 def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=100):
     active = None
+    victory_read_failed = False
     while not stop_event.is_set():
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
@@ -460,6 +523,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         if active != tag and checked_detail is None:
             _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate)
             _member_to_root(target, ocr, stop_event, tag)
+            victory_read_failed = False
         active = tag
         if tag not in run["occupied"]:
             if any(entry["number"] is None for entry in station["targets"]):
@@ -499,14 +563,27 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
             mail = claim_victory(target, ocr, stop_event, run, tag, save, opened=checked_detail,
                                  close_after=final_mail, expected_stamp=expected_stamp)
         except fortress.MailNotYetVisible:
-            try:
-                _refresh_alliance_mail(target, ocr, stop_event)
-            except fortress.PageNotVerified:
-                stop_event.wait(.7)
-            continue
-        except (fortress.MailClaimUnconfirmed, fortress.PageNotVerified):
+            victory_read_failed = False
             stop_event.wait(1)
             continue
+        except fortress.MailClaimUnconfirmed as error:
+            pending = {fortress.parse_stamp(stamp) for mails in run["mail"].values()
+                       for stamp, state in mails.items() if state == "pending"}
+            try:
+                fortress._wait_alliance_page(
+                    target, ocr, stop_event,
+                    lambda im, ln: ((mail := fortress.read_mail(im, ln, ocr)) is not None
+                                    and mail.stamp in pending and mail.claimed),
+                    "胜利邮件仍未确认已领取")
+            except fortress.PageNotVerified:
+                raise RecoveryFailed(f"[{tag}] 胜利邮件纠错后仍无领取回执，流程已停止") from error
+            continue
+        except fortress.PageNotVerified as error:
+            if victory_read_failed:
+                raise RecoveryFailed(f"[{tag}] 无法核对胜利邮件页面，流程已停止 · {error}") from error
+            victory_read_failed = True
+            continue
+        victory_read_failed = False
         notify(f"[{tag}] 已领取胜利邮件 · {fortress.format_stamp(mail.stamp)}")
         if sum(state == "claimed" for state in run["mail"][tag].values()) < wanted:
             _detail_back(target, ocr, stop_event)

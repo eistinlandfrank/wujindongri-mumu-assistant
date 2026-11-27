@@ -30,7 +30,8 @@ REFERENCE = (673, 1196)
 CLAIM_POINT = (336, 762)
 SOLO_INTERVAL = timedelta(minutes=3)
 APPLICATION_TIMEOUT = 180
-APPLICATION_POLL = 10
+RECOVERY_SECONDS = 5.0
+APPLICATION_POLL = RECOVERY_SECONDS
 RAPID_JOIN_INTERVAL = 0.1
 RAPID_JOIN_DURATION = 180.0
 RAPID_JOIN_FRAME_TTL = 0.28
@@ -217,6 +218,8 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
         return f"部分领取（{claimed} 封）"
     if receipts:
         return "领取待核对"
+    if alliance in run.get("key_skipped", {}):
+        return "已跳过钥匙"
     if alliance in run.get("key_unavailable", {}):
         return "未检测到钥匙邮件 · 已转下站"
     if not run.get("take_keys", True):
@@ -237,7 +240,7 @@ def return_queue(run: dict) -> list[tuple[datetime, str]]:
         return []
     reference = reference_key_times(run)
     tags = {tag for tag, mails in run["mail"].items() if mails} | reference.keys()
-    tags.difference_update(run["keys"], run.get("key_unavailable", {}))
+    tags.difference_update(run["keys"], run.get("key_unavailable", {}), run.get("key_skipped", {}))
     return sorted((return_deadline(run, tag, reference), tag) for tag in tags)
 
 
@@ -524,6 +527,12 @@ def _control_mail_target(text: str) -> str | None:
     return f"{matches[0][1]}{matches[0][0]}" if len(matches) == 1 else None
 
 
+def control_gift_visible(image: Image.Image, title_y: int) -> bool:
+    gift = np.asarray(image.crop((585, title_y + 28, 640, title_y + 93)), dtype=np.int16)
+    red, green, blue = gift.transpose(2, 0, 1)
+    return bool(((red > 135) & (blue > 100) & (red - green > 45) & (blue - green > 35)).mean() > .055)
+
+
 def read_control_reward(image, lines, ocr=None) -> ControlReward | None:
     if not any(text.endswith("邮件") for text in _text_in(lines, (0, 0, 120, 66))):
         return None
@@ -600,20 +609,24 @@ def _target_number(white, ocr) -> int | None:
         return 1
     read = _read_repeated_glyphs(glyph, ocr)
     matched = re.fullmatch(r"([1-9][0-9]?)\1\1", read)
+    if matched:
+        return int(matched[1])
+    read = _read_repeated_glyphs(glyph, ocr, scale=4, resample=Image.Resampling.NEAREST, language="zh-CN")
+    matched = re.fullmatch(r"([1-9][0-9]?)\1\1", read)
     return int(matched[1]) if matched else None
 
 
-def _read_repeated_glyphs(glyph, ocr) -> str:
+def _read_repeated_glyphs(glyph, ocr, *, scale=3, resample=Image.Resampling.LANCZOS, language="en-US") -> str:
     ys, xs = np.where(glyph)
     if not ys.size:
         return ""
     tight = glyph[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
     cropped = Image.fromarray(np.where(tight, 0, 255).astype(np.uint8))
-    zoom = cropped.resize((cropped.width * 3, cropped.height * 3), Image.Resampling.LANCZOS)
+    zoom = cropped.resize((cropped.width * scale, cropped.height * scale), resample)
     repeated = Image.new("L", (zoom.width * 3 + 50, zoom.height + 40), 255)
     for index in range(3):
         repeated.paste(zoom, (20 + index * (zoom.width + 5), 20))
-    return compact("".join(line["text"] for line in ocr(repeated, "en-US")))
+    return compact("".join(line["text"] for line in ocr(repeated, language)))
 
 
 def _card_number_mask(image, left):
@@ -1073,7 +1086,7 @@ class PageNotVerified(ValueError):
     pass
 
 
-def _wait_alliance_page(target, ocr, stop_event, identify, error, *, timeout=3.0):
+def _wait_alliance_page(target, ocr, stop_event, identify, error, *, timeout=RECOVERY_SECONDS):
     previous = None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -1198,7 +1211,7 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
         tap(frame, (488, 1126))
         try:
             frame, exit_point = _wait_alliance_page(
-                target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认", timeout=2.5)
+                target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
         except PageNotVerified:
             frame, (page, exit_point) = _wait_alliance_page(
                 target, ocr, stop_event, locate_management, "退盟入口无法确认，保持当前联盟")
@@ -1210,7 +1223,7 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
         frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
         tap_verified_transition(target, stop_event, frame, (473, 727))
         try:
-            frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认", timeout=5)
+            frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认")
             break
         except PageNotVerified:
             if attempt:
@@ -1366,7 +1379,7 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
     return count
 
 
-def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=6.0) -> None:
+def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_SECONDS) -> None:
     handled = set()
 
     def identify(image, lines):
@@ -1506,7 +1519,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
     if stop_event.is_set() or not target.foreground_is_game():
         return AllianceVisit(False, f"[{tag}] 连点已停止")
     try:
-        confirm_direct_join(target, ocr, stop_event, tag, timeout=2.5 if duration is None else 6.0)
+        confirm_direct_join(target, ocr, stop_event, tag)
     except ValueError:
         if reached_limit:
             if count:
@@ -1884,7 +1897,7 @@ def open_game_screen(target, ocr, stop_event, entry: str) -> tuple[Image.Image, 
         tap_game_point(target, frame, point)
 
     def await_page(predicate):
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + RECOVERY_SECONDS
         previous = False
         while time.monotonic() < deadline:
             frame, image, lines = read()
@@ -1996,7 +2009,7 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
         if is_fortress_activity(lines):
             return image, lines
         strip = np.asarray(image.crop(strip_box), dtype=np.int16)
-        settle_by = time.monotonic() + 2.0
+        settle_by = time.monotonic() + RECOVERY_SECONDS
         while time.monotonic() < settle_by:
             if stop_event.is_set():
                 raise InterruptedError()
@@ -2040,7 +2053,7 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
                     tap_verified_transition(target, stop_event, frame, point)
                     frame, _ = _wait_alliance_page(
                         target, ocr, stop_event, lambda _im, current: is_fortress_activity(current),
-                        "堡垒争夺页面未确认", timeout=3.0)
+                        "堡垒争夺页面未确认")
             except PageNotVerified:
                 if selection_retried:
                     raise
@@ -2104,10 +2117,12 @@ def collect_reward(target, ocr, stop_event, record, *, claim: bool,
     if stop_event.is_set():
         raise InterruptedError()
     claim_reward(target, frame)
-    for _ in range(3):
+    deadline = time.monotonic() + RECOVERY_SECONDS
+    while time.monotonic() < deadline:
         if stop_event.is_set():
             raise InterruptedError()
         confirmed_frame, observed = capture_reward(target, ocr)
         if observed == RewardMail(first.stamp, first.title, True):
             return complete(confirmed_frame, observed)
+        stop_event.wait(min(0.08, max(0, deadline - time.monotonic())))
     raise MailClaimUnconfirmed("领取结果未确认，等待游戏显示「已领取」")

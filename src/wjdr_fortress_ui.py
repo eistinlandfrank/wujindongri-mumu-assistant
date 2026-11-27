@@ -544,6 +544,8 @@ class FortressUI:
                 display = "关闭"
             elif tag in run["keys"]:
                 display = "钥匙已领取"
+            elif tag in run.get("key_skipped", {}):
+                display = "已跳过钥匙"
             elif due is None:
                 display = "待登记邮件"
             elif tag in run["returned"]:
