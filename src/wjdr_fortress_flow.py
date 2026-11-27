@@ -361,15 +361,20 @@ def _member_to_root(target, ocr, stop_event, tag):
                                       "返回野外未确认")
 
 
-def _next_key(run, *, within=None):
+def _next_key(run, *, within=None, current=None):
     now = datetime.now(fortress.SHANGHAI)
+    first = None
+    in_current_alliance = None
     for due, tag in fortress.return_queue(run):
         arrival = run["returned"].get(tag)
         if arrival and fortress.parse_stamp(arrival) < due:
             return due, tag
         if due > now and (within is None or due - now <= within):
-            return due, tag
-    return None
+            if first is None:
+                first = due, tag
+            if tag == current and due - now <= KEY_RETURN_LEAD:
+                in_current_alliance = due, tag
+    return in_current_alliance or first
 
 
 def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate):
@@ -426,7 +431,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
         remaining_sites = normal_station or bool(deferred)
-        key_visit = _next_key(run, within=KEY_RETURN_LEAD if remaining_sites else None)
+        key_visit = _next_key(run, within=KEY_RETURN_LEAD if remaining_sites else None, current=active)
         if key_visit:
             due, tag = key_visit
             _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate)
