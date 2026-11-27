@@ -32,6 +32,7 @@ def _write(path, jobs):
 @_serialized_account_write
 def add_job(identity: str, device: str, label: str, run_at: float, *,
             task: str = "beast_rally", route: list[dict] | None = None,
+            fortress_take_keys: bool | None = None,
             bear: dict | None = None,
             now: float | None = None, path: Path = SCHEDULE_FILE) -> dict:
     now = time.time() if now is None else now
@@ -41,6 +42,8 @@ def add_job(identity: str, device: str, label: str, run_at: float, *,
         raise ValueError("请选择未来的日期和时间")
     if task not in TASK_NAMES or (task == "fortress_route" and not route):
         raise ValueError("请确认预约任务及路线")
+    if fortress_take_keys is not None and (task != "fortress_route" or type(fortress_take_keys) is not bool):
+        raise ValueError("仅堡垒路线预约可保存拿钥匙选项")
     jobs = read_jobs(path)
     if task == "bear":
         from datetime import datetime, time as clock_time
@@ -60,6 +63,8 @@ def add_job(identity: str, device: str, label: str, run_at: float, *,
                state="pending", note="到点核验手机后启动一次；不会唤醒电脑")
     if task == "fortress_route":
         job["route"] = route
+        if fortress_take_keys is not None:
+            job["fortress_take_keys"] = fortress_take_keys
     if task == "bear":
         job.update(bear=bear, series=job["id"], note="北京时间 20:30，隔两天启动；不会唤醒电脑")
     jobs.append(job)

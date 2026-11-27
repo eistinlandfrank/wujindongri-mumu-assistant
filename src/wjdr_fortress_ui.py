@@ -429,16 +429,20 @@ class FortressUI:
         except (OSError, ValueError) as exc:
             self.fortress_notice.setText(str(exc))
         if self.fortress_run:
-            self.fortress_take_keys.setChecked(self.fortress_run.get("take_keys", True))
-            for stop in self.fortress_run["route"]:
-                targets = "，".join(fortress.target_text(**target) for target in stop["targets"])
-                self._fortress_add_row(stop["alliance"], targets)
-            self._fortress_set_round_time(fortress.parse_stamp(self.fortress_run["round_start"]))
+            self._fortress_show_route(self.fortress_run)
         self.fortress_context.setText(
             f"{self._masked_account_label(identity)} · 按已保存的表格顺序执行"
             if identity else "选择在线 MuMu 账号后可配置"
         )
         self._fortress_refresh()
+
+    def _fortress_show_route(self, run: dict) -> None:
+        self.fortress_table.setRowCount(0)
+        self.fortress_take_keys.setChecked(run.get("take_keys", True))
+        for stop in run["route"]:
+            targets = "，".join(fortress.target_text(**target) for target in stop["targets"])
+            self._fortress_add_row(stop["alliance"], targets)
+        self._fortress_set_round_time(fortress.parse_stamp(run["round_start"]))
 
     def _fortress_set_round_time(self, stamp: datetime) -> None:
         self.fortress_round_date.setDate(QDate(stamp.year, stamp.month, stamp.day))
@@ -533,7 +537,7 @@ class FortressUI:
             urgent = seconds <= 300
         set_style_property(self.fortress_progress, "urgent", "true" if urgent else "false")
         for row in range(self.fortress_table.rowCount()):
-            tag = fortress.compact(self.fortress_table.item(row, 0).text()).upper()
+            tag = fortress.compact(self.fortress_table.item(row, 0).text())
             status = self.fortress_table.item(row, 2)
             due = fortress.return_deadline(run, tag) if run.get("take_keys", True) else None
             if not run.get("take_keys", True):
@@ -620,10 +624,13 @@ class FortressUI:
         if self.fortress_identity != identity or not self.adb or self.adb.device != serial:
             return
         try:
-            self.fortress_run = fortress.load_run(identity)
+            updated = fortress.load_run(identity)
         except (OSError, ValueError) as exc:
             self.fortress_notice.setText(str(exc))
             return
+        if updated and (not self.fortress_run or updated["round_start"] != self.fortress_run["round_start"]):
+            self._fortress_show_route(updated)
+        self.fortress_run = updated
         self.fortress_notice.setText(message or "已停止，请核对当前游戏状态。")
         self._fortress_refresh()
         if message:
@@ -838,8 +845,12 @@ class FortressUI:
                 raise ValueError("请先为当前 MuMu 账号保存路线")
             stamp = fortress.parse_stamp(run["round_start"])
             if scheduled:
-                if (stamp.timestamp() != scheduled["run_at"] or run["route"] != scheduled["route"]
-                        or fortress.load_run(identity) != run):
+                if fortress.load_run(identity) != run:
+                    raise ValueError("预约后路线或时间已改动，请重新预约")
+                if "fortress_take_keys" in scheduled:
+                    stamp = datetime.fromtimestamp(scheduled["run_at"], fortress.SHANGHAI)
+                    fortress.run_from_schedule(run, scheduled)
+                elif stamp.timestamp() != scheduled["run_at"] or run["route"] != scheduled["route"]:
                     raise ValueError("预约后路线或时间已改动，请重新预约")
             else:
                 edited = fortress.new_run(self._fortress_edited_route(), self._fortress_round_stamp())
@@ -865,7 +876,14 @@ class FortressUI:
 
         def auto(target, run, ocr, save):
             if scheduled:
+                if "fortress_take_keys" in scheduled:
+                    planned = fortress.run_from_schedule(run, scheduled)
+                    if planned is not run:
+                        run.clear()
+                        run.update(planned)
                 flow.claim_scheduled_start(run, stamp, save)
+                self.signals.fortress_result.emit(identity, target.device,
+                                                  f"{fortress.format_stamp(stamp)} 预约已启动，正在核对首站")
             return flow.run_route(
                 target, ocr, self.stop_event, run, save, rate=100,
                 notify=lambda message: self.signals.fortress_result.emit(identity, target.device, message),

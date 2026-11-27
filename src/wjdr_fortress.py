@@ -98,7 +98,7 @@ def target_text(kind: str, number: int | None, mode: str) -> str:
 def parse_route(rows: list[tuple[str, str]]) -> tuple[Stop, ...]:
     stops = []
     for name, targets in rows:
-        tag = compact(name).upper()
+        tag = compact(name)
         if not re.fullmatch(r"[\w-]{1,16}", tag):
             raise ValueError("请为每站填写游戏卡片方括号里的联盟短标签")
         stops.append(Stop(tag, parse_targets(targets)))
@@ -138,6 +138,29 @@ def new_run(stops: tuple[Stop, ...], round_start: datetime) -> dict:
         "round_start": format_stamp(round_start), "index": 0,
         "occupied": [], "mail": {}, "last_solo": None, "returned": {}, "keys": {}, "applications": {},
     }
+
+
+def run_from_schedule(previous: dict, job: dict) -> dict:
+    stamp = datetime.fromtimestamp(job["run_at"], SHANGHAI)
+    take_keys = job["fortress_take_keys"]
+    if type(take_keys) is not bool:
+        raise ValueError("预约的拿钥匙选项无效")
+    try:
+        route = parse_route([(station["alliance"], "，".join(target_text(**target) for target in station["targets"]))
+                             for station in job["route"]])
+    except (KeyError, TypeError) as exc:
+        raise ValueError("预约的堡垒路线格式异常") from exc
+    run = new_run(route, stamp)
+    if run["route"] != job["route"] or previous["round_start"] > run["round_start"]:
+        raise ValueError("预约路线无效或当前已保存更晚的路线")
+    if previous["round_start"] == run["round_start"]:
+        if run["route"] != previous["route"] or take_keys != previous.get("take_keys", True):
+            raise ValueError("本轮已保存的路线或拿钥匙选项与预约不同")
+        return previous
+    run["applications"] = {tag: record for tag, record in previous.get("applications", {}).items()
+                           if record["state"] != "joined"}
+    run["take_keys"] = take_keys
+    return run
 
 
 def resolved_station(run: dict, station: dict) -> dict:
@@ -763,7 +786,7 @@ def read_alliance_listing(lines: list[dict], tag: str) -> AllianceListing | None
 
 def _alliance_listing_row(lines: list[dict], tag: str, *, verified_field=None,
                           unaffiliated=None) -> tuple[int, AllianceListing] | None:
-    if (verified_field or alliance_search_field(lines)) != tag:
+    if (verified_field or alliance_search_field(lines)) != tag.upper():
         return None
     for line in lines:
         if not line.get("words"):
@@ -799,7 +822,7 @@ def _alliance_listing_row(lines: list[dict], tag: str, *, verified_field=None,
 
 def _listing_in_frame(image, lines, ocr, tag):
     query = search_tag_in_frame(image, lines, ocr)
-    if query != tag:
+    if query != tag.upper():
         return None
     detached = is_unaffiliated_in_frame(image, lines, ocr)
     row = _alliance_listing_row(lines, tag, verified_field=query, unaffiliated=detached)
@@ -922,8 +945,8 @@ def precheck_alliance(target, ocr, stop_event, tag: str) -> AllianceListing:
     observed = _listing_in_frame(second_image, second, ocr, tag)
     if observed is not None and observed == previous:
         return observed[1]
-    if field != tag:
-        if not re.fullmatch(r"[A-Z0-9-]{1,16}", tag):
+    if field != tag.upper():
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,16}", tag):
             raise ValueError("请在游戏搜索框手动输入该联盟的短标签")
         if field != "点击输入" and not re.fullmatch(r"[A-Z0-9-]{1,16}", field):
             raise ValueError("当前搜索框内容未确认")
@@ -932,7 +955,7 @@ def precheck_alliance(target, ocr, stop_event, tag: str) -> AllianceListing:
         tap_game_point(target, frame, (225, field_y))
         _paste_alliance_tag(target, tag, stop_event, replace=field != "点击输入")
         frame, _ = _wait_alliance_page(
-            target, ocr, stop_event, lambda im, ln: search_tag_in_frame(im, ln, ocr) == tag,
+            target, ocr, stop_event, lambda im, ln: search_tag_in_frame(im, ln, ocr) == tag.upper(),
             "搜索框中的联盟标签未确认")
     if stop_event.is_set() or not target.foreground_is_game():
         raise InterruptedError()
@@ -980,13 +1003,13 @@ def read_alliance_application(image: Image.Image, lines: list[dict], ocr) -> All
         label = Image.fromarray(np.where(white, 0, 255).astype(np.uint8)).resize((576, 224), Image.Resampling.LANCZOS)
         actions = {compact(line["text"]) for line in ocr(ImageOps.expand(label, border=18, fill=255))}
     if actions & pending:
-        return AllianceApplication(tag.upper(), "pending")
+        return AllianceApplication(tag, "pending")
     if not actions & apply:
         return None
     pixels = np.asarray(image.crop((222, 912, 450, 958)), dtype=np.int16)
     red, green, blue = pixels.transpose(2, 0, 1)
     enabled = ((green > 105) & (green - red > 52) & ((green - blue > 28) | (blue - red > 48))).mean()
-    return AllianceApplication(tag.upper(), "ready" if enabled > 0.60 else "gray")
+    return AllianceApplication(tag, "ready" if enabled > 0.60 else "gray")
 
 
 def _alliance_frame(target, ocr, stop_event):
@@ -1168,7 +1191,7 @@ def join_available_alliance(target, ocr, stop_event, tag: str, remember) -> None
 def rapid_join_anchor(target, ocr, stop_event, tag: str):
     """Confirm the exact search result and green button before arming the clicker."""
     def identify(image, lines):
-        if not is_unaffiliated_in_frame(image, lines, ocr) or search_tag_in_frame(image, lines, ocr) != tag:
+        if not is_unaffiliated_in_frame(image, lines, ocr) or search_tag_in_frame(image, lines, ocr) != tag.upper():
             return None
         row = _listing_in_frame(image, lines, ocr, tag)
         if row:
@@ -1578,9 +1601,9 @@ def observe_alliance_application(
                 navigation.add("close_info")
                 tap_game_point(target, frame, (620, 183))
             return "pending"
-    if confirmed and alliance_search_field(lines) == tag and "back_search" not in navigation:
+    if confirmed and alliance_search_field(lines) == tag.upper() and "back_search" not in navigation:
         frame, _, fresh = _alliance_frame(target, ocr, stop_event)
-        if (alliance_search_field(fresh) == tag and not stop_event.is_set()
+        if (alliance_search_field(fresh) == tag.upper() and not stop_event.is_set()
                 and target.foreground_is_game()):
             navigation.add("back_search")
             tap_game_point(target, frame, (37, 36))
@@ -1622,7 +1645,7 @@ def enter_route_alliance(
         return AllianceVisit(False, f"[{tag}] 已到钥匙返回截止时间")
     record = applications.get(tag)
     if record is None or record["state"] == "joined" or leave_current:
-        if leave_current and not re.fullmatch(r"[A-Z0-9-]{1,16}", tag):
+        if leave_current and not re.fullmatch(r"[A-Za-z0-9-]{1,16}", tag):
             raise ValueError("请先填写游戏方括号里的联盟短标签")
         if prepare_alliance_route(target, ocr, stop_event, tag, leave_current=leave_current):
             if record and record["state"] != "joined":
