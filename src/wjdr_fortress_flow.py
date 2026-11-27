@@ -109,11 +109,12 @@ def _close_known_overlay(target, ocr, stop_event):
     return frame if visible == "root" else None
 
 
-def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due=None):
+def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due=None, *, key_return=False):
     root = _close_known_overlay(target, ocr, stop_event)
+    exit_window = {"exit_cutoff": due} if key_return else {}
     result = fortress.enter_route_alliance(target, ocr, stop_event, run, tag, save, leave_current=True,
                                          notify=notify, on_timeout=on_timeout, return_by=due, rapid_rate=rate,
-                                         verified_root=root)
+                                         verified_root=root, **exit_window)
     if not result.joined:
         raise AllianceNotJoined(result)
     save_needed = run.get("current_alliance") != tag
@@ -431,7 +432,8 @@ def march_key_conflict(arrivals, settlement):
     return (target, arrival) if abs(arrival - settlement) < fortress.KEY_MARCH_GAP else None
 
 
-def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertainty=timedelta()):
+def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertainty=timedelta(),
+                     lead=fortress.KEY_RETURN_LEAD):
     now = datetime.now(fortress.SHANGHAI)
     choices = []
     current = station["alliance"]
@@ -439,7 +441,7 @@ def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertai
         if tag == current or (settlement, tag) in checked:
             continue
         cutoff = fortress.key_return_by(run, tag, settlement)
-        if now < cutoff <= now + fortress.KEY_RETURN_LEAD:
+        if now < cutoff <= now + lead:
             choices.append((cutoff, settlement, tag))
     if not choices:
         return None
@@ -462,6 +464,37 @@ def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertai
             checked.add((settlement, tag))
             next_key = settlement, tag, first_arrival
     return next_key
+
+
+def _key_while_waiting_mail(target, ocr, stop_event, run, station, checked, rechecked, save, notify):
+    tag = station["alliance"]
+    now = datetime.now(fortress.SHANGHAI)
+    lead = fortress.KEY_RETURN_LEAD + timedelta(seconds=3 * fortress.RECOVERY_SECONDS)
+    candidates = []
+    for settlement, key_tag in fortress.key_windows(run):
+        checkpoint = (settlement, key_tag)
+        if key_tag == tag or checkpoint in checked or checkpoint in rechecked:
+            continue
+        cutoff = fortress.key_return_by(run, key_tag, settlement)
+        if now < cutoff <= now + lead:
+            candidates.append((cutoff, settlement, key_tag))
+    if not candidates:
+        return None
+    cutoff, settlement, key_tag = min(candidates)
+    rechecked.add((settlement, key_tag))
+    notify(f"[{tag}] 已领取一波奖励，核对下一波行军与 [{key_tag}] {settlement:%H:%M:%S} 钥匙的间隔")
+    try:
+        _close_known_overlay(target, ocr, stop_event)
+        until = max(now + fortress.MARCH_TIME_TOLERANCE, cutoff - fortress.KEY_RETURN_LEAD)
+        arrivals = read_march_arrivals(target, ocr, stop_event, station, until)
+    except fortress.PageNotVerified:
+        _close_known_overlay(target, ocr, stop_event)
+        notify(f"[{tag}] 行军间隔未确认，继续等本盟邮件")
+        return None
+    if not arrivals:
+        return None
+    return _key_during_march(run, station, arrivals, checked, save, notify, lead=lead,
+                            uncertainty=fortress.MARCH_TIME_TOLERANCE)
 
 
 def victory_watch_for(arrivals, now):
@@ -882,7 +915,15 @@ def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_t
     cutoff = fortress.key_return_by(run, tag, settlement)
     arrival = _currently_returned(run, tag)
     if not arrival or fortress.parse_stamp(arrival) >= cutoff:
-        _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, cutoff)
+        prepare_at = cutoff - fortress.KEY_RETURN_LEAD - timedelta(seconds=2 * fortress.RECOVERY_SECONDS)
+        delay = (prepare_at - datetime.now(fortress.SHANGHAI)).total_seconds()
+        if delay > 0 and run.get("current_alliance") not in (None, tag):
+            _, image, lines = fortress._alliance_frame(target, ocr, stop_event)
+            if not fortress.is_unaffiliated_in_frame(image, lines, ocr):
+                notify(f"[{tag}] 等待钥匙返回窗口 · 预计 {cutoff - fortress.KEY_RETURN_LEAD:%H:%M:%S} 可以退盟")
+                if stop_event.wait(max(0, (prepare_at - datetime.now(fortress.SHANGHAI)).total_seconds())):
+                    raise InterruptedError()
+        _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, cutoff, key_return=True)
         arrived = datetime.now(fortress.SHANGHAI)
         run["returned"][tag] = fortress.format_stamp(arrived)
         save()
@@ -935,6 +976,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
     waiting_notice = False
     waiting_on_list = False
     checked_keys = set()
+    mail_key_checks = set()
     while not stop_event.is_set():
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
@@ -1073,6 +1115,17 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                 raise RecoveryFailed(f"[{tag}] 未找到待核对的胜利邮件，已保留领取记录") from error
             victory_read_failed = False
             waiting_on_list = True
+            if watch is not None and "claimed" in mails.values():
+                key = _key_while_waiting_mail(target, ocr, stop_event, run, station, checked_keys,
+                                              mail_key_checks, save, notify)
+                if key is not None:
+                    settlement, key_tag, march_at = key
+                    _key_visit(target, ocr, stop_event, run, key_tag, settlement, save, notify, on_timeout, rate,
+                               march_at=march_at)
+                    active = None
+                    watch = None
+                    waiting_on_list = False
+                    continue
             if watch is not None and datetime.now(fortress.SHANGHAI) >= watch.until:
                 if not waiting_notice:
                     notify(f"[{tag}] 还有胜利邮件未到，继续停在联盟邮件页等待")

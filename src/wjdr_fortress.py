@@ -7,6 +7,7 @@ import time
 import unicodedata
 from collections import Counter, deque
 from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -224,20 +225,63 @@ def reference_key_times(run: dict) -> dict[str, str]:
             for tag in candidates[0] if all(tag in record for record in candidates)}
 
 
+def sync_key_reference(run: dict, alliance: str, peers) -> tuple[datetime, ...]:
+    stations = [station for station in run["route"] if station["alliance"] == alliance]
+    if len(stations) != 1 or not peers or any(
+            peer["round_start"] != run["round_start"] or peer["route"] != run["route"] for peer in peers):
+        raise ValueError("同步钥匙时间需要同一轮、同一路线的账号记录")
+    counts = [Counter(victory_stamp(stamp) for stamp, state in peer["mail"].get(alliance, {}).items()
+                      if state == "claimed") for peer in peers]
+    complete = max(counts, key=lambda counter: sum(counter.values()))
+    if not complete or any(counter - complete for counter in counts):
+        raise ValueError(f"[{alliance}] 其他账号的胜利邮件时间需要核对")
+    station = stations[0]
+    registrations = run.get("resolved_targets", {})
+    targets = None
+    if any(target["number"] is None for target in station["targets"]):
+        readings = [peer.get("resolved_targets", {}).get(alliance) for peer in peers]
+        verified = [found for found in readings if found is not None]
+        if not verified or any(found != verified[0] for found in verified):
+            raise ValueError(f"[{alliance}] 其他账号的报名目标需要核对")
+        local = registrations.get(alliance)
+        if local is not None and local != verified[0]:
+            raise ValueError(f"[{alliance}] 本账号的报名目标与参考记录不一致")
+        targets = verified[0]
+        candidate = {**run, "resolved_targets": {**registrations, alliance: targets}}
+        station = resolved_station(candidate, station)
+    if sum(complete.values()) > len(station["targets"]):
+        raise ValueError(f"[{alliance}] 参考邮件数量超出报名数量，需要核对")
+    if targets is not None:
+        run.setdefault("resolved_targets", {})[alliance] = deepcopy(targets)
+    run.setdefault("key_reference_victories", {})[alliance] = [format_stamp(stamp) for stamp in sorted(complete.elements())]
+    return key_settlements(run, alliance)
+
+
 def return_deadline(run: dict, alliance: str, reference: dict[str, str] | None = None) -> datetime | None:
     reference = reference_key_times(run) if reference is None else reference
-    if alliance in reference:
+    shared = run.get("key_reference_victories", {}).get(alliance, ())
+    if alliance in reference and not shared:
         return parse_stamp(reference[alliance]) + KEY_MAIL_DELAY
-    stamps = run["mail"].get(alliance, {})
-    return victory_stamp(min(stamps)) + KEY_MAIL_DELAY if stamps else None
+    stamps = [victory_stamp(stamp) for stamp in run["mail"].get(alliance, {})]
+    stamps += [parse_stamp(stamp) for stamp in shared]
+    if alliance in reference:
+        stamps.append(parse_stamp(reference[alliance]))
+    return min(stamps) + KEY_MAIL_DELAY if stamps else None
+
+
+def _key_settlement_counts(run, alliance):
+    own = Counter(victory_stamp(stamp) + KEY_MAIL_DELAY
+                  for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed")
+    shared = Counter(parse_stamp(stamp) + KEY_MAIL_DELAY
+                     for stamp in run.get("key_reference_victories", {}).get(alliance, ()))
+    return own | shared
 
 
 def key_settlements(run: dict, alliance: str, reference: dict[str, str] | None = None) -> tuple[datetime, ...]:
-    """Keep every confirmed local victory time and the existing peer fallback."""
-    own = tuple(sorted({victory_stamp(stamp) + KEY_MAIL_DELAY
-                        for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed"}))
-    if own:
-        return own
+    """Combine verified local times and explicitly synchronized reference times."""
+    counts = _key_settlement_counts(run, alliance)
+    if counts:
+        return tuple(sorted(counts))
     reference = reference_key_times(run) if reference is None else reference
     return (parse_stamp(reference[alliance]) + KEY_MAIL_DELAY,) if alliance in reference else ()
 
@@ -248,11 +292,10 @@ def pending_key_settlements(run: dict, alliance: str, reference: dict[str, str] 
     finished = set(run.get("key_conflicts", {}).get(alliance, {}))
     settlements = key_settlements(run, alliance, reference)
     if len(settlements) > 1:
-        expected = Counter(format_stamp(victory_stamp(stamp) + KEY_MAIL_DELAY)
-                           for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed")
+        expected = {format_stamp(due): count for due, count in _key_settlement_counts(run, alliance).items()}
         settled = Counter(receipt.get("settlement", receipt["stamp"])
                           for receipt in run.get("key_mail", {}).get(alliance, {}).values() if receipt["state"] == "claimed")
-        finished.update(stamp for stamp, count in settled.items() if count >= expected[stamp])
+        finished.update(stamp for stamp, count in settled.items() if stamp in expected and count >= expected[stamp])
     return tuple(due for due in settlements if format_stamp(due) not in finished)
 
 
@@ -260,7 +303,7 @@ def key_windows(run: dict) -> list[tuple[datetime, str]]:
     if not run.get("take_keys", True):
         return []
     reference = reference_key_times(run)
-    tags = run["mail"].keys() | reference.keys()
+    tags = run["mail"].keys() | reference.keys() | run.get("key_reference_victories", {}).keys()
     return sorted((due, tag) for tag in tags for due in pending_key_settlements(run, tag, reference))
 
 
@@ -352,7 +395,7 @@ def load_run(identity: str, path: Path = PROFILE_PATH) -> dict | None:
 
 def has_run_progress(run: dict) -> bool:
     if any(run.get(key) for key in ("scheduled_start", "index", "occupied", "mail", "last_solo",
-                                    "returned", "keys", "resolved_targets", "march_forecast")):
+                                    "returned", "keys", "resolved_targets", "march_forecast", "key_reference_victories")):
         return True
     round_start = parse_stamp(run["round_start"]).timestamp()
     return any(entry.get("started_at", 0) >= round_start
@@ -1398,7 +1441,29 @@ def dismiss_inactive_alliance_warning(target, ocr, stop_event) -> None:
     tap(frame, (204, 745))
 
 
-def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: bool, verified_root=None) -> bool:
+def _check_key_exit_window(cutoff):
+    if cutoff is not None and not cutoff - KEY_RETURN_LEAD <= datetime.now(SHANGHAI) < cutoff:
+        raise PageNotVerified("当前时间超出钥匙退盟窗口，停止退盟操作")
+
+
+def _key_exit_frame(target, ocr, stop_event, frame, cutoff):
+    earliest = cutoff - KEY_RETURN_LEAD
+    wait = (earliest - datetime.now(SHANGHAI)).total_seconds()
+    if wait > 0:
+        if stop_event.wait(wait):
+            raise InterruptedError()
+        remaining = (cutoff - datetime.now(SHANGHAI)).total_seconds()
+        if remaining > 0:
+            frame, _ = _wait_alliance_page(target, ocr, stop_event,
+                                            lambda _image, lines: can_confirm_alliance_exit(lines),
+                                            "退盟窗口内未重新确认退出按钮",
+                                            timeout=min(RECOVERY_SECONDS, remaining))
+    _check_key_exit_window(cutoff)
+    return frame
+
+
+def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: bool, verified_root=None,
+                           exit_cutoff=None) -> bool:
     """Open the verified unaffiliated page, or confirm the account is already in this station."""
     def state(image, lines):
         if is_member_announcement(lines):
@@ -1490,7 +1555,11 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
                     target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
         tap_verified_transition(target, stop_event, frame, exit_point)
         frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
-        tap(frame, (473, 727))
+        if exit_cutoff is None:
+            tap(frame, (473, 727))
+        else:
+            frame = _key_exit_frame(target, ocr, stop_event, frame, exit_cutoff)
+            tap_verified_transition(target, stop_event, frame, (473, 727), key_exit_cutoff=exit_cutoff)
         try:
             frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认")
             break
@@ -2076,6 +2145,7 @@ class AllianceVisit:
 def enter_route_alliance(
     target, ocr, stop_event, run: dict, tag: str, save, *, leave_current: bool,
     notify=None, on_timeout=None, return_by: datetime | None = None, rapid_rate: int | None = None, verified_root=None,
+    exit_cutoff=None,
 ) -> AllianceVisit:
     applications = run.setdefault("applications", {})
     navigation = set()
@@ -2100,6 +2170,8 @@ def enter_route_alliance(
         if leave_current and not re.fullmatch(r"[A-Za-z0-9-]{1,16}", tag):
             raise ValueError("请先填写游戏方括号里的联盟短标签")
         root = {"verified_root": verified_root} if verified_root is not None else {}
+        if exit_cutoff is not None:
+            root["exit_cutoff"] = exit_cutoff
         if prepare_alliance_route(target, ocr, stop_event, tag, leave_current=leave_current, **root):
             if record and record["state"] != "joined":
                 record["state"] = "joined"
@@ -2218,15 +2290,17 @@ def tap_game_point(target, frame: Image.Image, normalized_point: tuple[int, int]
     target.shell(["input", "tap", str(point[0]), str(point[1])], timeout=5)
 
 
-def tap_verified_transition(target, stop_event, frame, point) -> None:
+def tap_verified_transition(target, stop_event, frame, point, *, key_exit_cutoff=None) -> None:
     if not isinstance(target, RouteCapture):
         if stop_event.is_set() or not target.foreground_is_game():
             raise InterruptedError()
+        _check_key_exit_window(key_exit_cutoff)
         tap_game_point(target, frame, point)
         return
     with target.touch_session() as touch:
         if stop_event.is_set() or not target.foreground_is_game():
             raise InterruptedError()
+        _check_key_exit_window(key_exit_cutoff)
         touch.touch_request(map_content_point(point, REFERENCE, frame))
 
 
