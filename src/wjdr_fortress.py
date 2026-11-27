@@ -5,6 +5,7 @@ import json
 import re
 import time
 import unicodedata
+from collections import Counter
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -32,6 +33,8 @@ CLAIM_POINT = (336, 762)
 SOLO_INTERVAL = timedelta(minutes=3)
 KEY_MAIL_DELAY = timedelta(minutes=30)
 KEY_MARCH_GAP = timedelta(seconds=20)
+VICTORY_MAIL_LEAD = timedelta(seconds=15)
+MARCH_TIME_TOLERANCE = timedelta(seconds=2)
 APPLICATION_TIMEOUT = 180
 RECOVERY_SECONDS = 5.0
 APPLICATION_POLL = RECOVERY_SECONDS
@@ -137,6 +140,10 @@ def format_stamp(value: datetime) -> str:
     return value.astimezone(SHANGHAI).strftime(STAMP_FORMAT)
 
 
+def victory_stamp(receipt: str) -> datetime:
+    return parse_stamp(receipt.partition("#")[0])
+
+
 def new_run(stops: tuple[Stop, ...], round_start: datetime) -> dict:
     return {
         "route": [{"alliance": stop.alliance, "targets": [asdict(target) for target in stop.targets]} for stop in stops],
@@ -198,7 +205,8 @@ def reference_key_times(run: dict) -> dict[str, str]:
                            if record and record["round_start"] == run["round_start"] and record["route"] == run["route"]), None)
         if same_round is None:
             return {}
-        candidates.append({tag: min(stamp for stamp, status in mails.items() if status == "claimed")
+        candidates.append({tag: format_stamp(min(victory_stamp(stamp) for stamp, status in mails.items()
+                                                 if status == "claimed"))
                            for tag, mails in same_round["mail"].items() if "claimed" in mails.values()})
     return {tag: min(record[tag] for record in candidates)
             for tag in candidates[0] if all(tag in record for record in candidates)}
@@ -209,13 +217,13 @@ def return_deadline(run: dict, alliance: str, reference: dict[str, str] | None =
     if alliance in reference:
         return parse_stamp(reference[alliance]) + KEY_MAIL_DELAY
     stamps = run["mail"].get(alliance, {})
-    return parse_stamp(min(stamps)) + KEY_MAIL_DELAY if stamps else None
+    return victory_stamp(min(stamps)) + KEY_MAIL_DELAY if stamps else None
 
 
 def key_settlements(run: dict, alliance: str, reference: dict[str, str] | None = None) -> tuple[datetime, ...]:
     """Keep every confirmed local victory time and the existing peer fallback."""
-    own = tuple(sorted(parse_stamp(stamp) + KEY_MAIL_DELAY
-                       for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed"))
+    own = tuple(sorted({victory_stamp(stamp) + KEY_MAIL_DELAY
+                        for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed"}))
     if own:
         return own
     reference = reference_key_times(run) if reference is None else reference
@@ -228,8 +236,11 @@ def pending_key_settlements(run: dict, alliance: str, reference: dict[str, str] 
     finished = set(run.get("key_conflicts", {}).get(alliance, {}))
     settlements = key_settlements(run, alliance, reference)
     if len(settlements) > 1:
-        finished.update(receipt.get("settlement", receipt["stamp"])
-                        for receipt in run.get("key_mail", {}).get(alliance, {}).values() if receipt["state"] == "claimed")
+        expected = Counter(format_stamp(victory_stamp(stamp) + KEY_MAIL_DELAY)
+                           for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed")
+        settled = Counter(receipt.get("settlement", receipt["stamp"])
+                          for receipt in run.get("key_mail", {}).get(alliance, {}).values() if receipt["state"] == "claimed")
+        finished.update(stamp for stamp, count in settled.items() if count >= expected[stamp])
     return tuple(due for due in settlements if format_stamp(due) not in finished)
 
 
@@ -297,14 +308,16 @@ def return_queue(run: dict) -> list[tuple[datetime, str]]:
     return [(due, tag) for tag, due in first.items()]
 
 
-def record_mail(run: dict, alliance: str, stamp: datetime, status: str, now: datetime) -> None:
+def record_mail(run: dict, alliance: str, stamp: datetime, status: str, now: datetime, *, receipt=None) -> None:
     if not parse_stamp(run["round_start"]) <= stamp <= now:
         raise ValueError("邮件发件时间超出本轮核对范围")
     if status not in {"pending", "claimed"}:
         raise ValueError("未知的领取状态")
-    key = format_stamp(stamp)
+    key = receipt or format_stamp(stamp)
+    if victory_stamp(key) != stamp.replace(microsecond=0):
+        raise ValueError("邮件发件时间与领取记录不一致")
     for tag, mails in run["mail"].items():
-        if tag != alliance and key in mails:
+        if tag != alliance and any(victory_stamp(entry) == stamp for entry in mails):
             raise ValueError("同一发件时间已归入另一站，请人工核对")
     mails = run["mail"].setdefault(alliance, {})
     if status == "pending" and key in mails:
@@ -327,7 +340,7 @@ def load_run(identity: str, path: Path = PROFILE_PATH) -> dict | None:
 
 def has_run_progress(run: dict) -> bool:
     if any(run.get(key) for key in ("scheduled_start", "index", "occupied", "mail", "last_solo",
-                                    "returned", "keys", "resolved_targets")):
+                                    "returned", "keys", "resolved_targets", "march_forecast")):
         return True
     round_start = parse_stamp(run["round_start"]).timestamp()
     return any(entry.get("started_at", 0) >= round_start
@@ -611,6 +624,7 @@ def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int
             headers.append(y)
 
     marches = []
+    incomplete = False
     for y, bottom in zip(headers, (*headers[1:], 1058)):
         names = _text_in(lines, (36, y + 199, 190, min(bottom, y + 315)))
         names += _text_in(lines, (223, y + 186, 432, min(bottom, y + 256)))
@@ -619,10 +633,11 @@ def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int
                   for number, kind in (match.groups(),) if int(number) <= TARGET_LIMITS[kind]}
         if not labels:
             if not names and y + 300 > 1058:
-                return None
+                incomplete = True
             continue
         if len(labels) != 1:
-            return None
+            incomplete = True
+            continue
         timer_box = (415, max(162, y - 15), 646, y + 33)
         timer_texts = _text_in(lines, timer_box)
         if any(text.startswith("集结中") for text in timer_texts):
@@ -641,10 +656,11 @@ def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int
             crop = image.crop(timer_box)
             seconds = read_timer([compact(row["text"]) for row in ocr(crop.resize((crop.width * 2, crop.height * 2)))])
         if seconds is None:
-            return None
+            incomplete = True
+            continue
         if seconds:
             marches.append((labels.pop(), seconds))
-    return tuple(sorted(marches))
+    return tuple(sorted(marches)) if marches or not incomplete else None
 
 
 def control_gift_visible(image: Image.Image, title_y: int) -> bool:
@@ -1260,7 +1276,7 @@ def dismiss_inactive_alliance_warning(target, ocr, stop_event) -> None:
     tap(frame, (204, 745))
 
 
-def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: bool) -> bool:
+def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: bool, verified_root=None) -> bool:
     """Open the verified unaffiliated page, or confirm the account is already in this station."""
     def state(image, lines):
         if is_unaffiliated_in_frame(image, lines, ocr):
@@ -1285,8 +1301,11 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
             raise InterruptedError()
         tap_game_point(target, frame, point)
 
-    frame, (mode, current) = _wait_alliance_page(
-        target, ocr, stop_event, state, "请从野外、主城、联盟主页或管理页开始本站流程")
+    if verified_root is None:
+        frame, (mode, current) = _wait_alliance_page(
+            target, ocr, stop_event, state, "请从野外、主城、联盟主页或管理页开始本站流程")
+    else:
+        frame, mode, current = verified_root, "root", None
     if mode == "root":
         tap(frame, (498, 1138))
         frame, (mode, current) = _wait_alliance_page(
@@ -1871,7 +1890,7 @@ class AllianceVisit:
 
 def enter_route_alliance(
     target, ocr, stop_event, run: dict, tag: str, save, *, leave_current: bool,
-    notify=None, on_timeout=None, return_by: datetime | None = None, rapid_rate: int | None = None,
+    notify=None, on_timeout=None, return_by: datetime | None = None, rapid_rate: int | None = None, verified_root=None,
 ) -> AllianceVisit:
     applications = run.setdefault("applications", {})
     navigation = set()
@@ -1895,7 +1914,8 @@ def enter_route_alliance(
     if record is None or record["state"] == "joined" or leave_current:
         if leave_current and not re.fullmatch(r"[A-Za-z0-9-]{1,16}", tag):
             raise ValueError("请先填写游戏方括号里的联盟短标签")
-        if prepare_alliance_route(target, ocr, stop_event, tag, leave_current=leave_current):
+        root = {"verified_root": verified_root} if verified_root is not None else {}
+        if prepare_alliance_route(target, ocr, stop_event, tag, leave_current=leave_current, **root):
             if record and record["state"] != "joined":
                 record["state"] = "joined"
                 save()
@@ -2092,9 +2112,12 @@ class MailClaimUnconfirmed(ValueError):
     pass
 
 
-def open_recent_victory_mail(target, ocr, stop_event, since: datetime, known: set[datetime], *, expected=None):
+def open_recent_victory_mail(
+    target, ocr, stop_event, since: datetime, known: set[datetime], *, expected=None, repeatable=frozenset(),
+):
     """Open one visible candidate; the detail header remains the claim gate."""
     open_game_screen(target, ocr, stop_event, "mail")
+    reviewed = set()
 
     def row(image, lines):
         if not alliance_mail_selected(image, lines):
@@ -2108,33 +2131,40 @@ def open_recent_victory_mail(target, ocr, stop_event, since: datetime, known: se
             x, y = position["x"], round(position["y"])
             if 140 < x < 215 and 156 < y < 1070:
                 candidates.append((y, title))
-        for y, title in sorted(candidates):
+        choices = []
+        for y, title in candidates:
             stamp = mail_row_stamp(image, lines, y, ocr)
-            if stamp is not None and (stamp < since or stamp in known):
+            gift = control_gift_visible(image, y)
+            if stamp is not None and (stamp < since or (stamp in known and not (stamp in repeatable and gift))):
                 continue
             if expected is not None and stamp != expected:
                 continue
-            return y, title, stamp
-        return None
+            if (y, title, stamp) not in reviewed:
+                choices.append((not gift, stamp is None, stamp or since, y, title, stamp))
+        return min(choices)[3:] if choices else None
 
-    try:
-        frame, (y, title, stamp) = _wait_alliance_page(
-            target, ocr, stop_event, row, "未看到本次入盟后的胜利邮件")
-    except ValueError as exc:
-        if str(exc) != "未看到本次入盟后的胜利邮件":
-            raise
-        raise MailNotYetVisible(str(exc)) from exc
-    if stop_event.is_set() or not target.foreground_is_game():
-        raise InterruptedError()
-    tap_game_point(target, frame, (312, y + 36))
-    frame, mail = _wait_alliance_page(
-        target, ocr, stop_event, lambda image, lines: read_mail(image, lines, ocr),
-        "胜利邮件详情或右上角发件时间未确认")
-    if (mail.title != title or (stamp is not None and mail.stamp != stamp)
-            or not since <= mail.stamp <= datetime.now(SHANGHAI) or mail.stamp in known
-            or (expected is not None and mail.stamp != expected)):
-        raise ValueError("已打开邮件，但详情时间未能归入当前站")
-    return frame, mail
+    for _ in range(3):
+        try:
+            frame, (y, title, stamp) = _wait_alliance_page(
+                target, ocr, stop_event, row, "未看到本次入盟后的胜利邮件")
+        except PageNotVerified as exc:
+            raise MailNotYetVisible(str(exc)) from exc
+        if stop_event.is_set() or not target.foreground_is_game():
+            raise InterruptedError()
+        tap_game_point(target, frame, (312, y + 36))
+        frame, mail = _wait_alliance_page(
+            target, ocr, stop_event, lambda image, lines: read_mail(image, lines, ocr),
+            "胜利邮件详情或右上角发件时间未确认")
+        if mail.title != title:
+            raise PageNotVerified("邮件列表与详情标题不一致")
+        if (since <= mail.stamp <= datetime.now(SHANGHAI)
+                and (mail.stamp not in known or (mail.stamp in repeatable and not mail.claimed))
+                and (expected is None or mail.stamp == expected)):
+            return frame, mail
+        reviewed.add((y, title, stamp))
+        tap_verified_transition(target, stop_event, frame, (37, 36))
+        _wait_alliance_page(target, ocr, stop_event, alliance_mail_selected, "返回联盟邮件列表未确认")
+    raise MailNotYetVisible("本轮胜利邮件尚未在联盟列表确认")
 
 
 def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[dict]]:

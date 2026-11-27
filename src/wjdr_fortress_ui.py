@@ -351,7 +351,7 @@ class FortressUI:
                 lines.append(f"[{tag}]  {targets}  ·  {status}")
                 for stamp, state in sorted(run["mail"].get(tag, {}).items()):
                     status = "已领取" if state == "claimed" else "待核对"
-                    lines.append(f"  胜利邮件  {stamp}  {status}")
+                    lines.append(f"  胜利邮件  {fortress.format_stamp(fortress.victory_stamp(stamp))}  {status}")
                 for target, receipt in sorted(run.get("key_mail", {}).get(tag, {}).items()):
                     status = "已领取" if receipt["state"] == "claimed" else "待核对"
                     lines.append(f"  钥匙邮件  {target}  {receipt['stamp']}  {status}")
@@ -567,6 +567,8 @@ class FortressUI:
             status.setToolTip("\n".join(
                 [f"待处理 {fortress.format_stamp(stamp)}" for stamp in pending]
                 + [f"行军冲突跳过 {stamp}" for stamp in run.get("key_conflicts", {}).get(tag, {})]
+                + [f"{entry['target']} 预计钥匙 {fortress.format_stamp(fortress.parse_stamp(entry['arrival']) + fortress.KEY_MAIL_DELAY)}"
+                   for entry in run.get("march_forecast", {}).get(tag, [])]
                 + [f"钥匙邮件 {label} · {entry['stamp']}" for label, entry
                    in sorted(run.get("key_mail", {}).get(tag, {}).items())]
             ))

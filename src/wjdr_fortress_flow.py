@@ -1,6 +1,7 @@
 """Run the verified fortress checkpoints for one leased account."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from time import monotonic
 
@@ -10,6 +11,11 @@ from wjdr_schedule import GRACE_SECONDS
 
 class RecoveryFailed(ValueError):
     """A verified continuation was unavailable after the recovery attempt."""
+
+
+@dataclass(frozen=True)
+class VictoryWatch:
+    until: datetime
 
 
 def claim_scheduled_start(run: dict, start_at: datetime, save, *, now: datetime | None = None) -> None:
@@ -72,14 +78,17 @@ def _close_known_overlay(target, ocr, stop_event):
             "关闭奖励邮件详情后的页面未确认")
     if visible in {"activity", "mail"}:
         fortress.tap_verified_transition(target, stop_event, frame, (37, 36) if visible == "activity" else (636, 36))
-        fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),
-                                      "返回野外的结果未确认")
+        frame, _ = fortress._wait_alliance_page(
+            target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines), "返回野外的结果未确认")
+        visible = "root"
+    return frame if visible == "root" else None
 
 
 def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due=None):
-    _close_known_overlay(target, ocr, stop_event)
+    root = _close_known_overlay(target, ocr, stop_event)
     result = fortress.enter_route_alliance(target, ocr, stop_event, run, tag, save, leave_current=True,
-                                         notify=notify, on_timeout=on_timeout, return_by=due, rapid_rate=rate)
+                                         notify=notify, on_timeout=on_timeout, return_by=due, rapid_rate=rate,
+                                         verified_root=root)
     if not result.joined:
         raise ValueError(result.message)
     save_needed = run.get("current_alliance") != tag
@@ -149,16 +158,25 @@ def resolve_targets(target, ocr, stop_event, run, station, save):
     return resolved
 
 
-def _occupation(target, ocr, stop_event, station, *, consider_key=None):
+def _occupation(target, ocr, stop_event, station, *, watch_march=None):
     fortress.open_game_screen(target, ocr, stop_event, "activity")
     next_tap = monotonic()
     failures = 0
+    required = {(entry["kind"], entry["number"]) for entry in station["targets"]}
 
     def state(image, lines):
         occupied = fortress.read_occupation(image, lines, ocr)
         if occupied is not None:
+            if watch_march is not None:
+                registered = fortress.read_registered_targets(image, lines, ocr)
+                if registered is None or not required <= set(registered):
+                    return None
+                if station.get("all_registered") and required != set(registered):
+                    return None
             if fortress.occupation_complete(occupied, station) and fortress.registration_matches(image, lines, ocr, station):
                 return "occupied", None
+            if watch_march is not None:
+                return "war", tuple(sorted(required & occupied))
             point = _refresh_tab_point(image, lines, ocr)
             return ("navigate", point) if point else ("observe", None)
         if fortress.is_regular_activity(lines):
@@ -176,14 +194,14 @@ def _occupation(target, ocr, stop_event, station, *, consider_key=None):
                 break
             if action == "occupied":
                 return True
-            if consider_key:
-                checked, key = consider_key()
-                if key:
-                    return key
-                if checked:
-                    fortress.open_game_screen(target, ocr, stop_event, "activity")
-                    next_tap = monotonic()
-                    continue
+            if action == "war":
+                decision = watch_march(point)
+                if decision is not None:
+                    return decision
+                fortress.open_game_screen(target, ocr, stop_event, "activity")
+                failures = 0
+                next_tap = monotonic()
+                continue
             if action == "find-fortress":
                 fortress.open_fortress_activity(target, ocr, stop_event)
             elif action == "navigate":
@@ -253,7 +271,7 @@ def march_tabs(station):
     return ("单人",) if modes == {"单撞"} else ("集结",)
 
 
-def read_march_arrivals(target, ocr, stop_event, station, until):
+def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None):
     tag = station["alliance"]
     tabs = march_tabs(station)
     names_by_tab = {
@@ -267,23 +285,34 @@ def read_march_arrivals(target, ocr, stop_event, station, until):
     page_seen = monotonic()
     try:
         while not stop_event.is_set() and datetime.now(fortress.SHANGHAI) < until:
-            frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
+            frame = target.screenshot(timeout=fortress.RECOVERY_SECONDS)
+            observed = datetime.now(fortress.SHANGHAI).replace(microsecond=0)
+            image = fortress.normalize_frame(frame)
+            lines = ocr(image)
             if _war_tab(image, lines) != selected:
                 if monotonic() - page_seen >= fortress.RECOVERY_SECONDS:
                     raise fortress.PageNotVerified("联盟战争行军页未能重新核对")
                 stop_event.wait(0.08)
                 continue
             page_seen = monotonic()
-            observed = datetime.now(fortress.SHANGHAI).replace(microsecond=0)
+            confirmed = ()
             if selected in tabs and (marches := fortress.fortress_marches(image, lines, ocr, tab=selected)) is not None:
                 current = tuple((name, observed + timedelta(seconds=seconds))
                                 for name, seconds in marches if name in names_by_tab[selected])
                 if current and len(current) == len(previous) and all(
-                    name == prior_name and abs(prior - arrival).total_seconds() <= 1
+                    name == prior_name and abs(prior - arrival) <= fortress.MARCH_TIME_TOLERANCE
                     for (name, arrival), (prior_name, prior) in zip(current, previous)
                 ):
-                    return current
+                    confirmed = tuple((name, min(arrival, prior))
+                                      for (name, arrival), (_, prior) in zip(current, previous))
                 previous = current
+            else:
+                previous = ()
+            if decide is not None:
+                if (decision := decide(confirmed, selected)) is not None:
+                    return decision
+            elif confirmed:
+                return confirmed
             if (selected not in tabs or len(tabs) == 2) and monotonic() >= next_switch:
                 next_tab = "单人" if selected == "集结" else "集结"
                 started_switch = monotonic()
@@ -296,7 +325,7 @@ def read_march_arrivals(target, ocr, stop_event, station, until):
                 next_switch = started_switch + 2
             else:
                 stop_event.wait(0.08)
-        return ()
+        return None if decide is not None else ()
     finally:
         if not stop_event.is_set():
             _close_war(target, ocr, stop_event, tag)
@@ -309,7 +338,7 @@ def march_key_conflict(arrivals, settlement):
     return (target, arrival) if abs(arrival - settlement) < fortress.KEY_MARCH_GAP else None
 
 
-def _key_during_march(target, ocr, stop_event, run, station, checked, save, notify):
+def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertainty=timedelta()):
     now = datetime.now(fortress.SHANGHAI)
     choices = []
     current = station["alliance"]
@@ -320,50 +349,140 @@ def _key_during_march(target, ocr, stop_event, run, station, checked, save, noti
         if now < cutoff <= now + fortress.KEY_MARCH_GAP:
             choices.append((cutoff, settlement, tag))
     if not choices:
-        return False, None
-    cutoff, _, _ = min(choices)
-    arrivals = read_march_arrivals(target, ocr, stop_event, station, cutoff)
-    if not arrivals:
-        checked.update((settlement, tag) for limit, settlement, tag in choices if limit == cutoff)
-        return True, None
+        return None
     next_key = None
     first_arrival = min(arrival for _, arrival in arrivals)
     for cutoff, settlement, tag in sorted(choices):
-        checked.add((settlement, tag))
         if conflict := march_key_conflict(arrivals, settlement):
             name, arrival = conflict
+            if abs(arrival - settlement) + uncertainty >= fortress.KEY_MARCH_GAP:
+                continue
+            checked.add((settlement, tag))
             run.setdefault("key_conflicts", {}).setdefault(tag, {})[fortress.format_stamp(settlement)] = {
                 "alliance": current, "target": name, "arrival": fortress.format_stamp(arrival),
             }
             save()
             notify(f"[{tag}] 跳过 {settlement:%H:%M:%S} 的钥匙 · [{current}] {name} 行军到达 {arrival:%H:%M:%S}")
             continue
-        if (next_key is None and settlement + fortress.KEY_MARCH_GAP <= first_arrival
+        if (next_key is None and settlement + fortress.KEY_MARCH_GAP + uncertainty <= first_arrival
                 and datetime.now(fortress.SHANGHAI) < cutoff):
+            checked.add((settlement, tag))
             next_key = settlement, tag, first_arrival
-    return True, next_key
+    return next_key
 
 
-def claim_victory(target, ocr, stop_event, run, tag, save, *, opened=None, close_after=False, expected_stamp=None):
+def victory_watch_for(arrivals, now):
+    grace = timedelta(seconds=fortress.RECOVERY_SECONDS) + fortress.MARCH_TIME_TOLERANCE
+    end = None
+    for arrival in sorted(arrivals):
+        starts = arrival - fortress.VICTORY_MAIL_LEAD
+        finishes = arrival + grace
+        if finishes <= now:
+            continue
+        if end is None:
+            if starts > now:
+                return None
+        elif starts > end:
+            break
+        end = finishes
+    return VictoryWatch(end) if end is not None else None
+
+
+def _watch_station_marches(target, ocr, stop_event, run, station, occupied, watch_checks,
+                           checked_keys, save, notify):
+    tag = station["alliance"]
+    now = datetime.now(fortress.SHANGHAI)
+    claimed = sum(state == "claimed" for state in run["mail"].get(tag, {}).values())
+    grace = timedelta(seconds=fortress.RECOVERY_SECONDS) + fortress.MARCH_TIME_TOLERANCE
+    blue = {f"{kind}{number}" for kind, number in occupied}
+    saved = run.setdefault("march_forecast", {}).setdefault(tag, [])
+    plans = [row for row in saved
+             if row["target"] not in blue and fortress.parse_stamp(row["arrival"]) + grace > now]
+    if plans != saved:
+        saved[:] = plans
+        save()
+    if len(blue) > claimed and now >= watch_checks.get(tag, fortress.parse_stamp(run["round_start"])):
+        watch_checks[tag] = now + fortress.VICTORY_MAIL_LEAD
+        return VictoryWatch(now + grace)
+
+    applicable = [row for row in station["targets"] if f"{row['kind']}{row['number']}" not in blue]
+    if not applicable:
+        return VictoryWatch(now + grace)
+    station = dict(station, targets=applicable)
+    seen = {}
+
+    def decide(confirmed, tab):
+        clock = datetime.now(fortress.SHANGHAI)
+        added = []
+        for name, arrival in confirmed:
+            match = next((row for row in saved if row["target"] == name and row["tab"] == tab
+                          and abs(fortress.parse_stamp(row["arrival"]) - arrival) <= fortress.MARCH_TIME_TOLERANCE), None)
+            if match is None:
+                match = {"target": name, "tab": tab, "arrival": fortress.format_stamp(arrival)}
+                saved.append(match)
+                added.append((name, arrival))
+            seen[(name, tab, match["arrival"])] = clock
+        if added:
+            save()
+            for name, arrival in added:
+                estimated = arrival + fortress.KEY_MAIL_DELAY
+                key_text = f" · 钥匙预计 {estimated:%H:%M:%S}" if run.get("take_keys", True) else ""
+                notify(f"[{tag}] {name} · {tab}预计 {arrival:%H:%M:%S} 到达{key_text}")
+
+        upcoming = [(row["target"], fortress.parse_stamp(row["arrival"])) for row in saved]
+        fresh = clock - 2 * fortress.MARCH_TIME_TOLERANCE
+        live = [(name, fortress.parse_stamp(arrival)) for (name, _, arrival), seen_at in seen.items()
+                if seen_at >= fresh and fortress.parse_stamp(arrival) + fortress.MARCH_TIME_TOLERANCE >= clock]
+        if live:
+            key = _key_during_march(run, station, live, checked_keys, save, notify,
+                                    uncertainty=fortress.MARCH_TIME_TOLERANCE)
+            if key:
+                return key
+        return victory_watch_for((arrival for _, arrival in upcoming), clock)
+
+    result = read_march_arrivals(target, ocr, stop_event, station, now + fortress.VICTORY_MAIL_LEAD, decide=decide)
+    if result is not None:
+        return result
+    # A very short march can start and finish between readable views.
+    clock = datetime.now(fortress.SHANGHAI)
+    if clock >= watch_checks.get(tag, fortress.parse_stamp(run["round_start"])):
+        watch_checks[tag] = clock + 2 * fortress.VICTORY_MAIL_LEAD
+        return VictoryWatch(clock + grace)
+    return None
+
+
+def claim_victory(target, ocr, stop_event, run, tag, save, *, opened=None, expected_stamp=None):
     member = run["applications"].get(tag)
     if not member or member["state"] != "joined":
         raise ValueError("本站入盟记录未确认")
     mails = run["mail"].get(tag, {})
-    original_entry = run.get("deferred_victory", {}).get(tag, member["started_at"])
+    original_entry = run.get("deferred_victory", {}).get(
+        tag, run.get("victory_since", {}).get(tag, member["started_at"]))
     since = max(fortress.parse_stamp(run["round_start"]),
                 datetime.fromtimestamp(original_entry, fortress.SHANGHAI).replace(microsecond=0))
-    known = {fortress.parse_stamp(stamp) for records in run["mail"].values() for stamp in records}
-    pending = next((fortress.parse_stamp(stamp) for stamp, state in mails.items() if state == "pending"), None)
+    known = {fortress.victory_stamp(stamp) for records in run["mail"].values() for stamp in records}
+    pending_id = next((stamp for stamp, state in mails.items() if state == "pending"), None)
+    pending = fortress.victory_stamp(pending_id) if pending_id else None
     if pending is not None and expected_stamp is not None and pending != expected_stamp:
         raise ValueError("配对的胜利邮件时间与待核对记录不一致")
     verified = None
     if opened is None:
-        verified = fortress.open_recent_victory_mail(target, ocr, stop_event, since, known - {pending},
-                                                     expected=pending or expected_stamp)
+        if pending_id and "#" in pending_id:
+            raise RecoveryFailed("同秒邮件的领取详情已离开，请人工核对后继续")
+        repeatable = {fortress.victory_stamp(stamp) for stamp, state in mails.items() if state == "claimed"}
+        verified = fortress.open_recent_victory_mail(
+            target, ocr, stop_event, since, known - {pending}, expected=pending or expected_stamp,
+            repeatable=repeatable if pending is None and expected_stamp is None else frozenset())
         _, opened = verified
     key = fortress.format_stamp(opened.stamp)
+    repeat = verified is not None and not opened.claimed and pending_id is None and key in mails
+    if repeat:
+        copies = sum(fortress.victory_stamp(entry) == opened.stamp for entry in mails)
+        key = f"{key}#{copies + 1}"
+    if pending == opened.stamp:
+        key = pending_id
     if (not since <= opened.stamp <= datetime.now(fortress.SHANGHAI)
-            or (opened.stamp in known and mails.get(key) != "pending")
+            or (opened.stamp in known and mails.get(key) != "pending" and not repeat)
             or ("pending" in mails.values() and mails.get(key) != "pending")
             or (expected_stamp is not None and opened.stamp != expected_stamp)):
         raise ValueError("当前邮件不能与本站待领取记录匹配")
@@ -373,17 +492,10 @@ def claim_victory(target, ocr, stop_event, run, tag, save, *, opened=None, close
     def record(mail, status):
         if (mail.stamp, mail.title) != (opened.stamp, opened.title):
             raise ValueError("当前邮件已变化")
-        fortress.record_mail(run, tag, mail.stamp, status, datetime.now(fortress.SHANGHAI))
+        fortress.record_mail(run, tag, mail.stamp, status, datetime.now(fortress.SHANGHAI), receipt=key)
         save()
 
-    def leave_mail(frame):
-        _tap(target, stop_event, frame, (636, 36))
-        fortress._wait_alliance_page(
-            target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),
-            "邮件关闭后的野外页面未确认")
-
-    return fortress.collect_reward(target, ocr, stop_event, record, claim=True, verified=verified,
-                                   on_claimed=leave_mail if close_after else None)
+    return fortress.collect_reward(target, ocr, stop_event, record, claim=True, verified=verified, on_claimed=None)
 
 
 def _detail_back(target, ocr, stop_event):
@@ -407,7 +519,7 @@ def _paired_victory_times(target, ocr, stop_event, run, pair, save):
         start = fortress.parse_stamp(confirmed_earlier)
     else:
         start = datetime.fromtimestamp(run["deferred_victory"][earlier], fortress.SHANGHAI).replace(microsecond=0)
-    known = {fortress.parse_stamp(stamp) for records in run["mail"].values() for stamp in records}
+    known = {fortress.victory_stamp(stamp) for records in run["mail"].values() for stamp in records}
     fortress.open_game_screen(target, ocr, stop_event, "mail")
 
     def read(image, lines):
@@ -453,10 +565,23 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
         wanted = set(confirmed_targets)
     receipts = run.setdefault("key_mail", {}).setdefault(tag, {})
 
+    def eligible_settlement(sent):
+        if sent is not None and not earliest <= sent <= datetime.now(fortress.SHANGHAI):
+            return None
+        if len(settlements) > 1:
+            match = fortress.corresponding_settlement(settlements, sent)
+            if sent is not None and (match is None or match not in pending):
+                nearby = [due for due in settlements if abs(due - sent) <= fortress.MARCH_TIME_TOLERANCE]
+                skipped = run.get("key_conflicts", {}).get(tag, {})
+                if not any(fortress.format_stamp(due) in skipped for due in nearby):
+                    match = next((due for due in nearby if due in pending), match)
+            if match not in pending or fortress.parse_stamp(arrival) >= fortress.key_return_by(run, tag, match):
+                return None
+            return match
+        return settlement
+
     def outstanding(label, sent):
-        if label not in wanted or (sent is not None and not earliest <= sent <= datetime.now(fortress.SHANGHAI)):
-            return False
-        if len(settlements) > 1 and fortress.corresponding_settlement(settlements, sent) != settlement:
+        if label not in wanted or eligible_settlement(sent) is None:
             return False
         prior = receipts.get(label)
         return prior is None or (prior["state"] == "pending"
@@ -511,6 +636,7 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
     if not outstanding(current.target, current.stamp):
         raise ValueError("当前邮件不属于本站到期的钥匙奖励")
     key, stamp = current.target, fortress.format_stamp(current.stamp)
+    matched_settlement = eligible_settlement(current.stamp)
     def recover(reward, prior):
         elapsed = datetime.now(fortress.SHANGHAI).timestamp() - prior.get("attempt_at", 0)
         if elapsed < fortress.RECOVERY_SECONDS:
@@ -578,7 +704,7 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
         raise ValueError("当前邮件与本站钥匙发件时间记录不一致")
     receipts[key] = {"stamp": stamp, "state": "claimed"}
     if len(settlements) > 1:
-        receipts[key]["settlement"] = fortress.format_stamp(settlement)
+        receipts[key]["settlement"] = fortress.format_stamp(matched_settlement)
     if all(receipts.get(target_key, {}).get("state") == "claimed" for target_key in wanted):
         run["keys"][tag] = fortress.format_stamp(datetime.now(fortress.SHANGHAI))
     save()
@@ -688,8 +814,10 @@ def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_t
 
 def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=100):
     active = None
+    watch = None
     victory_read_failed = False
     checked_keys = set()
+    watch_checks = {}
     while not stop_event.is_set():
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
@@ -705,6 +833,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
             else:
                 _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate)
             active = None
+            watch = None
             continue
         if not remaining_sites:
             now = datetime.now(fortress.SHANGHAI)
@@ -718,34 +847,44 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         tag = station["alliance"]
         wanted = len(station["targets"])
         mails = run["mail"].get(tag, {})
+        pending_victory = "pending" in mails.values()
         if (all(entry["number"] is not None for entry in station["targets"])
                 and sum(state == "claimed" for state in mails.values()) >= wanted):
             if normal_station:
                 run["index"] += 1
             else:
                 deferred.pop(tag)
+            run.get("march_forecast", {}).pop(tag, None)
+            watch = None
             save()
             continue
 
         checked_detail = None
-        if tag in run["occupied"]:
+        if pending_victory and run.get("current_alliance") not in (None, tag):
+            raise RecoveryFailed(f"[{tag}] 胜利邮件领取仍待核对，请确认当前联盟")
+        if run.get("current_alliance") in (None, tag) and (tag in run["occupied"] or watch is not None or pending_victory):
             _, checked_detail = fortress.capture_reward(target, ocr)
-        if active != tag and checked_detail is None:
+        if active != tag and checked_detail is None and not pending_victory:
             _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate)
             _member_to_root(target, ocr, stop_event, tag)
             victory_read_failed = False
         active = tag
-        if tag not in run["occupied"]:
+        if tag in run["applications"] and tag not in run.setdefault("victory_since", {}):
+            run["victory_since"][tag] = run["applications"][tag]["started_at"]
+            save()
+        if tag not in run["occupied"] and watch is None and not pending_victory:
             if any(entry["number"] is None for entry in station["targets"]):
                 station = resolve_targets(target, ocr, stop_event, run, station, save)
                 wanted = len(station["targets"])
                 names = "、".join(f"{entry['kind']}{entry['number']}" for entry in station["targets"])
                 notify(f"[{tag}] 已识别目标 {names}")
-            notify(f"[{tag}] 等待指定目标蓝色占领")
-            def consider_key():
-                return _key_during_march(target, ocr, stop_event, run, station, checked_keys, save, notify)
+            notify(f"[{tag}] 核对堡垒报名，跟踪对应行军和胜利邮件")
 
-            occupation = _occupation(target, ocr, stop_event, station, consider_key=consider_key)
+            def watch_march(occupied):
+                return _watch_station_marches(target, ocr, stop_event, run, station, occupied,
+                                                watch_checks, checked_keys, save, notify)
+
+            occupation = _occupation(target, ocr, stop_event, station, watch_march=watch_march)
             if not occupation:
                 continue
             if isinstance(occupation, tuple):
@@ -754,8 +893,12 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                            march_at=march_at)
                 active = None
                 continue
-            run["occupied"].append(tag)
-            save()
+            if isinstance(occupation, VictoryWatch):
+                watch = occupation
+                notify(f"[{tag}] 进入联盟邮件等待这一波胜利奖励")
+            else:
+                run["occupied"].append(tag)
+                save()
         try:
             expected_stamp = None
             pair = run.get("paired_victory")
@@ -779,15 +922,21 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                 if earlier in deferred:
                     deferred.pop(earlier)
                     save()
-            final_mail = sum(state == "claimed" for state in mails.values()) + 1 >= wanted
             mail = claim_victory(target, ocr, stop_event, run, tag, save, opened=checked_detail,
-                                 close_after=final_mail, expected_stamp=expected_stamp)
-        except fortress.MailNotYetVisible:
+                                 expected_stamp=expected_stamp)
+        except fortress.MailNotYetVisible as error:
+            if pending_victory:
+                raise RecoveryFailed(f"[{tag}] 未找到待核对的胜利邮件，已保留领取记录") from error
             victory_read_failed = False
+            if watch is not None and datetime.now(fortress.SHANGHAI) >= watch.until:
+                notify(f"[{tag}] 还有胜利邮件未到，重新核对占领和后续行军")
+                _close_known_overlay(target, ocr, stop_event)
+                watch = None
+                continue
             stop_event.wait(1)
             continue
         except fortress.MailClaimUnconfirmed as error:
-            pending = {fortress.parse_stamp(stamp) for mails in run["mail"].values()
+            pending = {fortress.victory_stamp(stamp) for mails in run["mail"].values()
                        for stamp, state in mails.items() if state == "pending"}
             try:
                 fortress._wait_alliance_page(
@@ -802,6 +951,9 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
             if victory_read_failed:
                 raise RecoveryFailed(f"[{tag}] 无法核对胜利邮件页面，流程已停止 · {error}") from error
             victory_read_failed = True
+            _, _, lines = fortress._alliance_frame(target, ocr, stop_event)
+            if set(fortress._text_in(lines, (200, 248, 454, 301))) & fortress.FORTRESS_MAIL:
+                _detail_back(target, ocr, stop_event)
             continue
         victory_read_failed = False
         notify(f"[{tag}] 已领取胜利邮件 · {fortress.format_stamp(mail.stamp)}")
