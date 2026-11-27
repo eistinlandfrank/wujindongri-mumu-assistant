@@ -23,6 +23,7 @@ from wjdr_backend import (
     content_viewport, map_content_point, resource_path,
 )
 from wjdr_bear import WIDTH as WAR_WIDTH, _detail_title_visible
+from wjdr_fortress_ocr import embedded_text, matches_ui_label
 from wjdr_mumu_ipc import RouteCapture
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -429,7 +430,7 @@ def root_entry(image: Image.Image, lines: list[dict], entry: str) -> tuple[int, 
 
 
 def is_regular_activity(lines: list[dict]) -> bool:
-    return any(text.endswith("常规活动") for text in _text_in(lines, (0, 0, 210, 65)))
+    return any(matches_ui_label(text[-4:], "常规活动") for text in _text_in(lines, (0, 0, 210, 65)))
 
 
 def is_alliance_relocation_prompt(lines: list[dict]) -> bool:
@@ -542,6 +543,15 @@ def _mail_detail_stamp(image, lines, ocr):
             pass
     if ocr is not None:
         stamp_crop = image.crop((386, 113, 639, 151))
+        local = embedded_text(ocr, stamp_crop)
+        local_stamp = None
+        if local:
+            try:
+                local_stamp = parse_stamp(local)
+            except ValueError:
+                pass
+            if local_stamp is not None and (sent is None or local_stamp == sent):
+                return local_stamp
         for scale, resample, border in ((3, Image.Resampling.LANCZOS, 0),
                                         (3, Image.Resampling.LANCZOS, 18),
                                         (4, Image.Resampling.NEAREST, 18)):
@@ -555,7 +565,9 @@ def _mail_detail_stamp(image, lines, ocr):
                 cropped = parse_cropped_mail_stamp(cropped_lines[0]["text"])
             except ValueError:
                 continue
-            return cropped if sent is None or sent == cropped else None
+            return cropped if sent is None or cropped in {sent, local_stamp} else None
+        if local_stamp is not None and local_stamp != sent:
+            return None
     return sent
 
 
@@ -596,18 +608,64 @@ def _control_mail_target(text: str) -> str | None:
 def rally_war_page(image, lines, tab="集结") -> bool:
     tabs = (("集结", 75, 160), ("单人", 285, 376), ("活动", 495, 598))
     visible = sum(label in _text_in(lines, (left, 90, right, 149)) for label, left, right in tabs)
-    if visible < 2:
+    selected = 0 if tab == "集结" else 1
+    palette = [image.getpixel((x, 115)) for x in (48, 270, 475)]
+    red, green, blue = palette[selected]
+    if not (red > 185 and green > 205 and blue > 215):
         return False
-    select_x = 48 if tab == "集结" else 270
-    red, green, blue = image.getpixel((select_x, 115))
-    return (red > 185 and green > 205 and blue > 215
-            and _detail_title_visible(image.resize((WAR_WIDTH, round(WAR_WIDTH * 1196 / 673)))))
+    tabs_visible = visible >= 2 or all(
+        red < 172 and green - red > 30 and blue - green > 22
+        for index, (red, green, blue) in enumerate(palette) if index != selected
+    )
+    return tabs_visible and _detail_title_visible(image.resize((WAR_WIDTH, round(WAR_WIDTH * 1196 / 673))))
+
+
+def _march_seconds(texts):
+    clocks = [match.groups() for text in texts
+              if (match := re.fullmatch(r"行军中:([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])", text))]
+    if len(clocks) != 1:
+        return None
+    hours, minutes, seconds = map(int, clocks[0])
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _verified_march_seconds(image, box, lines, ocr):
+    timer = _march_seconds(lines)
+    crop = image.crop(box)
+    local = embedded_text(ocr, crop)
+    if local:
+        alternate = _march_seconds([compact(local)])
+        if alternate is not None:
+            return alternate if timer is None or alternate == timer else None
+    if timer is not None:
+        return timer
+    enlarged = crop.resize((crop.width * 2, crop.height * 2))
+    return _march_seconds(["".join(compact(item["text"]) for item in ocr(enlarged))])
+
+
+def _solo_fortress_marches(image, lines, ocr):
+    marches = []
+    for line in lines:
+        word = (line.get("words") or [None])[0]
+        if not word or not (504 <= word["x"] < 642 and 164 < word["y"] < 1110):
+            continue
+        name = _control_mail_target(compact(line["text"]))
+        if name is None or not 1 <= int(name[2:]) <= TARGET_LIMITS[name[:2]]:
+            continue
+        center = (210, round(word["y"]) - 15, 470, round(word["y"]) + 28)
+        contents = _text_in(lines, center)
+        seconds = _verified_march_seconds(image, center, ["".join(contents)], ocr)
+        if seconds:
+            marches.append((name, seconds))
+    return tuple(sorted(marches))
 
 
 def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int], ...] | None:
     """Read named fortress and stronghold marches on the verified rally page."""
     if not rally_war_page(image, lines, tab):
         return None
+    if tab == "单人":
+        return _solo_fortress_marches(image, lines, ocr)
     header_lines = []
     for line in lines:
         word = (line.get("words") or [None])[0]
@@ -643,18 +701,7 @@ def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int
         if any(text.startswith("集结中") for text in timer_texts):
             continue
 
-        def read_timer(texts):
-            clocks = [match.groups() for text in texts
-                      if (match := re.fullmatch(r"行军中:([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])", text))]
-            if len(clocks) != 1:
-                return None
-            hours, minutes, seconds = map(int, clocks[0])
-            return hours * 3600 + minutes * 60 + seconds
-
-        seconds = read_timer(timer_texts)
-        if seconds is None:
-            crop = image.crop(timer_box)
-            seconds = read_timer([compact(row["text"]) for row in ocr(crop.resize((crop.width * 2, crop.height * 2)))])
+        seconds = _verified_march_seconds(image, timer_box, timer_texts, ocr)
         if seconds is None:
             incomplete = True
             continue
@@ -794,6 +841,9 @@ def read_registered_targets(image, lines, ocr) -> tuple[tuple[str, int], ...] | 
     labels = _text_in(lines, box)
     count = _registered_count(labels)
     if count is None:
+        local = embedded_text(ocr, image.crop(box))
+        count = _registered_count([local]) if local else None
+    if count is None:
         crop = np.asarray(image.crop(box), dtype=np.int16)
         for threshold in (130, 125, 120):
             mask = (crop.min(axis=2) > threshold) & (np.ptp(crop, axis=2) < 44)
@@ -928,6 +978,11 @@ def is_join_recommendation(lines: list[dict]) -> bool:
         and any("将加入以上推荐联盟" in text for text in _text_in(lines, (130, 854, 565, 924)))
         and "加入" in _text_in(lines, (280, 934, 400, 985))
     )
+
+
+def is_member_announcement(lines):
+    return (any(matches_ui_label(text, "联盟公告") for text in _text_in(lines, (243, 250, 455, 313)))
+            and "仅限联盟成员阅读" in _text_in(lines, (33, 319, 255, 369)))
 
 
 def is_unaffiliated_alliance_page(lines: list[dict]) -> bool:
@@ -1279,6 +1334,8 @@ def dismiss_inactive_alliance_warning(target, ocr, stop_event) -> None:
 def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: bool, verified_root=None) -> bool:
     """Open the verified unaffiliated page, or confirm the account is already in this station."""
     def state(image, lines):
+        if is_member_announcement(lines):
+            return ("announcement", None)
         if is_unaffiliated_in_frame(image, lines, ocr):
             return ("available", None)
         application = read_alliance_application(image, lines, ocr)
@@ -1311,6 +1368,12 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
         frame, (mode, current) = _wait_alliance_page(
             target, ocr, stop_event, lambda image, lines: state(image, lines) if not is_game_root(lines) else None,
             "联盟入口未确认")
+    if mode == "announcement":
+        tap(frame, (622, 285))
+        frame, current = _wait_alliance_page(
+            target, ocr, stop_event, lambda image, lines: read_joined_in_frame(image, lines, ocr),
+            "关闭联盟公告后未确认当前联盟")
+        mode = "member"
     def read_member_from_management(frame):
         tap(frame, (37, 36))
         return _wait_alliance_page(
@@ -1360,7 +1423,7 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
                     target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
         tap_verified_transition(target, stop_event, frame, exit_point)
         frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
-        tap_verified_transition(target, stop_event, frame, (473, 727))
+        tap(frame, (473, 727))
         try:
             frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认")
             break
@@ -1552,6 +1615,8 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             return "recommendation"
         if "relocation" not in handled and is_alliance_relocation_prompt(lines):
             return "relocation"
+        if "announcement" not in handled and is_member_announcement(lines):
+            return "announcement"
         if ("recommendation" in handled and "exact_result" not in handled
                 and is_unaffiliated_in_frame(image, lines, ocr)):
             row = _listing_in_frame(image, lines, ocr, tag)
@@ -1584,6 +1649,10 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
             tap_game_point(target, frame, (451, 725))
+        elif outcome == "announcement":
+            if stop_event.is_set() or not target.foreground_is_game():
+                raise InterruptedError()
+            tap_game_point(target, frame, (622, 285))
         elif outcome in {"relocation", "recommendation"}:
             tap_verified_transition(target, stop_event, frame, (622, 195 if outcome == "recommendation" else 148))
         else:
@@ -1779,6 +1848,18 @@ def read_joined_in_frame(image, lines, ocr) -> str | None:
     if len(titles) != 1:
         return None
     if titles[0].startswith("["):
+        header = re.match(r"^\[([A-Za-z0-9-]{1,16})\]", titles[0])
+        if header and {"成员", "激励", "设置"} <= controls:
+            return header[1]
+        if re.match(r"^\[[A-Za-z0-9-]{3}[\u3400-\u9fff]", titles[0]):
+            tight = np.asarray(image.crop((253, 95, 305, 132)), dtype=np.int16)
+            bright = (tight.min(axis=2) > 140) & (np.ptp(tight, axis=2) < 54)
+            glyphs = Image.fromarray(np.where(bright, 0, 255).astype(np.uint8))
+            enlarged = glyphs.resize((glyphs.width * 4, glyphs.height * 4), Image.Resampling.LANCZOS)
+            values = ocr(ImageOps.expand(enlarged, border=16, fill=255), "en-US")
+            local = re.fullmatch(r"\[([A-Za-z0-9-]{3})\]", "".join(compact(row["text"]) for row in values))
+            if local and titles[0].startswith(f"[{local[1]}"):
+                return local[1]
         pixels = np.asarray(image.crop((257, 93, 338, 133)), dtype=np.int16)
         text = (pixels.min(axis=2) > 143) & (np.ptp(pixels, axis=2) < 48)
         isolated = Image.fromarray(np.where(text, 0, 255).astype(np.uint8))

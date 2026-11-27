@@ -18,6 +18,7 @@ $arguments = @(
     "--distpath", (Join-Path $OutputRoot "dist"),
     "--workpath", (Join-Path $OutputRoot "work"),
     "--specpath", (Join-Path $OutputRoot "spec"),
+    "--collect-all", "onnxruntime",
     "--add-data", "${assets};assets",
     (Join-Path $sources "wjdr_mumu_assistant_qt.py")
 )

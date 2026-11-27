@@ -38,6 +38,10 @@ def _tap(target, stop_event, frame, point):
 
 def _close_known_overlay(target, ocr, stop_event):
     def page(image, lines):
+        if fortress.is_member_announcement(lines):
+            return "announcement"
+        if _war_tab(image, lines):
+            return "war"
         if fortress.is_alliance_relocation_prompt(lines):
             return "relocation"
         if fortress.can_confirm_alliance_exit(lines):
@@ -61,6 +65,13 @@ def _close_known_overlay(target, ocr, stop_event):
         return None
 
     frame, visible = fortress._wait_alliance_page(target, ocr, stop_event, page, "请打开野外、联盟或本轮已核对邮件")
+    if visible in {"announcement", "war"}:
+        point = (622, 285) if visible == "announcement" else (37, 36)
+        _tap(target, stop_event, frame, point)
+        frame, visible = fortress._wait_alliance_page(
+            target, ocr, stop_event,
+            lambda image, lines: state if (state := page(image, lines)) in {"root", "alliance"} else None,
+            "关闭联盟页面后未确认当前位置")
     if visible in {"relocation", "exit-confirmation"}:
         point = (622, 148) if visible == "relocation" else (200, 726)
         fortress.tap_verified_transition(target, stop_event, frame, point)
@@ -227,10 +238,17 @@ def _open_war(target, ocr, stop_event, tag):
         if tab := _war_tab(image, lines):
             return "war", tab
         if fortress.joined_tag_matches(image, lines, ocr, tag):
-            crop = image.crop((158, 593, 296, 653)).resize((276, 120))
-            labels = {fortress.compact(item["text"]) for item in ocr(crop)}
-            if labels & {"联盟战争", "联盟找争"}:
-                return "member", (205, 625)
+            for box in ((176, 602, 279, 646), (151, 590, 285, 648)):
+                strip = image.crop(box)
+                local = fortress.embedded_text(ocr, strip)
+                if local:
+                    if fortress.matches_ui_label(local, "联盟战争"):
+                        return "member", (205, 625)
+                    continue
+                crop = strip.resize((strip.width * 2, strip.height * 2))
+                labels = {fortress.compact(item["text"]) for item in ocr(crop)}
+                if any(fortress.matches_ui_label(label, "联盟战争") for label in labels):
+                    return "member", (205, 625)
         if fortress.is_game_root(lines):
             return "root", (498, 1138)
         if fortress.is_regular_activity(lines):
@@ -284,7 +302,7 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
     previous = ()
     page_seen = monotonic()
     try:
-        while not stop_event.is_set() and datetime.now(fortress.SHANGHAI) < until:
+        while not stop_event.is_set() and datetime.now(fortress.SHANGHAI) < (until() if callable(until) else until):
             frame = target.screenshot(timeout=fortress.RECOVERY_SECONDS)
             observed = datetime.now(fortress.SHANGHAI).replace(microsecond=0)
             image = fortress.normalize_frame(frame)
@@ -409,9 +427,13 @@ def _watch_station_marches(target, ocr, stop_event, run, station, occupied, watc
     if not applicable:
         return VictoryWatch(now + grace)
     station = dict(station, targets=applicable)
+    expected = {f"{row['kind']}{row['number']}" for row in applicable}
     seen = {}
+    initial_check = now + fortress.VICTORY_MAIL_LEAD
+    scan_until = initial_check
 
     def decide(confirmed, tab):
+        nonlocal scan_until
         clock = datetime.now(fortress.SHANGHAI)
         added = []
         for name, arrival in confirmed:
@@ -433,6 +455,10 @@ def _watch_station_marches(target, ocr, stop_event, run, station, occupied, watc
         fresh = clock - 2 * fortress.MARCH_TIME_TOLERANCE
         live = [(name, fortress.parse_stamp(arrival)) for (name, _, arrival), seen_at in seen.items()
                 if seen_at >= fresh and fortress.parse_stamp(arrival) + fortress.MARCH_TIME_TOLERANCE >= clock]
+        scan_until = initial_check
+        if expected <= {name for name, _ in live}:
+            first_arrival = min(arrival for _, arrival in live)
+            scan_until = max(initial_check, first_arrival - fortress.VICTORY_MAIL_LEAD + fortress.MARCH_TIME_TOLERANCE)
         if live:
             key = _key_during_march(run, station, live, checked_keys, save, notify,
                                     uncertainty=fortress.MARCH_TIME_TOLERANCE)
@@ -440,7 +466,7 @@ def _watch_station_marches(target, ocr, stop_event, run, station, occupied, watc
                 return key
         return victory_watch_for((arrival for _, arrival in upcoming), clock)
 
-    result = read_march_arrivals(target, ocr, stop_event, station, now + fortress.VICTORY_MAIL_LEAD, decide=decide)
+    result = read_march_arrivals(target, ocr, stop_event, station, lambda: scan_until, decide=decide)
     if result is not None:
         return result
     # A very short march can start and finish between readable views.

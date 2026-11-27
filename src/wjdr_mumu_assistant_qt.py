@@ -22,6 +22,19 @@ if __name__ == "__main__" and sys.argv[1:2] == ["--wjdr-ipc-worker"]:
     worker_main(sys.argv[2:])
     raise SystemExit(0)
 
+if __name__ == "__main__" and sys.argv[1:2] == ["--wjdr-ocr-check"]:
+    from PIL import Image
+    from wjdr_fortress_ocr import _local_chinese_line
+
+    recognizer = _local_chinese_line()
+    if recognizer is None:
+        raise SystemExit(1)
+    with Image.open(sys.argv[2]) as sample:
+        text, confidence = recognizer.recognize(sample)
+    Path(sys.argv[3]).write_text(
+        json.dumps({"text": text, "confidence": confidence}, ensure_ascii=False), encoding="utf-8")
+    raise SystemExit(0)
+
 from PIL import Image, ImageChops, ImageStat
 from wjdr_daily_visuals import intel_coloured_candidates, intel_expert, intel_expert_maybe_visible, intel_station_expert, recommended_tech
 from wjdr_ui_components import runtime_log_matches
