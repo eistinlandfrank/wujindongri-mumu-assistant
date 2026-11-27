@@ -724,12 +724,7 @@ class FortressUI:
                 return
             run["index"] += 1
             self._fortress_store(run)
-            now = datetime.now(fortress.SHANGHAI)
-            urgent = [(due, alliance) for due, alliance in fortress.return_queue(run)
-                      if 0 < (due - now).total_seconds() <= 300]
-            if urgent:
-                self.fortress_notice.setText(f"请优先返回 {urgent[0][1]}，并在游戏中核对钥匙奖励。")
-            elif run["index"] < len(run["route"]):
+            if run["index"] < len(run["route"]):
                 next_tag = self._fortress_current_stop(run)["alliance"]
                 self.fortress_notice.setText(f"下一站 {next_tag}。请在游戏里切换联盟后核对占领。")
             elif run.get("take_keys", True):

@@ -1,13 +1,11 @@
 """Run the verified fortress checkpoints for one leased account."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from time import monotonic
 
 import wjdr_fortress as fortress
 from wjdr_schedule import GRACE_SECONDS
-
-KEY_RETURN_LEAD = timedelta(minutes=5)
 
 def claim_scheduled_start(run: dict, start_at: datetime, save, *, now: datetime | None = None) -> None:
     current = now if now is not None else datetime.now(fortress.SHANGHAI)
@@ -140,7 +138,7 @@ def resolve_targets(target, ocr, stop_event, run, station, save):
     return resolved
 
 
-def _occupation(target, ocr, stop_event, station, yield_for_key):
+def _occupation(target, ocr, stop_event, station):
     fortress.open_game_screen(target, ocr, stop_event, "activity")
     next_tap = monotonic()
     failures = 0
@@ -157,13 +155,13 @@ def _occupation(target, ocr, stop_event, station, yield_for_key):
             return ("navigate", point) if point else ("find-fortress", None)
         return None
 
-    while not stop_event.is_set() and not yield_for_key():
-        if stop_event.wait(max(0, next_tap - monotonic())) or yield_for_key():
+    while not stop_event.is_set():
+        if stop_event.wait(max(0, next_tap - monotonic())):
             break
         try:
             frame, (action, point) = fortress._wait_alliance_page(
                 target, ocr, stop_event, state, "堡垒争夺或相邻活动页未确认")
-            if stop_event.is_set() or yield_for_key():
+            if stop_event.is_set():
                 break
             if action == "occupied":
                 return True
@@ -279,7 +277,7 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     arrival = run["returned"].get(tag)
     if not due or not arrival or fortress.parse_stamp(arrival) >= due:
         raise ValueError(f"[{tag}] 没有截止前的入盟记录")
-    earliest = max(fortress.parse_stamp(run["round_start"]), due - KEY_RETURN_LEAD)
+    earliest = max(fortress.parse_stamp(run["round_start"]), fortress.parse_stamp(arrival))
     station = fortress.resolved_station(run, next(stop for stop in run["route"] if stop["alliance"] == tag))
     if any(entry["number"] is None for entry in station["targets"]):
         raise ValueError(f"[{tag}] 钥匙邮件对应的堡垒编号未登记")
@@ -377,20 +375,16 @@ def _member_to_root(target, ocr, stop_event, tag):
                                       "返回野外未确认")
 
 
-def _next_key(run, *, within=None, current=None):
+def _next_key(run, *, start_return):
     now = datetime.now(fortress.SHANGHAI)
     first = None
-    in_current_alliance = None
     for due, tag in fortress.return_queue(run):
         arrival = run["returned"].get(tag)
         if arrival and fortress.parse_stamp(arrival) < due:
             return due, tag
-        if due > now and (within is None or due - now <= within):
-            if first is None:
-                first = due, tag
-            if tag == current and due - now <= KEY_RETURN_LEAD:
-                in_current_alliance = due, tag
-    return in_current_alliance or first
+        if start_return and first is None and due > now:
+            first = due, tag
+    return first
 
 
 def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate):
@@ -420,15 +414,6 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             stop_event.wait(1)
             continue
         if mail is None:
-            now = datetime.now(fortress.SHANGHAI)
-            if now >= due and not run["mail"].get(tag):
-                following = any(other != tag and now < deadline <= now + KEY_RETURN_LEAD
-                                for deadline, other in fortress.return_queue(run))
-                if following:
-                    run.setdefault("key_unavailable", {})[tag] = fortress.format_stamp(now)
-                    save()
-                    notify(f"[{tag}] 尚未检测到本人钥匙邮件，按已确认的下一站时间继续")
-                    return
             try:
                 _refresh_alliance_mail(target, ocr, stop_event)
             except fortress.PageNotVerified:
@@ -444,7 +429,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
         remaining_sites = normal_station or bool(deferred)
-        key_visit = _next_key(run, within=KEY_RETURN_LEAD if remaining_sites else None, current=active)
+        key_visit = _next_key(run, start_return=not remaining_sites)
         if key_visit:
             due, tag = key_visit
             _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate)
@@ -484,7 +469,7 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                 names = "、".join(f"{entry['kind']}{entry['number']}" for entry in station["targets"])
                 notify(f"[{tag}] 已识别目标 {names}")
             notify(f"[{tag}] 等待指定目标蓝色占领")
-            if not _occupation(target, ocr, stop_event, station, lambda: bool(_next_key(run, within=KEY_RETURN_LEAD))):
+            if not _occupation(target, ocr, stop_event, station):
                 continue
             run["occupied"].append(tag)
             save()
