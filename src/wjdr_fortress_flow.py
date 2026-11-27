@@ -39,10 +39,10 @@ def _close_known_overlay(target, ocr, stop_event):
             return "activity"
         if fortress.is_alliance_settings(lines):
             return "alliance"
-        if (fortress.is_mail_list(lines) or
-                set(fortress._text_in(lines, (200, 248, 454, 301)))
-                & (fortress.FORTRESS_MAIL | {fortress.CONTROL_MAIL})):
+        if fortress.is_mail_list(lines):
             return "mail"
+        if set(fortress._text_in(lines, (200, 248, 454, 301))) & (fortress.FORTRESS_MAIL | {fortress.CONTROL_MAIL}):
+            return "mail-detail"
         if (fortress.is_unaffiliated_in_frame(image, lines, ocr) or fortress.read_joined_in_frame(image, lines, ocr)
                 or fortress.read_alliance_application(image, lines, ocr)):
             return "alliance"
@@ -58,10 +58,19 @@ def _close_known_overlay(target, ocr, stop_event):
         fortress._wait_alliance_page(
             target, ocr, stop_event, lambda image, lines: page(image, lines) == "alliance",
             "关闭联盟提示后，联盟页面未确认")
+    if visible == "mail-detail":
+        def after_detail(image, lines):
+            result = page(image, lines)
+            return result if result in {"root", "mail", "alliance"} else None
+
+        fortress.tap_verified_transition(target, stop_event, frame, (636, 36))
+        frame, visible = fortress._wait_alliance_page(
+            target, ocr, stop_event, after_detail,
+            "关闭奖励邮件详情后的页面未确认", timeout=5)
     if visible in {"activity", "mail"}:
-        _tap(target, stop_event, frame, (37, 36) if visible == "activity" else (636, 36))
+        fortress.tap_verified_transition(target, stop_event, frame, (37, 36) if visible == "activity" else (636, 36))
         fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),
-                                      "返回野外的结果未确认")
+                                      "返回野外的结果未确认", timeout=5)
 
 
 def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due=None):
@@ -270,16 +279,23 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     arrival = run["returned"].get(tag)
     if not due or not arrival or fortress.parse_stamp(arrival) >= due:
         raise ValueError(f"[{tag}] 没有截止前的入盟记录")
-    if datetime.now(fortress.SHANGHAI) < due:
-        return None
+    earliest = max(fortress.parse_stamp(run["round_start"]), due - KEY_RETURN_LEAD)
     station = fortress.resolved_station(run, next(stop for stop in run["route"] if stop["alliance"] == tag))
     if any(entry["number"] is None for entry in station["targets"]):
         raise ValueError(f"[{tag}] 钥匙邮件对应的堡垒编号未登记")
     wanted = {f"{entry['kind']}{entry['number']}" for entry in station["targets"]}
     receipts = run.setdefault("key_mail", {}).setdefault(tag, {})
+
+    def outstanding(label, sent):
+        if label not in wanted or (sent is not None and not earliest <= sent <= datetime.now(fortress.SHANGHAI)):
+            return False
+        prior = receipts.get(label)
+        return prior is None or (prior["state"] == "pending"
+                                 and (sent is None or fortress.format_stamp(sent) == prior["stamp"]))
+
     frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
     current = fortress.read_control_reward(image, lines, ocr)
-    if current and current.target in receipts and receipts[current.target]["state"] == "claimed":
+    if current and not outstanding(current.target, current.stamp):
         _detail_back(target, ocr, stop_event)
         current = None
 
@@ -299,7 +315,7 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
                 body = "".join(fortress._text_in(ln, (142, y + 19, 590, y + 53)))
                 label = fortress._control_mail_target(body)
                 sent = fortress.mail_row_stamp(im, ln, y, ocr)
-                if label in wanted - receipts.keys() and (sent is None or sent >= due):
+                if outstanding(label, sent):
                     return (312, y + 36), label, sent
             return None
 
@@ -314,7 +330,7 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
         if current.target != label or listed_stamp is not None and current.stamp != listed_stamp:
             raise ValueError("钥匙邮件详情与列表不一致")
 
-    if current.target not in wanted or not due <= current.stamp <= datetime.now(fortress.SHANGHAI):
+    if not outstanding(current.target, current.stamp):
         raise ValueError("当前邮件不属于本站到期的钥匙奖励")
     key, stamp = current.target, fortress.format_stamp(current.stamp)
     if not current.claimed:
@@ -398,18 +414,14 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             fortress.open_game_screen(target, ocr, stop_event, "mail")
     notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(due)} 的钥匙")
     while not stop_event.is_set() and tag not in run["keys"]:
-        remaining = (due - datetime.now(fortress.SHANGHAI)).total_seconds()
-        if remaining > 0:
-            stop_event.wait(min(15, remaining))
-            continue
         try:
             mail = claim_key_mail(target, ocr, stop_event, run, tag, save)
         except (fortress.PageNotVerified, fortress.MailClaimUnconfirmed):
             stop_event.wait(1)
             continue
         if mail is None:
-            if not run["mail"].get(tag):
-                now = datetime.now(fortress.SHANGHAI)
+            now = datetime.now(fortress.SHANGHAI)
+            if now >= due and not run["mail"].get(tag):
                 following = any(other != tag and now < deadline <= now + KEY_RETURN_LEAD
                                 for deadline, other in fortress.return_queue(run))
                 if following:
@@ -420,7 +432,8 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             try:
                 _refresh_alliance_mail(target, ocr, stop_event)
             except fortress.PageNotVerified:
-                stop_event.wait(1)
+                pass
+            stop_event.wait(1)
             continue
         notify(f"[{tag}] 已确认领取 {mail.target} 钥匙 · {fortress.format_stamp(mail.stamp)}")
 

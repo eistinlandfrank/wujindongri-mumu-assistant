@@ -1202,7 +1202,7 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
                 tap(frame, (488, 1126))
                 frame, exit_point = _wait_alliance_page(
                     target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
-        tap(frame, exit_point)
+        tap_verified_transition(target, stop_event, frame, exit_point)
         frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
         tap_verified_transition(target, stop_event, frame, (473, 727))
         try:
@@ -1988,12 +1988,6 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
     blocked = set()
     selection_retried = False
 
-    def activity_location(image, lines):
-        if is_fortress_activity(lines):
-            return "open", None
-        point = fortress_tab_point(image, lines)
-        return ("tab", point) if point is not None else None
-
     for _ in range(12):
         if is_fortress_activity(lines):
             return image, lines
@@ -2027,16 +2021,22 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
             return fresh, lines
         point = fortress_tab_point(fresh, lines)
         if point is not None:
-            frame, (location, point) = _wait_alliance_page(
-                target, ocr, stop_event, activity_location, "堡垒争夺标签位置未稳定")
-            if location == "open":
-                image = normalize_frame(frame)
-                return image, ocr(image)
-            tap_verified_transition(target, stop_event, frame, point)
+            def activity_location(image, lines):
+                if is_fortress_activity(lines):
+                    return "open"
+                fresh_point = fortress_tab_point(image, lines)
+                if fresh_point and abs(fresh_point[0] - point[0]) <= 16 and abs(fresh_point[1] - point[1]) <= 12:
+                    return "tab"
+                return None
+
             try:
-                frame, _ = _wait_alliance_page(
-                    target, ocr, stop_event, lambda _im, current: is_fortress_activity(current),
-                    "堡垒争夺页面未确认", timeout=3.0)
+                frame, location = _wait_alliance_page(
+                    target, ocr, stop_event, activity_location, "堡垒争夺标签位置未稳定")
+                if location == "tab":
+                    tap_verified_transition(target, stop_event, frame, point)
+                    frame, _ = _wait_alliance_page(
+                        target, ocr, stop_event, lambda _im, current: is_fortress_activity(current),
+                        "堡垒争夺页面未确认", timeout=3.0)
             except PageNotVerified:
                 if selection_retried:
                     raise
