@@ -732,6 +732,15 @@ def is_inactive_alliance_leave_warning(lines: list[dict]) -> bool:
     )
 
 
+def is_join_recommendation(lines: list[dict]) -> bool:
+    return (
+        "温馨提示" in _text_in(lines, (253, 167, 421, 218))
+        and any("盟主最近不太活跃" in text for text in _text_in(lines, (45, 249, 628, 326)))
+        and any("将加入以上推荐联盟" in text for text in _text_in(lines, (130, 854, 565, 924)))
+        and "加入" in _text_in(lines, (280, 934, 400, 985))
+    )
+
+
 def is_unaffiliated_alliance_page(lines: list[dict]) -> bool:
     return (
         "联盟" in _text_in(lines, (65, 2, 187, 65))
@@ -1306,12 +1315,14 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=6.0) -> No
             return "inactive_join"
         if "inactive_leave" not in handled and is_inactive_alliance_leave_warning(lines):
             return "inactive_leave"
+        if "recommendation" not in handled and is_join_recommendation(lines):
+            return "recommendation"
         if ("relocation" not in handled and "迁城" in _text_in(lines, (280, 100, 419, 194))
                 and any("距离过远" in text for text in _text_in(lines, (61, 838, 600, 897)))):
             return "relocation"
         return None
 
-    for _ in range(4):
+    for _ in range(5):
         frame, outcome = _wait_alliance_page(
             target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout)
         if outcome == "joined":
@@ -1321,10 +1332,10 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=6.0) -> No
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
             tap_game_point(target, frame, (451, 725))
-        elif outcome == "relocation":
+        elif outcome in {"relocation", "recommendation"}:
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
-            tap_game_point(target, frame, (622, 148))
+            tap_game_point(target, frame, (622, 195 if outcome == "recommendation" else 148))
         else:
             dismiss_inactive_alliance_warning(target, ocr, stop_event)
     raise ValueError(f"[{tag}] 的入盟结果未确认")
