@@ -26,6 +26,24 @@ from wjdr_ui_components import set_style_property
 HISTORY_PAGE_SIZE = 100
 
 
+def fortress_appointments(jobs, identity, now):
+    return sorted((job for job in jobs
+                   if job["identity"] == identity and job.get("task") == "fortress_route"
+                   and job["state"] in {"pending", "claimed"}
+                   and job["run_at"] + schedules.GRACE_SECONDS >= now.timestamp()),
+                  key=lambda job: job["run_at"])
+
+
+def appointment_summary(jobs):
+    if not jobs:
+        return ""
+    rows = "\n".join(
+        f"{fortress.format_stamp(datetime.fromtimestamp(job['run_at'], fortress.SHANGHAI))}"
+        f" · {' → '.join(stop['alliance'] for stop in job['route'])}"
+        f" · {schedules.STATES[job['state']]}" for job in jobs)
+    return f"堡垒预约（北京时间）\n{rows}"
+
+
 class FortressUI:
     def _build_fortress_page(self) -> QWidget:
         scroll = QScrollArea()
@@ -59,6 +77,8 @@ class FortressUI:
         self.fortress_notice.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.fortress_progress)
         layout.addWidget(self.fortress_notice)
+        self.fortress_appointments = self._fortress_appointment_list()
+        layout.addWidget(self.fortress_appointments)
 
         self.fortress_table = QTableWidget(0, 3)
         self.fortress_table.setMinimumHeight(190)
@@ -144,6 +164,7 @@ class FortressUI:
         layout.addWidget(self._build_disclosure("人工核对与补录", manual))
         self.fortress_identity = None
         self.fortress_run = None
+        self._fortress_preview = None
         self.fortress_take_keys.setChecked(True)
         self.fortress_timer = QTimer(self)
         self.fortress_timer.timeout.connect(self._fortress_refresh)
@@ -283,6 +304,10 @@ class FortressUI:
         dialog.resize(960, 690)
         self._set_window_background(dialog)
         layout = QVBoxLayout(dialog)
+        appointments = self._fortress_appointment_list()
+        appointments.setPlainText(appointment_summary(self._fortress_queued_jobs(datetime.now(fortress.SHANGHAI))))
+        appointments.setVisible(bool(appointments.toPlainText()))
+        layout.addWidget(appointments)
         summary = QLabel()
         layout.addWidget(summary)
 
@@ -423,6 +448,7 @@ class FortressUI:
         if identity == self.fortress_identity:
             return
         self.fortress_identity = identity
+        self._fortress_preview = None
         self.fortress_table.setRowCount(0)
         self._fortress_set_round_time(datetime.now(fortress.SHANGHAI))
         self.fortress_notice.clear()
@@ -511,18 +537,68 @@ class FortressUI:
             raise ValueError("路线已走完，请查看返回联盟和截止时间")
         return fortress.resolved_station(run, run["route"][run["index"]])
 
+    def _fortress_appointment_list(self):
+        listing = QPlainTextEdit()
+        listing.setReadOnly(True)
+        listing.setAccessibleName("堡垒跑盟预约（北京时间）")
+        listing.setMaximumHeight(92)
+        listing.setVisible(False)
+        return listing
+
+    def _fortress_queued_jobs(self, now):
+        if not self.fortress_identity or not getattr(self, "schedule_path", None):
+            return []
+        try:
+            return fortress_appointments(schedules.read_jobs(self.schedule_path), self.fortress_identity, now)
+        except (OSError, ValueError) as exc:
+            self.fortress_notice.setText(str(exc))
+            return []
+
     def _fortress_refresh(self) -> None:
         worker = getattr(self, "worker", None)
         busy = bool(worker and worker.is_alive())
-        ready = bool(self.fortress_identity and not busy)
         run = self.fortress_run
+        now = datetime.now(fortress.SHANGHAI)
+        jobs = self._fortress_queued_jobs(now)
+        description = appointment_summary(jobs)
+        if self.fortress_appointments.toPlainText() != description:
+            self.fortress_appointments.setPlainText(description)
+        self.fortress_appointments.setVisible(bool(description))
+        preview = None
+        if run and jobs and (not busy or self._fortress_preview):
+            finished = (run["index"] >= len(run["route"]) and not run.get("deferred_victory")
+                        and not fortress.key_windows(run))
+            for job in jobs:
+                date = fortress.format_stamp(datetime.fromtimestamp(job["run_at"], fortress.SHANGHAI))
+                if not ((finished and date > run["round_start"])
+                        or (date == run["round_start"] and run["index"] == 0 and not run.get("scheduled_start"))):
+                    continue
+                try:
+                    preview = fortress.run_from_schedule(
+                        run, dict(job, fortress_take_keys=job.get("fortress_take_keys", run.get("take_keys", True))))
+                except ValueError:
+                    continue
+                break
+        if preview != self._fortress_preview:
+            self._fortress_preview = preview
+            if shown := preview or run:
+                self._fortress_show_route(shown)
+        ready = bool(self.fortress_identity and not busy and preview is None)
         self.fortress_history_button.setEnabled(bool(self.fortress_identity))
         for widget in (self.fortress_table, self.fortress_round_date, *self.fortress_round_time,
                        self.fortress_take_keys, *self.fortress_editor_buttons):
             widget.setEnabled(ready)
         for button in self.fortress_action_buttons:
             button.setEnabled(ready and run is not None)
-        now = datetime.now(fortress.SHANGHAI)
+        if preview:
+            self.fortress_start_button.setText("已预约")
+            set_style_property(self.fortress_progress, "urgent", "false")
+            self.fortress_progress.setText(f"下一场 {preview['round_start']}（北京时间） · 等待预约启动")
+            for row in range(self.fortress_table.rowCount()):
+                status = self.fortress_table.item(row, 2)
+                status.setText("等待开始" if preview.get("take_keys", True) else "关闭")
+                status.setToolTip("")
+            return
         upcoming = run and fortress.parse_stamp(run["round_start"]) > now
         self.fortress_start_button.setText("预约开跑" if upcoming else "开始跑盟")
         if not run:
