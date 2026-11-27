@@ -294,6 +294,41 @@ def march_tabs(station):
     return ("单人",) if modes == {"单撞"} else ("集结",)
 
 
+def _switch_war_tab(target, ocr, stop_event, frame, next_tab):
+    deadline = monotonic() + fortress.RECOVERY_SECONDS
+    point = (336 if next_tab == "单人" else 123, 118)
+    error = f"未确认联盟战争「{next_tab}」页"
+
+    def requested(image, lines):
+        return next_tab if _war_tab(image, lines) == next_tab else None
+
+    fortress.tap_verified_transition(target, stop_event, frame, point)
+    try:
+        return fortress._wait_alliance_page(target, ocr, stop_event, requested, error, timeout=3.0)
+    except fortress.PageNotVerified:
+        fresh, visible = fortress._wait_alliance_page(target, ocr, stop_event, _war_tab, error, timeout=0.8)
+        if visible == next_tab:
+            return fresh, visible
+        if monotonic() >= deadline:
+            raise fortress.PageNotVerified(error)
+        fortress.tap_verified_transition(target, stop_event, fresh, point)
+        return fortress._wait_alliance_page(target, ocr, stop_event, requested, error,
+                                              timeout=max(0, deadline - monotonic()))
+
+
+def _clipped_rally(lines):
+    at_bottom = fortress._text_in(lines, (410, 835, 646, 1058))
+    return any(text.startswith(("行军中", "集结中")) for text in at_bottom)
+
+
+def _scroll_war_list(target, stop_event, frame):
+    if stop_event.is_set() or not target.foreground_is_game():
+        raise InterruptedError()
+    start = fortress.map_content_point((172, 973), fortress.REFERENCE, frame)
+    end = fortress.map_content_point((172, 596), fortress.REFERENCE, frame)
+    target.shell(["input", "swipe", *map(str, (*start, *end)), "260"], timeout=2)
+
+
 def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None):
     tag = station["alliance"]
     tabs = march_tabs(station)
@@ -306,6 +341,8 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
     next_switch = monotonic() + (2 if selected in tabs else 0)
     previous = ()
     page_seen = monotonic()
+    clipped = False
+    scrolled = False
     completed = False
     try:
         while not stop_event.is_set():
@@ -323,6 +360,7 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
                 continue
             page_seen = monotonic()
             confirmed = ()
+            current = ()
             if selected in tabs and (marches := fortress.fortress_marches(image, lines, ocr, tab=selected)) is not None:
                 current = tuple((name, observed + timedelta(seconds=seconds))
                                 for name, seconds in marches if name in names_by_tab[selected])
@@ -342,14 +380,21 @@ def read_march_arrivals(target, ocr, stop_event, station, until, *, decide=None)
             elif confirmed:
                 completed = True
                 return confirmed
+            cut_off = (selected == "集结" and selected in tabs
+                       and not names_by_tab[selected] <= {name for name, _ in current} and _clipped_rally(lines))
+            if cut_off and clipped and not scrolled:
+                _scroll_war_list(target, stop_event, frame)
+                scrolled = True
+                next_switch = max(next_switch, monotonic() + 0.45)
+                stop_event.wait(0.12)
+                continue
+            clipped = cut_off
             if (selected not in tabs or len(tabs) == 2) and monotonic() >= next_switch:
                 next_tab = "单人" if selected == "集结" else "集结"
                 started_switch = monotonic()
-                fortress.tap_verified_transition(target, stop_event, frame, (336 if next_tab == "单人" else 123, 118))
-                _, selected = fortress._wait_alliance_page(
-                    target, ocr, stop_event, lambda im, ln: next_tab if _war_tab(im, ln) == next_tab else None,
-                    f"未确认联盟战争「{next_tab}」页")
+                _, selected = _switch_war_tab(target, ocr, stop_event, frame, next_tab)
                 previous = ()
+                clipped = False
                 page_seen = monotonic()
                 next_switch = started_switch + 2
             else:
