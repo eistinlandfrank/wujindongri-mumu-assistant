@@ -472,17 +472,21 @@ def _mail_detail_stamp(image, lines, ocr):
         except ValueError:
             pass
     if ocr is not None:
-        stamp_crop = image.crop((386, 113, 639, 151)).resize((759, 114), Image.Resampling.LANCZOS)
-        cropped_lines = ocr(stamp_crop)
-        if len(cropped_lines) == 1:
+        stamp_crop = image.crop((386, 113, 639, 151))
+        for scale, resample, border in ((3, Image.Resampling.LANCZOS, 0),
+                                        (3, Image.Resampling.LANCZOS, 18),
+                                        (4, Image.Resampling.NEAREST, 18)):
+            enlarged = stamp_crop.resize((stamp_crop.width * scale, stamp_crop.height * scale), resample)
+            if border:
+                enlarged = ImageOps.expand(enlarged, border=border, fill=255)
+            cropped_lines = ocr(enlarged)
+            if len(cropped_lines) != 1:
+                continue
             try:
                 cropped = parse_cropped_mail_stamp(cropped_lines[0]["text"])
             except ValueError:
-                pass
-            else:
-                if sent is not None and sent != cropped:
-                    return None
-                sent = cropped
+                continue
+            return cropped if sent is None or sent == cropped else None
     return sent
 
 

@@ -282,6 +282,11 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     if any(entry["number"] is None for entry in station["targets"]):
         raise ValueError(f"[{tag}] 钥匙邮件对应的堡垒编号未登记")
     wanted = {f"{entry['kind']}{entry['number']}" for entry in station["targets"]}
+    confirmed_targets = run.get("key_targets", {}).get(tag)
+    if confirmed_targets is not None:
+        if not confirmed_targets or not set(confirmed_targets) <= wanted:
+            raise ValueError(f"[{tag}] 已核对的钥匙目标与报名目标不一致")
+        wanted = set(confirmed_targets)
     receipts = run.setdefault("key_mail", {}).setdefault(tag, {})
 
     def outstanding(label, sent):
