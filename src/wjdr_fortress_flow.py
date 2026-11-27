@@ -29,6 +29,10 @@ def _tap(target, stop_event, frame, point):
 
 def _close_known_overlay(target, ocr, stop_event):
     def page(image, lines):
+        if fortress.is_alliance_relocation_prompt(lines):
+            return "relocation"
+        if fortress.can_confirm_alliance_exit(lines):
+            return "exit-confirmation"
         if fortress.is_game_root(lines):
             return "root"
         if fortress.is_regular_activity(lines):
@@ -48,6 +52,12 @@ def _close_known_overlay(target, ocr, stop_event):
         return None
 
     frame, visible = fortress._wait_alliance_page(target, ocr, stop_event, page, "请打开野外、联盟或本轮已核对邮件")
+    if visible in {"relocation", "exit-confirmation"}:
+        point = (622, 148) if visible == "relocation" else (200, 726)
+        fortress.tap_verified_transition(target, stop_event, frame, point)
+        fortress._wait_alliance_page(
+            target, ocr, stop_event, lambda image, lines: page(image, lines) == "alliance",
+            "关闭联盟提示后，联盟页面未确认")
     if visible in {"activity", "mail"}:
         _tap(target, stop_event, frame, (37, 36) if visible == "activity" else (636, 36))
         fortress._wait_alliance_page(target, ocr, stop_event, lambda _im, lines: fortress.is_game_root(lines),

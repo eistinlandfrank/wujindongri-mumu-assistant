@@ -21,6 +21,7 @@ from wjdr_backend import (
     AdbError, CONFIG_DIR, _atomic_json_write, _serialized_account_write,
     content_viewport, map_content_point, resource_path,
 )
+from wjdr_mumu_ipc import RouteCapture
 
 SHANGHAI = timezone(timedelta(hours=8))
 PROFILE_PATH = CONFIG_DIR / "fortress_routes.json"
@@ -360,6 +361,16 @@ def root_entry(image: Image.Image, lines: list[dict], entry: str) -> tuple[int, 
 
 def is_regular_activity(lines: list[dict]) -> bool:
     return any(text.endswith("常规活动") for text in _text_in(lines, (0, 0, 210, 65)))
+
+
+def is_alliance_relocation_prompt(lines: list[dict]) -> bool:
+    details = "".join(_text_in(lines, (60, 838, 610, 946)))
+    return (
+        "迁城" in _text_in(lines, (280, 100, 419, 194))
+        and "联盟总部" in details
+        and ("距离过" in details or "请迁城至联盟总部" in details)
+        and "迁城" in _text_in(lines, (265, 986, 410, 1051))
+    )
 
 
 def is_fortress_activity(lines: list[dict]) -> bool:
@@ -1125,7 +1136,7 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
             return ("member", current)
         if is_alliance_settings(lines):
             return ("management", None)
-        if is_game_root(lines) and "联盟" in _text_in(lines, (457, 1148, 530, 1190)):
+        if is_game_root(lines):
             return ("root", None)
         return None
 
@@ -1144,11 +1155,14 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
         frame, (mode, current) = _wait_alliance_page(
             target, ocr, stop_event, lambda image, lines: state(image, lines) if not is_game_root(lines) else None,
             "联盟入口未确认")
-    if mode == "management":
+    def read_member_from_management(frame):
         tap(frame, (37, 36))
-        frame, current = _wait_alliance_page(
+        return _wait_alliance_page(
             target, ocr, stop_event, lambda image, lines: read_joined_in_frame(image, lines, ocr),
             "从联盟管理返回后，未确认当前联盟")
+
+    if mode == "management":
+        frame, current = read_member_from_management(frame)
         mode = "member"
     if mode == "available":
         return False
@@ -1160,34 +1174,52 @@ def prepare_alliance_route(target, ocr, stop_event, tag: str, *, leave_current: 
     def management_exit(_image, lines):
         return alliance_exit_point(lines)
 
-    tap(frame, (488, 1126))
-    try:
-        frame, exit_point = _wait_alliance_page(
-            target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认", timeout=2.5)
-    except PageNotVerified:
-        def locate_management(image, lines):
-            point = alliance_exit_point(lines)
-            if point:
-                return "management", point
-            if (read_joined_in_frame(image, lines, ocr) == current
-                    and "设置" in _text_in(lines, (430, 1138, 544, 1192))):
-                return "overview", None
-            return None
-
-        frame, (page, exit_point) = _wait_alliance_page(
-            target, ocr, stop_event, locate_management, "退盟入口无法确认，保持当前联盟")
-        if page == "overview":
-            tap(frame, (488, 1126))
-            frame, exit_point = _wait_alliance_page(
-                target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
-    tap(frame, exit_point)
-    frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
-    tap(frame, (473, 727))
     def after_exit(image, lines):
         visible = state(image, lines)
         return visible if visible and visible[0] in {"available", "root"} else None
 
-    frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认", timeout=5)
+    def locate_management(image, lines):
+        point = alliance_exit_point(lines)
+        if point:
+            return "management", point
+        if (read_joined_in_frame(image, lines, ocr) == current
+                and "设置" in _text_in(lines, (430, 1138, 544, 1192))):
+            return "overview", None
+        return None
+
+    def exit_outcome(image, lines):
+        return after_exit(image, lines) or (("confirmation", None) if can_confirm_alliance_exit(lines) else None)
+
+    for attempt in range(2):
+        tap(frame, (488, 1126))
+        try:
+            frame, exit_point = _wait_alliance_page(
+                target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认", timeout=2.5)
+        except PageNotVerified:
+            frame, (page, exit_point) = _wait_alliance_page(
+                target, ocr, stop_event, locate_management, "退盟入口无法确认，保持当前联盟")
+            if page == "overview":
+                tap(frame, (488, 1126))
+                frame, exit_point = _wait_alliance_page(
+                    target, ocr, stop_event, management_exit, "联盟管理页面的退出按钮未确认")
+        tap(frame, exit_point)
+        frame = wait_for(can_confirm_alliance_exit, "退盟确认页或确认按钮未就绪")
+        tap_verified_transition(target, stop_event, frame, (473, 727))
+        try:
+            frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, after_exit, "退盟结果未确认", timeout=5)
+            break
+        except PageNotVerified:
+            if attempt:
+                raise
+            frame, (mode, _) = _wait_alliance_page(target, ocr, stop_event, exit_outcome, "退盟结果未确认")
+            if mode != "confirmation":
+                break
+            tap(frame, (200, 726))
+            frame, _ = _wait_alliance_page(
+                target, ocr, stop_event, management_exit, "取消退盟后未确认管理页面")
+            frame, still_member = read_member_from_management(frame)
+            if still_member != current:
+                raise PageNotVerified("取消退盟后，当前联盟与退盟前不一致")
     if mode == "available":
         return False
     tap(frame, (498, 1138))
@@ -1342,25 +1374,42 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=6.0) -> No
             return "inactive_leave"
         if "recommendation" not in handled and is_join_recommendation(lines):
             return "recommendation"
-        if ("relocation" not in handled and "迁城" in _text_in(lines, (280, 100, 419, 194))
-                and any("距离过远" in text for text in _text_in(lines, (61, 838, 600, 897)))):
+        if "relocation" not in handled and is_alliance_relocation_prompt(lines):
             return "relocation"
+        if ("recommendation" in handled and "exact_result" not in handled
+                and is_unaffiliated_in_frame(image, lines, ocr)):
+            row = _listing_in_frame(image, lines, ocr, tag)
+            if row and row[1].access == "可直接加入" and row[1].members < row[1].capacity:
+                return "exact_result", row[0]
         return None
 
-    for _ in range(5):
+    def exact_info(_image, lines):
+        return (
+            "联盟资讯" in _text_in(lines, (240, 146, 433, 209))
+            and any(text.startswith(f"[{tag}]") for text in _text_in(lines, (208, 217, 460, 272)))
+            and any("任何人均可加入" in text for text in _text_in(lines, (211, 810, 490, 885)))
+            and "加入" in _text_in(lines, (273, 903, 420, 968))
+        )
+
+    for _ in range(6):
         frame, outcome = _wait_alliance_page(
             target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout)
         if outcome == "joined":
             return
+        if isinstance(outcome, tuple):
+            handled.add("exact_result")
+            tap_verified_transition(target, stop_event, frame, (125, outcome[1] + 58))
+            frame, _ = _wait_alliance_page(
+                target, ocr, stop_event, exact_info, f"[{tag}] 的联盟资讯加入按钮未确认")
+            tap_verified_transition(target, stop_event, frame, (336, 938))
+            continue
         handled.add(outcome)
         if outcome == "inactive_join":
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
             tap_game_point(target, frame, (451, 725))
         elif outcome in {"relocation", "recommendation"}:
-            if stop_event.is_set() or not target.foreground_is_game():
-                raise InterruptedError()
-            tap_game_point(target, frame, (622, 195 if outcome == "recommendation" else 148))
+            tap_verified_transition(target, stop_event, frame, (622, 195 if outcome == "recommendation" else 148))
         else:
             dismiss_inactive_alliance_warning(target, ocr, stop_event)
     raise ValueError(f"[{tag}] 的入盟结果未确认")
@@ -1599,6 +1648,13 @@ def observe_alliance_application(
     if joined_tag_matches(image, lines, ocr, tag):
         _, fresh_image, fresh = _alliance_frame(target, ocr, stop_event)
         return "joined" if joined_tag_matches(fresh_image, fresh, ocr, tag) else None
+    if confirmed and is_alliance_relocation_prompt(lines) and "relocation" not in navigation:
+        frame, _ = _wait_alliance_page(
+            target, ocr, stop_event, lambda _im, current: is_alliance_relocation_prompt(current),
+            "迁城提示未稳定")
+        navigation.add("relocation")
+        tap_verified_transition(target, stop_event, frame, (622, 148))
+        return None
     if confirmed and is_inactive_alliance_leave_warning(lines) and "post_join_warning" not in navigation:
         navigation.add("post_join_warning")
         dismiss_inactive_alliance_warning(target, ocr, stop_event)
@@ -1608,8 +1664,7 @@ def observe_alliance_application(
                             and joined_tag_matches(second_image, second, ocr, tag)) else None
     if is_game_root(lines) and "alliance_home" not in navigation:
         frame, _, fresh = _alliance_frame(target, ocr, stop_event)
-        if (not is_game_root(fresh) or "联盟" not in _text_in(fresh, (457, 1148, 530, 1190))
-                or stop_event.is_set()):
+        if not is_game_root(fresh) or stop_event.is_set():
             return None
         if not target.foreground_is_game():
             return None
@@ -1799,6 +1854,18 @@ def tap_game_point(target, frame: Image.Image, normalized_point: tuple[int, int]
     target.shell(["input", "tap", str(point[0]), str(point[1])], timeout=5)
 
 
+def tap_verified_transition(target, stop_event, frame, point) -> None:
+    if not isinstance(target, RouteCapture):
+        if stop_event.is_set() or not target.foreground_is_game():
+            raise InterruptedError()
+        tap_game_point(target, frame, point)
+        return
+    with target.touch_session() as touch:
+        if stop_event.is_set() or not target.foreground_is_game():
+            raise InterruptedError()
+        touch.touch_request(map_content_point(point, REFERENCE, frame))
+
+
 def open_game_screen(target, ocr, stop_event, entry: str) -> tuple[Image.Image, list[dict]]:
     def read():
         if stop_event.is_set():
@@ -1918,7 +1985,16 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
     strip_box = (20, 95, 650, 167)
     toward_earlier = None
     before_swipe = None
-    for _ in range(8):
+    blocked = set()
+    selection_retried = False
+
+    def activity_location(image, lines):
+        if is_fortress_activity(lines):
+            return "open", None
+        point = fortress_tab_point(image, lines)
+        return ("tab", point) if point is not None else None
+
+    for _ in range(12):
         if is_fortress_activity(lines):
             return image, lines
         strip = np.asarray(image.crop(strip_box), dtype=np.int16)
@@ -1929,15 +2005,19 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
             frame = target.screenshot(timeout=6)
             fresh = normalize_frame(frame)
             fresh_strip = np.asarray(fresh.crop(strip_box), dtype=np.int16)
+            still = np.abs(strip - fresh_strip).mean() < 3
             moved = before_swipe is None or np.abs(fresh_strip - before_swipe).mean() >= 3
-            if moved and np.abs(strip - fresh_strip).mean() < 3:
+            if still and moved:
                 break
             strip = fresh_strip
             stop_event.wait(min(0.08, max(0, settle_by - time.monotonic())))
         else:
             if before_swipe is not None and np.abs(strip - before_swipe).mean() < 3:
-                raise ValueError("活动标签滑动未确认")
-            raise PageNotVerified("活动栏持续移动，标签未确认")
+                blocked.add(toward_earlier)
+                if len(blocked) == 2:
+                    raise PageNotVerified("活动标签双向滑动未确认")
+            else:
+                raise PageNotVerified("活动栏持续移动，标签未确认")
         if stop_event.is_set() or not target.foreground_is_game():
             raise InterruptedError()
         lines = ocr(fresh)
@@ -1947,10 +2027,24 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
             return fresh, lines
         point = fortress_tab_point(fresh, lines)
         if point is not None:
-            tap_game_point(target, frame, point)
-            frame, _ = _wait_alliance_page(
-                target, ocr, stop_event, lambda _im, current: is_fortress_activity(current),
-                "堡垒争夺页面未确认", timeout=5.0)
+            frame, (location, point) = _wait_alliance_page(
+                target, ocr, stop_event, activity_location, "堡垒争夺标签位置未稳定")
+            if location == "open":
+                image = normalize_frame(frame)
+                return image, ocr(image)
+            tap_verified_transition(target, stop_event, frame, point)
+            try:
+                frame, _ = _wait_alliance_page(
+                    target, ocr, stop_event, lambda _im, current: is_fortress_activity(current),
+                    "堡垒争夺页面未确认", timeout=3.0)
+            except PageNotVerified:
+                if selection_retried:
+                    raise
+                selection_retried = True
+                image = normalize_frame(target.screenshot(timeout=6))
+                lines = ocr(image)
+                before_swipe = None
+                continue
             image = normalize_frame(frame)
             return image, ocr(image)
         if not is_regular_activity(lines):
@@ -1960,6 +2054,10 @@ def open_fortress_activity(target, ocr, stop_event) -> tuple[Image.Image, list[d
         after_target = any(any(key in label for key in ("巨熊", "霜龙", "乔伊", "王城", "社区")) for label in tabs)
         if before_target != after_target:
             toward_earlier = after_target
+        if toward_earlier is None:
+            toward_earlier = False
+        if toward_earlier in blocked:
+            toward_earlier = not toward_earlier
         left, right = (113, 287) if toward_earlier else (560, 386)
         start = map_content_point((left, 125), REFERENCE, frame)
         end = map_content_point((right, 125), REFERENCE, frame)
