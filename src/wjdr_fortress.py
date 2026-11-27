@@ -782,6 +782,21 @@ def control_gift_visible(image: Image.Image, title_y: int) -> bool:
     return bool(((red > 135) & (blue > 100) & (red - green > 45) & (blue - green > 35)).mean() > .055)
 
 
+def control_reward_banner_visible(image: Image.Image) -> bool:
+    if not isinstance(image, Image.Image):
+        return False
+
+    def gold_fraction(box):
+        rgb = np.asarray(image.crop(box).convert("RGB"), dtype=np.int16)
+        red, green, blue = rgb.transpose(2, 0, 1)
+        return ((red >= 135) & (green >= 65) & (red - green >= 18)
+                & (green - blue >= 24) & (red - blue >= 58)).mean()
+
+    # The notification colors the blue left rail for a full band of rows.
+    return (gold_fraction((2, 208, 22, 384)) >= 0.82
+            and gold_fraction((2, 430, 22, 465)) <= 0.15)
+
+
 def read_control_reward(image, lines, ocr=None) -> ControlReward | None:
     if not any(text.endswith("邮件") for text in _text_in(lines, (0, 0, 120, 66))):
         return None

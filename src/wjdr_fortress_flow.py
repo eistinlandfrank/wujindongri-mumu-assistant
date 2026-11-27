@@ -660,7 +660,7 @@ def _paired_victory_times(target, ocr, stop_event, run, pair, save):
     return times
 
 
-def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
+def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None, fast=False):
     """Read the alliance mailbox directly. Return a verified claim or no new mail."""
     pending = fortress.pending_key_settlements(run, tag)
     if settlement is None:
@@ -727,10 +727,13 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
             return (312, y + 36), label, sent
         return None
 
-    def open_row(identify):
+    def open_row(identify, *, immediate=False):
         frame, (point, label, listed_stamp) = fortress._wait_alliance_page(
             target, ocr, stop_event, identify, "成功控制堡垒邮件列表在打开前发生变化")
-        _tap(target, stop_event, frame, point)
+        if immediate:
+            fortress.tap_verified_transition(target, stop_event, frame, point)
+        else:
+            _tap(target, stop_event, frame, point)
         frame, opened = fortress._wait_alliance_page(
             target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr),
             "钥匙邮件详情和右上角时间未确认")
@@ -739,6 +742,8 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
         return frame, opened
 
     frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
+    fast = fast or fortress.control_reward_banner_visible(image)
+    fresh_detail = False
     current = fortress.read_control_reward(image, lines, ocr)
     if ((current and not outstanding(current.target, current.stamp))
             or (current is None and fortress.reward_detail_titles(lines) - {fortress.CONTROL_MAIL})):
@@ -751,7 +756,8 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
             image, lines = fortress.open_game_screen(target, ocr, stop_event, "mail")
         if not row(image, lines):
             return None
-        frame, current = open_row(row)
+        frame, current = open_row(row, immediate=fast)
+        fresh_detail = True
 
     if not outstanding(current.target, current.stamp):
         raise ValueError("当前邮件不属于本站到期的钥匙奖励")
@@ -794,9 +800,10 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
         confirm_recovery(current)
     elif not current.claimed:
         with target.touch_session() as touch:
-            frame, _ = fortress._wait_alliance_page(
-                target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr) == current,
-                "钥匙领取控件已变化")
+            if not (fast and fresh_detail):
+                frame, _ = fortress._wait_alliance_page(
+                    target, ocr, stop_event, lambda im, ln: fortress.read_control_reward(im, ln, ocr) == current,
+                    "钥匙领取控件已变化")
             if stop_event.is_set() or not target.foreground_is_game():
                 raise InterruptedError()
             receipts[key] = {"stamp": stamp, "state": "pending",
@@ -911,6 +918,23 @@ def _key_during_admission(run, station):
     return min((choice for choice in choices if choice[0] > now), default=None)
 
 
+def _wait_for_key_mail_update(target, stop_event, settlements):
+    now = datetime.now(fortress.SHANGHAI)
+    if not any(abs(now - due) <= timedelta(seconds=15) for due in settlements):
+        stop_event.wait(1)
+        return False
+    deadline = monotonic() + 1
+    while not stop_event.is_set() and monotonic() < deadline:
+        try:
+            frame = target.screenshot(timeout=max(0.08, deadline - monotonic()))
+        except (OSError, fortress.AdbError):
+            return False
+        if fortress.control_reward_banner_visible(fortress.normalize_frame(frame)):
+            return True
+        stop_event.wait(min(0.10, max(0, deadline - monotonic())))
+    return False
+
+
 def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_timeout, rate, *, march_at=None):
     cutoff = fortress.key_return_by(run, tag, settlement)
     arrival = _currently_returned(run, tag)
@@ -944,12 +968,14 @@ def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_t
     save()
     notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(settlement)} 的钥匙")
     read_failed = False
+    banner_seen = False
     while not stop_event.is_set() and settlement in fortress.pending_key_settlements(run, tag):
         if march_at is not None and datetime.now(fortress.SHANGHAI) >= march_at - timedelta(seconds=fortress.RECOVERY_SECONDS):
             notify(f"[{tag}] 尚未收到 {settlement:%H:%M:%S} 的钥匙邮件，返回堡垒路线")
             break
         try:
-            mail = claim_key_mail(target, ocr, stop_event, run, tag, save, settlement=settlement)
+            shortcut = {"fast": True} if banner_seen else {}
+            mail = claim_key_mail(target, ocr, stop_event, run, tag, save, settlement=settlement, **shortcut)
         except fortress.PageNotVerified as error:
             if read_failed:
                 raise RecoveryFailed(f"[{tag}] 无法核对联盟邮件，流程已停止 · {error}") from error
@@ -960,7 +986,10 @@ def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_t
             continue
         read_failed = False
         if mail is None:
-            stop_event.wait(1)
+            detected = _wait_for_key_mail_update(target, stop_event, fortress.pending_key_settlements(run, tag))
+            if detected and not banner_seen:
+                notify(f"[{tag}] 检测到钥匙奖励横幅，立即核对邮件")
+            banner_seen = detected
             continue
         notify(f"[{tag}] 已确认领取 {mail.target} 钥匙 · {fortress.format_stamp(mail.stamp)}")
     if not stop_event.is_set():
