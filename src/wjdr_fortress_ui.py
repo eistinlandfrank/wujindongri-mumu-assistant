@@ -9,7 +9,7 @@ import time
 
 from PySide6.QtCore import QDate, Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QDateEdit, QDialog, QGridLayout, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QDateEdit, QDialog, QGridLayout, QHBoxLayout, QHeaderView,
     QCheckBox, QComboBox, QDialogButtonBox, QGroupBox, QInputDialog, QLabel, QMessageBox, QPushButton,
     QRadioButton, QScrollArea, QTableWidget, QTableWidgetItem, QPlainTextEdit, QSpinBox, QVBoxLayout, QWidget,
 )
@@ -911,26 +911,7 @@ class FortressUI:
         self._fortress_worker(apply_and_watch)
 
     def _fortress_application_timeout(self, identity: str, serial: str, message: str) -> None:
-        if self.fortress_identity != identity or not self.adb or self.adb.device != serial:
-            return
-        clicking = "连点时间已到" in message
-        title = "连点超时" if clicking else "联盟申请等待超时"
-        dialog = QMessageBox(QMessageBox.Icon.Warning, title, message,
-                             QMessageBox.StandardButton.Ok, self)
-        if clicking:
-            resume = dialog.addButton("继续连点…", QMessageBox.ButtonRole.ActionRole)
-            tag = message.partition("]")[0].lstrip("[")
-            dialog.buttonClicked.connect(
-                lambda button: QTimer.singleShot(
-                    0, lambda: self._fortress_continue_clicking(
-                        tag=tag, continue_flow="入盟后续跑本轮" in message)) if button is resume else None)
-        dialog.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dialog.open()
-        dialog.raise_()
-        dialog.activateWindow()
-        QApplication.alert(dialog)
+        self._fortress_result(identity, serial, message)
 
     def _fortress_start_flow(self, *, scheduled=None) -> None:
         try:
@@ -983,20 +964,17 @@ class FortressUI:
                 target, ocr, self.stop_event, run, save, rate=100,
                 notify=lambda message: self.signals.fortress_result.emit(identity, target.device, message),
                 on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
-                    identity, target.device, message + " 入盟后续跑本轮。"),
+                    identity, target.device, message),
             )
 
         self._fortress_worker(auto, scheduled=scheduled)
 
-    def _fortress_continue_clicking(self, *, tag=None, continue_flow=False) -> None:
+    def _fortress_continue_clicking(self) -> None:
         try:
             if not self.fortress_run:
                 raise ValueError("请先保存路线")
             run = self.fortress_run
-            if tag is not None:
-                if tag not in {stop["alliance"] for stop in run["route"]}:
-                    raise ValueError("超时提示对应的联盟已不在本轮路线")
-            elif run["index"] < len(run["route"]):
+            if run["index"] < len(run["route"]):
                 tag = self._fortress_current_stop(run)["alliance"]
             else:
                 row = self.fortress_table.currentRow()
@@ -1009,7 +987,8 @@ class FortressUI:
                 return
             duration = None
             if kind == "定时停止":
-                minutes, ok = QInputDialog.getInt(self, "连点时长", "分钟", 3, 1, 1440)
+                minutes, ok = QInputDialog.getInt(
+                    self, "连点时长", "分钟", int(fortress.RAPID_JOIN_DURATION / 60), 1, 1440)
                 if not ok:
                     return
                 duration = minutes * 60
@@ -1035,7 +1014,7 @@ class FortressUI:
                     target, ocr, self.stop_event, active_run, tag, save, rate=join_rate, duration=duration,
                     notify=notify,
                     on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
-                        identity, target.device, message + (" 入盟后续跑本轮。" if continue_flow else "")),
+                        identity, target.device, message),
                 )
                 due = fortress.return_deadline(active_run, tag)
                 if result.joined and due and tag not in active_run["keys"] and tag not in active_run["returned"]:
@@ -1043,13 +1022,6 @@ class FortressUI:
                     if now < due:
                         active_run["returned"][tag] = fortress.format_stamp(now)
                         save()
-                if result.joined and continue_flow:
-                    return flow.run_route(
-                        target, ocr, self.stop_event, active_run, save, rate=join_rate or 100,
-                        notify=lambda message: self.signals.fortress_result.emit(identity, target.device, message),
-                        on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
-                            identity, target.device, message + " 入盟后续跑本轮。"),
-                    )
                 return result.message
 
             self._fortress_worker(click_and_watch)

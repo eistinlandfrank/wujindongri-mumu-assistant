@@ -35,6 +35,7 @@ CLAIM_POINT = (336, 762)
 SOLO_INTERVAL = timedelta(minutes=3)
 KEY_MAIL_DELAY = timedelta(minutes=30)
 KEY_MARCH_GAP = timedelta(seconds=20)
+KEY_RETURN_LEAD = timedelta(seconds=20)
 KEY_RALLY_PRIORITY = timedelta(minutes=5)
 VICTORY_MAIL_LEAD = timedelta(seconds=15)
 MARCH_TIME_TOLERANCE = timedelta(seconds=2)
@@ -42,7 +43,7 @@ APPLICATION_TIMEOUT = 180
 RECOVERY_SECONDS = 5.0
 APPLICATION_POLL = RECOVERY_SECONDS
 RAPID_JOIN_INTERVAL = 0.1
-RAPID_JOIN_DURATION = 180.0
+RAPID_JOIN_DURATION = 300.0
 RAPID_JOIN_FRAME_TTL = 0.28
 FORTRESS_MAIL = {"堡垒争夺胜利", "要塞争夺胜利"}
 CONTROL_MAIL = "成功控制堡垒"
@@ -1014,6 +1015,12 @@ def is_member_announcement_editor(lines):
             and "预约发布" in _text_in(lines, (407, 195, 575, 253)))
 
 
+def is_alliance_chat(lines):
+    return (any(text.endswith("聊天") for text in _text_in(lines, (0, 0, 125, 70)))
+            and "联盟" in _text_in(lines, (250, 75, 435, 145))
+            and any(text.startswith("[联盟]点击输入") for text in _text_in(lines, (15, 1110, 250, 1160))))
+
+
 def _join_button_under_notice(banner):
     rgb = np.asarray(banner.resize((672, 94), Image.Resampling.BILINEAR).convert("RGB"), dtype=np.int16)
     light = (rgb.min(axis=2) > 155) & (np.ptp(rgb, axis=2) < 80)
@@ -1668,7 +1675,8 @@ def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, i
     return count
 
 
-def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_SECONDS, retry_ready=None) -> bool:
+def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_SECONDS, retry_ready=None,
+                        confirm_by=None) -> bool:
     handled = set()
 
     def identify(image, lines):
@@ -1686,6 +1694,10 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             return "announcement_editor"
         if "announcement" not in handled and is_member_announcement(lines):
             return "announcement"
+        if "chat" not in handled and is_alliance_chat(lines):
+            return "chat"
+        if "chat" in handled and "chat_root" not in handled and is_game_root(lines):
+            return "chat_root"
         if ("recommendation" in handled and "exact_result" not in handled
                 and is_unaffiliated_in_frame(image, lines, ocr)):
             row = _listing_in_frame(image, lines, ocr, tag)
@@ -1703,8 +1715,13 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
 
     raw = {"identify_frame": lambda candidate: "retry" if retry_ready(candidate) else None} if retry_ready else {}
     for _ in range(6):
+        window = timeout
+        if confirm_by is not None:
+            window = min(window, (confirm_by - datetime.now(SHANGHAI)).total_seconds())
+            if window <= 0:
+                raise PageNotVerified(f"[{tag}] 已到入盟核对时限")
         frame, outcome = _wait_alliance_page(
-            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=timeout, **raw)
+            target, ocr, stop_event, identify, f"[{tag}] 的入盟结果未确认", timeout=window, **raw)
         if outcome == "joined":
             return True
         if outcome == "retry":
@@ -1727,6 +1744,8 @@ def confirm_direct_join(target, ocr, stop_event, tag: str, *, timeout=RECOVERY_S
             tap_game_point(target, frame, (622, 285))
         elif outcome == "announcement_editor":
             dismiss_member_announcement_editor(target, ocr, stop_event)
+        elif outcome in {"chat", "chat_root"}:
+            tap_verified_transition(target, stop_event, frame, (37, 36) if outcome == "chat" else (498, 1138))
         elif outcome in {"relocation", "recommendation"}:
             tap_verified_transition(target, stop_event, frame, (622, 195 if outcome == "recommendation" else 148))
         else:
@@ -1751,7 +1770,7 @@ def _join_page_still_ready(inspect, stop_event) -> bool:
 
 
 def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration=RAPID_JOIN_DURATION,
-                   check_only=False, notify=None, on_timeout=None, single_first=True):
+                   check_only=False, notify=None, on_timeout=None, single_first=True, confirm_by=None):
     records = run["applications"]
     prior = records.get(tag)
     if not check_only and prior and prior.get("method", "application") == "application" and prior["state"] != "joined":
@@ -1776,6 +1795,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
         records[tag] = {"started_at": started_at, "state": "waiting", "confirmed": False, "method": "direct"}
         save()
 
+    reached_limit = False
     while True:
         with (target.touch_session() if rate in {None, 100} else nullcontext()) as touch:
             def tap():
@@ -1819,14 +1839,15 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
             return (duration is None or time.monotonic() - started < duration) and same_page(frame)
 
         try:
-            outcome = confirm_direct_join(target, ocr, stop_event, tag, retry_ready=retry_ready)
+            outcome = confirm_direct_join(target, ocr, stop_event, tag, retry_ready=retry_ready, confirm_by=confirm_by)
         except ValueError:
-            reached_limit = duration is not None and time.monotonic() - started >= duration
+            reached_limit = ((duration is not None and time.monotonic() - started >= duration)
+                             or (confirm_by is not None and datetime.now(SHANGHAI) >= confirm_by))
             if reached_limit:
                 if count:
                     records[tag]["state"] = "timed_out"
                     save()
-                message = f"[{tag}] 连点时间已到，仍未确认入盟。可选择继续连点。"
+                message = f"[{tag}] 连点时间已到，仍未确认入盟。"
                 if on_timeout:
                     on_timeout(message)
             else:
@@ -1844,7 +1865,7 @@ def run_rapid_join(target, ocr, stop_event, run, tag, save, *, rate=10, duration
         else:
             records[tag] = prior
         save()
-    return AllianceVisit(False, message)
+    return AllianceVisit(False, message, can_return_for_key=reached_limit)
 
 
 def open_alliance_application(
@@ -2049,6 +2070,7 @@ def observe_alliance_application(
 class AllianceVisit:
     joined: bool
     message: str
+    can_return_for_key: bool = False
 
 
 def enter_route_alliance(
@@ -2103,14 +2125,15 @@ def enter_route_alliance(
                 if seconds <= 0:
                     return AllianceVisit(False, f"[{tag}] 已到钥匙返回截止时间")
                 return run_rapid_join(target, ocr, stop_event, run, tag, save, rate=rapid_rate,
-                                      duration=seconds, notify=notify, on_timeout=on_timeout)
+                                      duration=seconds, notify=notify, on_timeout=on_timeout, confirm_by=return_by)
             if listing.access == "可直接加入" and listing.members < listing.capacity:
                 join_available_alliance(target, ocr, stop_event, tag, lambda: remember(False, method="direct"))
                 applications[tag]["state"] = "joined"
                 save()
                 return AllianceVisit(True, f"已进入 [{tag}]")
             full = " · 已满员" if listing.members >= listing.capacity else ""
-            return AllianceVisit(False, f"[{tag}] {listing.members}/{listing.capacity} · {listing.access}{full}")
+            return AllianceVisit(False, f"[{tag}] {listing.members}/{listing.capacity} · {listing.access}{full}",
+                                 can_return_for_key=bool(full))
         record = applications[tag]
 
     def probe():
@@ -2137,8 +2160,9 @@ def enter_route_alliance(
                 if remaining > 0:
                     # Rearm only if the exact unaffiliated search and its green Join button are verified again.
                     return run_rapid_join(target, ocr, stop_event, run, tag, save, rate=rapid_rate,
-                                          duration=remaining, notify=notify, on_timeout=on_timeout)
-            return AllianceVisit(False, f"[{tag}] 仍未确认入盟，请查看游戏中的结果。")
+                                          duration=remaining, notify=notify, on_timeout=on_timeout, confirm_by=return_by)
+            return AllianceVisit(False, f"[{tag}] 仍未确认入盟，请查看游戏中的结果。",
+                                 can_return_for_key=record["state"] == "timed_out")
     else:
         elapsed = max(0, time.time() - record["started_at"])
         remaining = max(0, APPLICATION_TIMEOUT - elapsed)
@@ -2158,7 +2182,7 @@ def enter_route_alliance(
                        f"[{tag}] 在 3 分钟内未确认申请结果或入盟，请打开游戏核对。")
             if on_timeout:
                 on_timeout(message)
-            return AllianceVisit(False, message)
+            return AllianceVisit(False, message, can_return_for_key=True)
     record["state"] = "joined"
     save()
     return AllianceVisit(True, f"已进入 [{tag}]")

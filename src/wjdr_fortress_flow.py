@@ -13,6 +13,12 @@ class RecoveryFailed(ValueError):
     """A verified continuation was unavailable after the recovery attempt."""
 
 
+class AllianceNotJoined(ValueError):
+    def __init__(self, result):
+        super().__init__(result.message)
+        self.can_return_for_key = result.can_return_for_key
+
+
 @dataclass(frozen=True)
 class VictoryWatch:
     until: datetime
@@ -43,6 +49,8 @@ def _close_known_overlay(target, ocr, stop_event):
             return "announcement-editor"
         if fortress.is_member_announcement(lines):
             return "announcement"
+        if fortress.is_alliance_chat(lines):
+            return "chat"
         if _war_tab(image, lines):
             return "war"
         if fortress.is_alliance_relocation_prompt(lines):
@@ -68,7 +76,7 @@ def _close_known_overlay(target, ocr, stop_event):
         return None
 
     frame, visible = fortress._wait_alliance_page(target, ocr, stop_event, page, "请打开野外、联盟或本轮已核对邮件")
-    if visible in {"announcement", "announcement-editor", "war"}:
+    if visible in {"announcement", "announcement-editor", "chat", "war"}:
         if visible == "announcement-editor":
             fortress.dismiss_member_announcement_editor(target, ocr, stop_event)
         else:
@@ -107,7 +115,7 @@ def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, du
                                          notify=notify, on_timeout=on_timeout, return_by=due, rapid_rate=rate,
                                          verified_root=root)
     if not result.joined:
-        raise ValueError(result.message)
+        raise AllianceNotJoined(result)
     save_needed = run.get("current_alliance") != tag
     if save_needed:
         run["current_alliance"] = tag
@@ -431,7 +439,7 @@ def _key_during_march(run, station, arrivals, checked, save, notify, *, uncertai
         if tag == current or (settlement, tag) in checked:
             continue
         cutoff = fortress.key_return_by(run, tag, settlement)
-        if now < cutoff <= now + fortress.KEY_MARCH_GAP:
+        if now < cutoff <= now + fortress.KEY_RETURN_LEAD:
             choices.append((cutoff, settlement, tag))
     if not choices:
         return None
@@ -860,6 +868,16 @@ def _next_key(run, *, start_return):
     return None
 
 
+def _key_during_admission(run, station):
+    if (run.get("current_alliance") == station
+            and run["applications"].get(station, {}).get("state") == "joined"):
+        return None
+    now = datetime.now(fortress.SHANGHAI)
+    choices = ((fortress.key_return_by(run, tag, due), due, tag)
+               for due, tag in fortress.key_windows(run) if tag != station)
+    return min((choice for choice in choices if choice[0] > now), default=None)
+
+
 def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_timeout, rate, *, march_at=None):
     cutoff = fortress.key_return_by(run, tag, settlement)
     arrival = _currently_returned(run, tag)
@@ -975,7 +993,22 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                 and (tag in run["occupied"] or watch is not None or pending_victory)):
             _, checked_detail = fortress.capture_reward(target, ocr)
         if active != tag and checked_detail is None and not pending_victory:
-            _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate)
+            upcoming_key = _key_during_admission(run, tag)
+            if upcoming_key is None:
+                _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate)
+            else:
+                cutoff, due, key_tag = upcoming_key
+                join_by = cutoff - fortress.KEY_RETURN_LEAD
+                try:
+                    _visit(target, ocr, stop_event, run, tag, save, notify, notify, rate, due=join_by)
+                except AllianceNotJoined as error:
+                    now = datetime.now(fortress.SHANGHAI)
+                    if now >= cutoff or not (error.can_return_for_key or now >= join_by):
+                        raise
+                    run["key_waiting"] = [fortress.format_stamp(due), key_tag]
+                    save()
+                    notify(f"[{tag}] 入盟尚未确认，先回 [{key_tag}] 等待 {due:%H:%M:%S} 的钥匙")
+                    continue
             _member_to_root(target, ocr, stop_event, tag)
             victory_read_failed = False
             waiting_notice = False

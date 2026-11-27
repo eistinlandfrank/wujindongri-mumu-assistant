@@ -216,7 +216,10 @@ def check_occupation(target, ocr, stop_event, station: dict) -> None:
         raise ValueError("本站尚未核对到全部目标由指定联盟蓝色占领")
 
 
-def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: list[str]) -> None:
+def run_step(args, target, ocr, stop_event, run: dict, save) -> None:
+    def timeout(message):
+        print(message, file=sys.stderr, flush=True)
+
     now = datetime.now(fortress.SHANGHAI)
     if args.step == "status":
         print_status(run)
@@ -224,7 +227,7 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
     if args.step == "auto-route":
         message = flow.run_route(
             target, ocr, stop_event, run, save, rate=getattr(args, "rapid_rate", 10),
-            notify=lambda message: print(message, flush=True), on_timeout=timeout_messages.append)
+            notify=lambda message: print(message, flush=True), on_timeout=timeout)
         print(message)
         return
     if args.step == "key-mail":
@@ -258,7 +261,7 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
         due, tag = pending[0]
         result = fortress.enter_route_alliance(
             target, ocr, stop_event, run, tag, save, leave_current=args.leave_current,
-            notify=lambda msg: print(msg, flush=True), on_timeout=timeout_messages.append, return_by=due)
+            notify=lambda msg: print(msg, flush=True), on_timeout=timeout, return_by=due)
         if not result.joined:
             raise ValueError(result.message)
         arrived = datetime.now(fortress.SHANGHAI)
@@ -279,7 +282,7 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
         result = fortress.run_rapid_join(
             target, ocr, stop_event, run, tag, save, rate=getattr(args, "rapid_rate", 10),
             duration=duration, check_only=check_only,
-            notify=lambda message: print(message, flush=True), on_timeout=timeout_messages.append)
+            notify=lambda message: print(message, flush=True), on_timeout=timeout)
         if not result.joined and not check_only:
             raise ValueError(result.message)
         if result.joined:
@@ -293,7 +296,7 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
     elif args.step == "enter":
         result = fortress.enter_route_alliance(
             target, ocr, stop_event, run, tag, save, leave_current=args.leave_current,
-            notify=lambda msg: print(msg, flush=True), on_timeout=timeout_messages.append)
+            notify=lambda msg: print(msg, flush=True), on_timeout=timeout)
         if not result.joined:
             raise ValueError(result.message)
         print(result.message)
@@ -357,38 +360,7 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
             print_status(run)
 
 
-def show_timeout(message: str):
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
-
-    app = QApplication.instance() or QApplication([])
-    box = QMessageBox(QMessageBox.Icon.Warning, "联盟加入超时", message, QMessageBox.StandardButton.Ok)
-    resume = None
-    if "连点时间已到" in message:
-        resume = box.addButton("继续连点…", QMessageBox.ButtonRole.ActionRole)
-    box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-    box.setTextFormat(Qt.TextFormat.PlainText)
-    box.show()
-    box.raise_()
-    box.activateWindow()
-    app.alert(box)
-    box.exec()
-    if resume is None or box.clickedButton() is not resume:
-        return None
-    mode, ok = QInputDialog.getItem(None, "继续连点", "停止方式", ["定时停止", "不限时"], 0, False)
-    if not ok:
-        return None
-    duration = ["--rapid-unlimited"]
-    if mode == "定时停止":
-        minutes, ok = QInputDialog.getInt(None, "连点时长", "分钟", 3, 1, 1440)
-        if not ok:
-            return None
-        duration = ["--rapid-minutes", str(minutes)]
-    tag = message.partition("]")[0].lstrip("[")
-    return ["--rapid-alliance", tag, "--rapid-rate", "100", *duration]
-
-
-def _run_main(argv=None):
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path, help="UTF-8 JSON 路线配置")
     parser.add_argument("--step", choices=STEPS, help="单步运行检查点，省略只校验和打印配置")
@@ -398,11 +370,12 @@ def _run_main(argv=None):
     parser.add_argument("--rapid-rate", choices=(10, 100), type=int, default=10, help="加入连点的目标频率")
     parser.add_argument("--rapid-alliance", help="明确选择本轮路线中的连点目标")
     rapid_limit = parser.add_mutually_exclusive_group()
-    rapid_limit.add_argument("--rapid-minutes", type=int, default=3, help="连点时长，默认 3 分钟")
+    default_minutes = int(fortress.RAPID_JOIN_DURATION / 60)
+    rapid_limit.add_argument("--rapid-minutes", type=int, default=default_minutes,
+                             help=f"连点时长，默认 {default_minutes} 分钟")
     rapid_limit.add_argument("--rapid-unlimited", action="store_true", help="连点直到入盟、画面变化或手动停止")
     parser.add_argument("--sent-at", help="已核对归属的当前胜利邮件右上角时间，仅用于 reward")
     args = parser.parse_args(argv)
-    timeout_messages = []
     stop_event = Event()
     try:
         plan = read_plan(args.plan)
@@ -414,7 +387,7 @@ def _run_main(argv=None):
             raise ValueError("--leave-current 仅用于 enter 或 return-keys")
         if not 1 <= args.rapid_minutes <= 1440:
             raise ValueError("--rapid-minutes 需为 1 到 1440")
-        if (args.rapid_minutes != 3 or args.rapid_unlimited) and args.step not in {
+        if (args.rapid_minutes != default_minutes or args.rapid_unlimited) and args.step not in {
             "rapid-enter", "rapid-enter-check",
         }:
             raise ValueError("自定义时长仅用于加入连点")
@@ -474,7 +447,7 @@ def _run_main(argv=None):
             with (TemporaryDirectory(prefix="wjdr-fortress-route-") as temp,
                   FortressOcr(Path(temp), stop_event) as ocr,
                   RouteCapture(target, plan.mumu_index) as capture):
-                run_step(args, capture, ocr, stop_event, run, save, timeout_messages)
+                run_step(args, capture, ocr, stop_event, run, save)
         finally:
             lease.release()
         return 0
@@ -484,28 +457,7 @@ def _run_main(argv=None):
         return 130
     except (OSError, ValueError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
-        for message in timeout_messages:
-            resume = show_timeout(message)
-            if resume:
-                next_args = [str(args.plan), "--step", "rapid-enter", "--execute", *resume]
-                after = ([str(args.plan), "--step", "auto-route", "--execute", "--rapid-rate", str(args.rapid_rate)]
-                         if args.step == "auto-route" else None)
-                return next_args, after
         return 1
-
-
-def main(argv=None) -> int:
-    pending_route = None
-    while True:
-        result = _run_main(argv)
-        if isinstance(result, int):
-            if result or pending_route is None:
-                return result
-            argv, pending_route = pending_route, None
-        else:
-            argv, after = result
-            if after is not None:
-                pending_route = after
 
 
 if __name__ == "__main__":
