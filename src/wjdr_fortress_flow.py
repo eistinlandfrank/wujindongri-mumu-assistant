@@ -393,6 +393,15 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             stop_event.wait(1)
             continue
         if mail is None:
+            if not run["mail"].get(tag):
+                now = datetime.now(fortress.SHANGHAI)
+                following = any(other != tag and now < deadline <= now + KEY_RETURN_LEAD
+                                for deadline, other in fortress.return_queue(run))
+                if following:
+                    run.setdefault("key_unavailable", {})[tag] = fortress.format_stamp(now)
+                    save()
+                    notify(f"[{tag}] 尚未检测到本人钥匙邮件，按已确认的下一站时间继续")
+                    return
             try:
                 _refresh_alliance_mail(target, ocr, stop_event)
             except fortress.PageNotVerified:

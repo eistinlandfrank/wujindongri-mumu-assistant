@@ -160,6 +160,8 @@ def run_from_schedule(previous: dict, job: dict) -> dict:
     run["applications"] = {tag: record for tag, record in previous.get("applications", {}).items()
                            if record["state"] != "joined"}
     run["take_keys"] = take_keys
+    if previous.get("key_time_accounts"):
+        run["key_time_accounts"] = list(previous["key_time_accounts"])
     return run
 
 
@@ -179,7 +181,28 @@ def resolved_station(run: dict, station: dict) -> dict:
     return dict(station, targets=targets)
 
 
-def return_deadline(run: dict, alliance: str) -> datetime | None:
+def reference_key_times(run: dict) -> dict[str, str]:
+    accounts = run.get("key_time_accounts", [])
+    if not accounts:
+        return {}
+    profiles = _profiles(PROFILE_PATH)
+    candidates = []
+    for account in accounts:
+        history = profiles.get(HISTORY_KEY, {}).get(account, [])
+        same_round = next((record for record in (profiles.get(account), *reversed(history))
+                           if record and record["round_start"] == run["round_start"] and record["route"] == run["route"]), None)
+        if same_round is None:
+            return {}
+        candidates.append({tag: min(stamp for stamp, status in mails.items() if status == "claimed")
+                           for tag, mails in same_round["mail"].items() if "claimed" in mails.values()})
+    return {tag: min(record[tag] for record in candidates)
+            for tag in candidates[0] if all(tag in record for record in candidates)}
+
+
+def return_deadline(run: dict, alliance: str, reference: dict[str, str] | None = None) -> datetime | None:
+    reference = reference_key_times(run) if reference is None else reference
+    if alliance in reference:
+        return parse_stamp(reference[alliance]) + timedelta(minutes=30)
     stamps = run["mail"].get(alliance, {})
     return parse_stamp(min(stamps)) + timedelta(minutes=30) if stamps else None
 
@@ -193,6 +216,8 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
         return f"部分领取（{claimed} 封）"
     if receipts:
         return "领取待核对"
+    if alliance in run.get("key_unavailable", {}):
+        return "未检测到钥匙邮件 · 已转下站"
     if not run.get("take_keys", True):
         return "本轮关闭"
     due = return_deadline(run, alliance)
@@ -209,10 +234,10 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
 def return_queue(run: dict) -> list[tuple[datetime, str]]:
     if not run.get("take_keys", True):
         return []
-    return sorted(
-        (return_deadline(run, tag), tag)
-        for tag, mails in run["mail"].items() if mails and tag not in run["keys"]
-    )
+    reference = reference_key_times(run)
+    tags = {tag for tag, mails in run["mail"].items() if mails} | reference.keys()
+    tags.difference_update(run["keys"], run.get("key_unavailable", {}))
+    return sorted((return_deadline(run, tag, reference), tag) for tag in tags)
 
 
 def record_mail(run: dict, alliance: str, stamp: datetime, status: str, now: datetime) -> None:

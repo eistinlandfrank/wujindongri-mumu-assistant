@@ -566,7 +566,10 @@ class FortressUI:
         count = sum(state == "claimed" for state in mails.values())
         occupy = "占领已核对" if tag in run["occupied"] else "等待核对占领"
         site_due = fortress.return_deadline(run, tag) if run.get("take_keys", True) else None
-        site_time = f" · 本站最早发件 {min(mails)} · {fortress.format_stamp(site_due)} 前返回" if site_due else ""
+        site_time = ""
+        if site_due:
+            label = f"本站最早发件 {min(mails)}" if mails else "参照其他账号的发件时间"
+            site_time = f" · {label} · {fortress.format_stamp(site_due)} 前返回"
         solo = ""
         if run["last_solo"]:
             gap = fortress.parse_stamp(run["last_solo"]) + fortress.SOLO_INTERVAL - now
