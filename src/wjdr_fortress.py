@@ -21,6 +21,7 @@ from wjdr_backend import (
     AdbError, CONFIG_DIR, _atomic_json_write, _serialized_account_write,
     content_viewport, map_content_point, resource_path,
 )
+from wjdr_bear import WIDTH as WAR_WIDTH, _detail_title_visible
 from wjdr_mumu_ipc import RouteCapture
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -29,6 +30,8 @@ HISTORY_KEY = "history"
 REFERENCE = (673, 1196)
 CLAIM_POINT = (336, 762)
 SOLO_INTERVAL = timedelta(minutes=3)
+KEY_MAIL_DELAY = timedelta(minutes=30)
+KEY_MARCH_GAP = timedelta(seconds=20)
 APPLICATION_TIMEOUT = 180
 RECOVERY_SECONDS = 5.0
 APPLICATION_POLL = RECOVERY_SECONDS
@@ -70,17 +73,17 @@ def parse_targets(text: str) -> tuple[Target, ...]:
             mode = automatic[1] or UNSPECIFIED_TACTIC
             targets.append(Target(ALL_REGISTERED, None, "单撞" if mode == "撞" else mode))
             continue
-        sole = re.fullmatch(r"(?:唯一)?堡垒(单撞|撞|集结)", value)
+        sole = re.fullmatch(r"(?:唯一)?堡垒(单撞|撞|集结|按安排)?", value)
         if sole:
-            targets.append(Target("堡垒", None, "单撞" if sole[1] == "撞" else sole[1]))
+            targets.append(Target("堡垒", None, "单撞" if sole[1] == "撞" else sole[1] or UNSPECIFIED_TACTIC))
             continue
-        match = re.fullmatch(r"(堡垒|要塞)([1-9][0-9]?)号?(单撞|撞|集结)", value)
+        match = re.fullmatch(r"(堡垒|要塞)([1-9][0-9]?)号?(单撞|撞|集结|按安排)?", value)
         if not match:
-            raise ValueError("请选择全部报名，或填写目标和打法，例如堡垒8 单撞、要塞4 集结")
+            raise ValueError("请选择全部报名，或填写目标，例如堡垒8、要塞4 集结")
         kind, number, mode = match.groups()
         if int(number) > TARGET_LIMITS[kind]:
             raise ValueError(f"{kind}编号范围为 1–{TARGET_LIMITS[kind]}")
-        targets.append(Target(kind, int(number), "单撞" if mode == "撞" else mode))
+        targets.append(Target(kind, int(number), "单撞" if mode == "撞" else mode or UNSPECIFIED_TACTIC))
     if len(targets) > 1 and any(target.kind == ALL_REGISTERED for target in targets):
         raise ValueError("全部报名适用于整站，请选择一种目标模式")
     if len({(target.kind, target.number) for target in targets}) != len(targets):
@@ -204,9 +207,55 @@ def reference_key_times(run: dict) -> dict[str, str]:
 def return_deadline(run: dict, alliance: str, reference: dict[str, str] | None = None) -> datetime | None:
     reference = reference_key_times(run) if reference is None else reference
     if alliance in reference:
-        return parse_stamp(reference[alliance]) + timedelta(minutes=30)
+        return parse_stamp(reference[alliance]) + KEY_MAIL_DELAY
     stamps = run["mail"].get(alliance, {})
-    return parse_stamp(min(stamps)) + timedelta(minutes=30) if stamps else None
+    return parse_stamp(min(stamps)) + KEY_MAIL_DELAY if stamps else None
+
+
+def key_settlements(run: dict, alliance: str, reference: dict[str, str] | None = None) -> tuple[datetime, ...]:
+    """Keep every confirmed local victory time and the existing peer fallback."""
+    own = tuple(sorted(parse_stamp(stamp) + KEY_MAIL_DELAY
+                       for stamp, state in run["mail"].get(alliance, {}).items() if state == "claimed"))
+    if own:
+        return own
+    reference = reference_key_times(run) if reference is None else reference
+    return (parse_stamp(reference[alliance]) + KEY_MAIL_DELAY,) if alliance in reference else ()
+
+
+def pending_key_settlements(run: dict, alliance: str, reference: dict[str, str] | None = None) -> tuple[datetime, ...]:
+    if any(alliance in run.get(field, {}) for field in ("keys", "key_unavailable", "key_skipped")):
+        return ()
+    finished = set(run.get("key_conflicts", {}).get(alliance, {}))
+    settlements = key_settlements(run, alliance, reference)
+    if len(settlements) > 1:
+        finished.update(receipt.get("settlement", receipt["stamp"])
+                        for receipt in run.get("key_mail", {}).get(alliance, {}).values() if receipt["state"] == "claimed")
+    return tuple(due for due in settlements if format_stamp(due) not in finished)
+
+
+def key_windows(run: dict) -> list[tuple[datetime, str]]:
+    if not run.get("take_keys", True):
+        return []
+    reference = reference_key_times(run)
+    tags = run["mail"].keys() | reference.keys()
+    return sorted((due, tag) for tag in tags for due in pending_key_settlements(run, tag, reference))
+
+
+def key_return_by(run: dict, tag: str, settlement: datetime) -> datetime:
+    # A linked account can have an earlier, confirmed clock for the first return.
+    reference = reference_key_times(run)
+    if tag in reference and settlement == key_settlements(run, tag, reference)[0]:
+        return min(settlement, parse_stamp(reference[tag]) + KEY_MAIL_DELAY)
+    return settlement
+
+
+def corresponding_settlement(settlements, sent):
+    if sent is None or not settlements:
+        return None
+    closest = sorted((abs(due - sent), due) for due in settlements)
+    if len(closest) > 1 and closest[0][0] == closest[1][0]:
+        return None
+    return closest[0][1]
 
 
 def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
@@ -214,6 +263,11 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
         return "已领取"
     receipts = run.get("key_mail", {}).get(alliance, {})
     claimed = sum(receipt["state"] == "claimed" for receipt in receipts.values())
+    conflicts = run.get("key_conflicts", {}).get(alliance, {})
+    pending = pending_key_settlements(run, alliance)
+    if conflicts and not pending:
+        skipped = f"行军冲突跳过 {len(conflicts)} 封"
+        return f"已领取 {claimed} 封 · {skipped}" if claimed else skipped
     if claimed:
         return f"部分领取（{claimed} 封）"
     if receipts:
@@ -224,7 +278,7 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
         return "未检测到钥匙邮件 · 已转下站"
     if not run.get("take_keys", True):
         return "本轮关闭"
-    due = return_deadline(run, alliance)
+    due = pending[0] if pending else return_deadline(run, alliance)
     if due is None:
         return "待登记胜利邮件"
     arrival = run["returned"].get(alliance)
@@ -236,12 +290,11 @@ def key_collection_status(run: dict, alliance: str, now: datetime) -> str:
 
 
 def return_queue(run: dict) -> list[tuple[datetime, str]]:
-    if not run.get("take_keys", True):
-        return []
-    reference = reference_key_times(run)
-    tags = {tag for tag, mails in run["mail"].items() if mails} | reference.keys()
-    tags.difference_update(run["keys"], run.get("key_unavailable", {}), run.get("key_skipped", {}))
-    return sorted((return_deadline(run, tag, reference), tag) for tag in tags)
+    """Return the first outstanding window per alliance for manual return."""
+    first = {}
+    for due, tag in key_windows(run):
+        first.setdefault(tag, due)
+    return [(due, tag) for tag, due in first.items()]
 
 
 def record_mail(run: dict, alliance: str, stamp: datetime, status: str, now: datetime) -> None:
@@ -525,6 +578,73 @@ class ControlReward:
 def _control_mail_target(text: str) -> str | None:
     matches = re.findall(r"(?<![0-9])([1-9][0-9]?)号(堡垒|要塞)", text)
     return f"{matches[0][1]}{matches[0][0]}" if len(matches) == 1 else None
+
+
+def rally_war_page(image, lines, tab="集结") -> bool:
+    tabs = (("集结", 75, 160), ("单人", 285, 376), ("活动", 495, 598))
+    visible = sum(label in _text_in(lines, (left, 90, right, 149)) for label, left, right in tabs)
+    if visible < 2:
+        return False
+    select_x = 48 if tab == "集结" else 270
+    red, green, blue = image.getpixel((select_x, 115))
+    return (red > 185 and green > 205 and blue > 215
+            and _detail_title_visible(image.resize((WAR_WIDTH, round(WAR_WIDTH * 1196 / 673)))))
+
+
+def fortress_marches(image, lines, ocr, *, tab="集结") -> tuple[tuple[str, int], ...] | None:
+    """Read named fortress and stronghold marches on the verified rally page."""
+    if not rally_war_page(image, lines, tab):
+        return None
+    header_lines = []
+    for line in lines:
+        word = (line.get("words") or [None])[0]
+        if not word or not 164 <= word["y"] < 1058:
+            continue
+        text = compact(line["text"])
+        left = 30 <= word["x"] <= 166 and text in {"集结", "进攻", "攻击"}
+        right = 412 <= word["x"] <= 605 and text.startswith(("行军中", "集结中"))
+        if left or right:
+            header_lines.append(round(word["y"]))
+    headers = []
+    for y in sorted(header_lines):
+        if not headers or y - headers[-1] > 22:
+            headers.append(y)
+
+    marches = []
+    for y, bottom in zip(headers, (*headers[1:], 1058)):
+        names = _text_in(lines, (36, y + 199, 190, min(bottom, y + 315)))
+        names += _text_in(lines, (223, y + 186, 432, min(bottom, y + 256)))
+        labels = {f"{kind}{number}" for name in names
+                  if (match := re.fullmatch(r"[@的]*([1-9][0-9]?)号(堡垒|要塞)", name))
+                  for number, kind in (match.groups(),) if int(number) <= TARGET_LIMITS[kind]}
+        if not labels:
+            if not names and y + 300 > 1058:
+                return None
+            continue
+        if len(labels) != 1:
+            return None
+        timer_box = (415, max(162, y - 15), 646, y + 33)
+        timer_texts = _text_in(lines, timer_box)
+        if any(text.startswith("集结中") for text in timer_texts):
+            continue
+
+        def read_timer(texts):
+            clocks = [match.groups() for text in texts
+                      if (match := re.fullmatch(r"行军中:([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])", text))]
+            if len(clocks) != 1:
+                return None
+            hours, minutes, seconds = map(int, clocks[0])
+            return hours * 3600 + minutes * 60 + seconds
+
+        seconds = read_timer(timer_texts)
+        if seconds is None:
+            crop = image.crop(timer_box)
+            seconds = read_timer([compact(row["text"]) for row in ocr(crop.resize((crop.width * 2, crop.height * 2)))])
+        if seconds is None:
+            return None
+        if seconds:
+            marches.append((labels.pop(), seconds))
+    return tuple(sorted(marches))
 
 
 def control_gift_visible(image: Image.Image, title_y: int) -> bool:
@@ -1318,6 +1438,26 @@ def rapid_join_anchor(target, ocr, stop_event, tag: str):
         return ((green > 90) & (green - red > 36) & (green - blue > 26)).mean() > .45
 
     return map_content_point((549, button_y), REFERENCE, frame), same_page
+
+
+def run_fixed_join(target, ocr, stop_event, tag: str, notify) -> str:
+    """Pin one verified Join button for an operator-controlled continuous run."""
+    point, _ = rapid_join_anchor(target, ocr, stop_event, tag)
+    with target.touch_session() as touch:
+        if stop_event.is_set() or not target.foreground_is_game():
+            raise InterruptedError()
+        notify(f"[{tag}] 固定坐标连点已启动 · MuMu IPC 不限速、不限时")
+        last_report = time.monotonic()
+        sent = 0
+        while not stop_event.is_set():
+            touch.touch_request(point)
+            sent += 1
+            now = time.monotonic()
+            elapsed = now - last_report
+            if elapsed >= 10:
+                notify(f"[{tag}] 固定坐标连点中 · 最近 {elapsed:.1f} 秒收到 {sent} 次触控回执")
+                last_report, sent = now, 0
+    return f"[{tag}] 固定坐标连点已停止"
 
 
 def rapid_join_taps(tap, inspect, stop_event, *, duration=RAPID_JOIN_DURATION, interval=RAPID_JOIN_INTERVAL,

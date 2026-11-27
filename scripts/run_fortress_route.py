@@ -169,11 +169,20 @@ def print_status(run: dict) -> None:
         print(f"当前第 {index + 1} 站 [{tag}] · 占领{'已核对' if tag in run['occupied'] else '待核对'}"
               f" · 已登记胜利邮件 {claimed} 封")
     now = datetime.now(fortress.SHANGHAI)
-    for due, tag in fortress.return_queue(run):
-        state = "已返回，钥匙待登记" if tag in run["returned"] else "待返回"
-        if due <= now and tag not in run["returned"]:
+    for settlement, tag in fortress.key_windows(run):
+        due = fortress.key_return_by(run, tag, settlement)
+        arrived = flow._currently_returned(run, tag)
+        state = "已返回，钥匙待登记" if arrived and fortress.parse_stamp(arrived) < due else "待返回"
+        if due <= now and state == "待返回":
             state = "已过返回截止"
-        print(f"[{tag}] {fortress.format_stamp(due)} 前返回 · {state}")
+        print(f"[{tag}] {fortress.format_stamp(due)} 前返回 · 钥匙 {settlement:%H:%M:%S} · {state}")
+    for tag, records in run.get("key_mail", {}).items():
+        for label, receipt in sorted(records.items()):
+            state = "已领取" if receipt["state"] == "claimed" else "待核对"
+            print(f"[{tag}] {label} 钥匙邮件 {receipt['stamp']} · {state}")
+    for tag, skipped in run.get("key_conflicts", {}).items():
+        for stamp, march in sorted(skipped.items()):
+            print(f"[{tag}] 跳过 {stamp} 的钥匙 · {march['target']} 行军到达 {march['arrival']}")
 
 
 def check_capture(target: RouteCapture, ocr) -> None:
@@ -240,8 +249,10 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
         print(f"[{tag}] 已登记钥匙领取")
         return
     if args.step == "return-keys":
-        pending = [(due, tag) for due, tag in fortress.return_queue(run)
-                   if now < due and "claimed" in run["mail"][tag].values()]
+        pending = sorted((fortress.key_return_by(run, tag, settlement), tag)
+                         for settlement, tag in fortress.key_windows(run)
+                         if "claimed" in run["mail"].get(tag, {}).values())
+        pending = [(due, tag) for due, tag in pending if now < due]
         if not pending:
             raise ValueError("没有尚可按时返回的钥匙站点")
         due, tag = pending[0]
@@ -252,6 +263,8 @@ def run_step(args, target, ocr, stop_event, run: dict, save, timeout_messages: l
             raise ValueError(result.message)
         arrived = datetime.now(fortress.SHANGHAI)
         run["returned"][tag] = fortress.format_stamp(arrived)
+        run["current_alliance"] = tag
+        run["current_alliance_entered_at"] = fortress.format_stamp(arrived)
         save()
         print(f"[{tag}] {'已按时返回' if arrived < due else '已返回，超过截止时间'} · 钥匙领取后运行 key-record")
         return

@@ -195,7 +195,7 @@ class FortressUI:
         modes.addWidget(specified)
         modes.addStretch()
         layout.addLayout(modes)
-        hint = QLabel("全部报名会等待该盟每个报名目标都显示蓝色占领。选指定编号时，可同时勾选堡垒和要塞。")
+        hint = QLabel("全部报名会等每个报名目标变蓝。可以同时选择堡垒和要塞。打法选「按安排」会轮流查看集结和单人。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -215,7 +215,7 @@ class FortressUI:
                 check.setAccessibleName(f"{kind}{number}" if number is not None else "唯一堡垒")
                 tactic = QComboBox()
                 tactic.setAccessibleName(f"{check.accessibleName()}的打法")
-                tactic.addItems(["单撞", "集结"])
+                tactic.addItems([fortress.UNSPECIFIED_TACTIC, "单撞", "集结"])
                 existing = current.get((kind, number))
                 if existing:
                     check.setChecked(True)
@@ -355,6 +355,10 @@ class FortressUI:
                 for target, receipt in sorted(run.get("key_mail", {}).get(tag, {}).items()):
                     status = "已领取" if receipt["state"] == "claimed" else "待核对"
                     lines.append(f"  钥匙邮件  {target}  {receipt['stamp']}  {status}")
+                for due in fortress.key_settlements(run, tag):
+                    lines.append(f"  预计钥匙 {fortress.format_stamp(due)}")
+                for stamp, clash in sorted(run.get("key_conflicts", {}).get(tag, {}).items()):
+                    lines.append(f"  已跳过 {stamp} · [{clash['alliance']}] {clash['target']} 行军到达 {clash['arrival']}")
             details.setPlainText("\n".join(lines))
 
         def show_page(start: int) -> None:
@@ -525,27 +529,32 @@ class FortressUI:
             set_style_property(self.fortress_progress, "urgent", "false")
             self.fortress_progress.setText("按表格顺序跑联盟。胜利邮件请在邮件 → 联盟中逐封打开。")
             return
-        queue = fortress.return_queue(run)
-        timing = ("每站按最早胜利邮件的右上角发件时间计时。"
+        queue = fortress.key_windows(run)
+        timing = ("每封胜利邮件按右上角发件时间加 30 分钟。"
                   if run.get("take_keys", True) else "本轮关闭钥匙返回。")
         urgent = False
         if queue:
             deadline, tag = next(((due, alliance) for due, alliance in queue if due > now), queue[0])
             seconds = (deadline - now).total_seconds()
             remaining = "已到截止时间" if seconds <= 0 else f"剩余 {int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
-            timing = f"钥匙待登记 {len(queue)} 站 · {tag} 须在 {fortress.format_stamp(deadline)} 前返回 · {remaining}"
+            timing = f"钥匙待登记 {len(queue)} 封 · {tag} 须在 {fortress.format_stamp(deadline)} 前返回 · {remaining}"
             urgent = seconds <= 300
         set_style_property(self.fortress_progress, "urgent", "true" if urgent else "false")
         for row in range(self.fortress_table.rowCount()):
             tag = fortress.compact(self.fortress_table.item(row, 0).text())
             status = self.fortress_table.item(row, 2)
-            due = fortress.return_deadline(run, tag) if run.get("take_keys", True) else None
+            pending = [due for due, alliance in queue if alliance == tag]
+            due = next((stamp for stamp in pending if stamp > now), pending[0] if pending else None)
             if not run.get("take_keys", True):
                 display = "关闭"
             elif tag in run["keys"]:
                 display = "钥匙已领取"
             elif tag in run.get("key_skipped", {}):
                 display = "已跳过钥匙"
+            elif due is None and tag in run.get("key_conflicts", {}):
+                display = fortress.key_collection_status(run, tag, now)
+            elif due is None and tag in run.get("key_unavailable", {}):
+                display = fortress.key_collection_status(run, tag, now)
             elif due is None:
                 display = "待登记邮件"
             elif tag in run["returned"]:
@@ -555,6 +564,12 @@ class FortressUI:
                 display = f"{due:%m-%d %H:%M:%S} 前返回" if due > now else f"{due:%m-%d %H:%M:%S} 已到时"
             if status.text() != display:
                 status.setText(display)
+            status.setToolTip("\n".join(
+                [f"待处理 {fortress.format_stamp(stamp)}" for stamp in pending]
+                + [f"行军冲突跳过 {stamp}" for stamp in run.get("key_conflicts", {}).get(tag, {})]
+                + [f"钥匙邮件 {label} · {entry['stamp']}" for label, entry
+                   in sorted(run.get("key_mail", {}).get(tag, {}).items())]
+            ))
         index = run["index"]
         if index >= len(run["route"]):
             deferred = run.get("deferred_victory", {})
@@ -567,7 +582,7 @@ class FortressUI:
         mails = run["mail"].get(tag, {})
         count = sum(state == "claimed" for state in mails.values())
         occupy = "占领已核对" if tag in run["occupied"] else "等待核对占领"
-        site_due = fortress.return_deadline(run, tag) if run.get("take_keys", True) else None
+        site_due = next((due for due, alliance in queue if alliance == tag), None)
         site_time = ""
         if site_due:
             label = f"本站最早发件 {min(mails)}" if mails else "参照其他账号的发件时间"
@@ -765,6 +780,8 @@ class FortressUI:
                 save()
                 return f"{tag} 钥匙奖励已登记。"
             run["returned"][tag] = fortress.format_stamp(now)
+            run["current_alliance"] = tag
+            run["current_alliance_entered_at"] = fortress.format_stamp(now)
             save()
             result = "已在截止前返回" if now < due else "已返回，超过 30 分钟截止"
             return f"{tag} {result}。"
@@ -918,16 +935,25 @@ class FortressUI:
                 if not ok:
                     return
                 duration = minutes * 60
+            fixed = "固定坐标，不限速"
+            rates = ["100", "10"]
+            if duration is None:
+                rates.append(fixed)
             rate, ok = QInputDialog.getItem(
-                self, "连点速度", f"[{tag}] 每秒点击次数", ["100", "10"], 0, False)
+                self, "连点方式", f"[{tag}] 选择速度或固定坐标。固定坐标请点击「停止当前」结束。", rates, 0, False)
             if not ok:
                 return
             identity = self.fortress_identity
 
             def click_and_watch(target, active_run, ocr, save):
+                def notify(message):
+                    self.signals.fortress_result.emit(identity, target.device, message)
+
+                if rate == fixed:
+                    return fortress.run_fixed_join(target, ocr, self.stop_event, tag, notify)
                 result = fortress.run_rapid_join(
                     target, ocr, self.stop_event, active_run, tag, save, rate=int(rate), duration=duration,
-                    notify=lambda message: self.signals.fortress_result.emit(identity, target.device, message),
+                    notify=notify,
                     on_timeout=lambda message: self.signals.fortress_application_timeout.emit(
                         identity, target.device, message + (" 入盟后续跑本轮。" if continue_flow else "")),
                 )

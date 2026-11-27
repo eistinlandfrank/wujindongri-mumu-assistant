@@ -1,7 +1,7 @@
 """Run the verified fortress checkpoints for one leased account."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import monotonic
 
 import wjdr_fortress as fortress
@@ -82,11 +82,17 @@ def _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, du
                                          notify=notify, on_timeout=on_timeout, return_by=due, rapid_rate=rate)
     if not result.joined:
         raise ValueError(result.message)
+    save_needed = run.get("current_alliance") != tag
+    if save_needed:
+        run["current_alliance"] = tag
+        run["current_alliance_entered_at"] = fortress.format_stamp(datetime.now(fortress.SHANGHAI))
     if not run["applications"].get(tag):
         run["applications"][tag] = {
             "state": "joined", "method": "direct", "confirmed": True,
             "started_at": fortress.parse_stamp(run["round_start"]).timestamp(),
         }
+        save_needed = True
+    if save_needed:
         save()
     notify(result.message)
 
@@ -143,7 +149,7 @@ def resolve_targets(target, ocr, stop_event, run, station, save):
     return resolved
 
 
-def _occupation(target, ocr, stop_event, station):
+def _occupation(target, ocr, stop_event, station, *, consider_key=None):
     fortress.open_game_screen(target, ocr, stop_event, "activity")
     next_tap = monotonic()
     failures = 0
@@ -170,6 +176,14 @@ def _occupation(target, ocr, stop_event, station):
                 break
             if action == "occupied":
                 return True
+            if consider_key:
+                checked, key = consider_key()
+                if key:
+                    return key
+                if checked:
+                    fortress.open_game_screen(target, ocr, stop_event, "activity")
+                    next_tap = monotonic()
+                    continue
             if action == "find-fortress":
                 fortress.open_fortress_activity(target, ocr, stop_event)
             elif action == "navigate":
@@ -181,6 +195,153 @@ def _occupation(target, ocr, stop_event, station):
                 raise
         next_tap = monotonic() + 1
     return False
+
+
+def _war_tab(image, lines):
+    for tab in ("集结", "单人"):
+        if fortress.rally_war_page(image, lines, tab):
+            return tab
+    return None
+
+
+def _open_war(target, ocr, stop_event, tag):
+    def entry(image, lines):
+        if tab := _war_tab(image, lines):
+            return "war", tab
+        if fortress.joined_tag_matches(image, lines, ocr, tag):
+            crop = image.crop((158, 593, 296, 653)).resize((276, 120))
+            labels = {fortress.compact(item["text"]) for item in ocr(crop)}
+            if labels & {"联盟战争", "联盟找争"}:
+                return "member", (205, 625)
+        if fortress.is_game_root(lines):
+            return "root", (498, 1138)
+        if fortress.is_regular_activity(lines):
+            return "activity", (37, 36)
+        return None
+
+    transitions = {
+        "activity": {"root"},
+        "root": {"member"},
+        "member": {"war"},
+    }
+    allowed = set(transitions) | {"war"}
+
+    def expected(image, lines):
+        match = entry(image, lines)
+        return match if match and match[0] in allowed else None
+
+    for _ in range(4):
+        frame, (page, item) = fortress._wait_alliance_page(
+            target, ocr, stop_event, expected, "未核对联盟战争入口和当前联盟")
+        if page == "war":
+            return frame, item
+        fortress.tap_verified_transition(target, stop_event, frame, item)
+        allowed = transitions[page]
+    return fortress._wait_alliance_page(target, ocr, stop_event, _war_tab, "未确认联盟战争页")
+
+
+def _close_war(target, ocr, stop_event, tag):
+    frame, _ = fortress._wait_alliance_page(target, ocr, stop_event, _war_tab, "未确认当前联盟战争页")
+    fortress.tap_verified_transition(target, stop_event, frame, (37, 36))
+    _member_to_root(target, ocr, stop_event, tag)
+
+
+def march_tabs(station):
+    modes = {target["mode"] for target in station["targets"]}
+    if fortress.UNSPECIFIED_TACTIC in modes or modes == {"单撞", "集结"}:
+        return ("集结", "单人")
+    return ("单人",) if modes == {"单撞"} else ("集结",)
+
+
+def read_march_arrivals(target, ocr, stop_event, station, until):
+    tag = station["alliance"]
+    tabs = march_tabs(station)
+    names_by_tab = {
+        tab: {f"{item['kind']}{item['number']}" for item in station["targets"]
+              if item["mode"] in {mode, fortress.UNSPECIFIED_TACTIC}}
+        for tab, mode in (("集结", "集结"), ("单人", "单撞"))
+    }
+    frame, selected = _open_war(target, ocr, stop_event, tag)
+    next_switch = monotonic() + (2 if selected in tabs else 0)
+    previous = ()
+    page_seen = monotonic()
+    try:
+        while not stop_event.is_set() and datetime.now(fortress.SHANGHAI) < until:
+            frame, image, lines = fortress._alliance_frame(target, ocr, stop_event)
+            if _war_tab(image, lines) != selected:
+                if monotonic() - page_seen >= fortress.RECOVERY_SECONDS:
+                    raise fortress.PageNotVerified("联盟战争行军页未能重新核对")
+                stop_event.wait(0.08)
+                continue
+            page_seen = monotonic()
+            observed = datetime.now(fortress.SHANGHAI).replace(microsecond=0)
+            if selected in tabs and (marches := fortress.fortress_marches(image, lines, ocr, tab=selected)) is not None:
+                current = tuple((name, observed + timedelta(seconds=seconds))
+                                for name, seconds in marches if name in names_by_tab[selected])
+                if current and len(current) == len(previous) and all(
+                    name == prior_name and abs(prior - arrival).total_seconds() <= 1
+                    for (name, arrival), (prior_name, prior) in zip(current, previous)
+                ):
+                    return current
+                previous = current
+            if (selected not in tabs or len(tabs) == 2) and monotonic() >= next_switch:
+                next_tab = "单人" if selected == "集结" else "集结"
+                started_switch = monotonic()
+                fortress.tap_verified_transition(target, stop_event, frame, (336 if next_tab == "单人" else 123, 118))
+                _, selected = fortress._wait_alliance_page(
+                    target, ocr, stop_event, lambda im, ln: next_tab if _war_tab(im, ln) == next_tab else None,
+                    f"未确认联盟战争「{next_tab}」页")
+                previous = ()
+                page_seen = monotonic()
+                next_switch = started_switch + 2
+            else:
+                stop_event.wait(0.08)
+        return ()
+    finally:
+        if not stop_event.is_set():
+            _close_war(target, ocr, stop_event, tag)
+
+
+def march_key_conflict(arrivals, settlement):
+    if not arrivals:
+        return None
+    target, arrival = min(arrivals, key=lambda item: abs(item[1] - settlement))
+    return (target, arrival) if abs(arrival - settlement) < fortress.KEY_MARCH_GAP else None
+
+
+def _key_during_march(target, ocr, stop_event, run, station, checked, save, notify):
+    now = datetime.now(fortress.SHANGHAI)
+    choices = []
+    current = station["alliance"]
+    for settlement, tag in fortress.key_windows(run):
+        if tag == current or (settlement, tag) in checked:
+            continue
+        cutoff = fortress.key_return_by(run, tag, settlement)
+        if now < cutoff <= now + fortress.KEY_MARCH_GAP:
+            choices.append((cutoff, settlement, tag))
+    if not choices:
+        return False, None
+    cutoff, _, _ = min(choices)
+    arrivals = read_march_arrivals(target, ocr, stop_event, station, cutoff)
+    if not arrivals:
+        checked.update((settlement, tag) for limit, settlement, tag in choices if limit == cutoff)
+        return True, None
+    next_key = None
+    first_arrival = min(arrival for _, arrival in arrivals)
+    for cutoff, settlement, tag in sorted(choices):
+        checked.add((settlement, tag))
+        if conflict := march_key_conflict(arrivals, settlement):
+            name, arrival = conflict
+            run.setdefault("key_conflicts", {}).setdefault(tag, {})[fortress.format_stamp(settlement)] = {
+                "alliance": current, "target": name, "arrival": fortress.format_stamp(arrival),
+            }
+            save()
+            notify(f"[{tag}] 跳过 {settlement:%H:%M:%S} 的钥匙 · [{current}] {name} 行军到达 {arrival:%H:%M:%S}")
+            continue
+        if (next_key is None and settlement + fortress.KEY_MARCH_GAP <= first_arrival
+                and datetime.now(fortress.SHANGHAI) < cutoff):
+            next_key = settlement, tag, first_arrival
+    return True, next_key
 
 
 def claim_victory(target, ocr, stop_event, run, tag, save, *, opened=None, close_after=False, expected_stamp=None):
@@ -268,9 +429,15 @@ def _paired_victory_times(target, ocr, stop_event, run, pair, save):
     return times
 
 
-def claim_key_mail(target, ocr, stop_event, run, tag, save):
+def claim_key_mail(target, ocr, stop_event, run, tag, save, *, settlement=None):
     """Read the alliance mailbox directly. Return a verified claim or no new mail."""
-    due = fortress.return_deadline(run, tag)
+    pending = fortress.pending_key_settlements(run, tag)
+    if settlement is None:
+        settlement = pending[0] if pending else None
+    if settlement not in pending:
+        raise ValueError(f"[{tag}] 没有待领取的钥匙时点")
+    due = fortress.key_return_by(run, tag, settlement)
+    settlements = fortress.key_settlements(run, tag)
     arrival = run["returned"].get(tag)
     if not due or not arrival or fortress.parse_stamp(arrival) >= due:
         raise ValueError(f"[{tag}] 没有截止前的入盟记录")
@@ -288,6 +455,8 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
 
     def outstanding(label, sent):
         if label not in wanted or (sent is not None and not earliest <= sent <= datetime.now(fortress.SHANGHAI)):
+            return False
+        if len(settlements) > 1 and fortress.corresponding_settlement(settlements, sent) != settlement:
             return False
         prior = receipts.get(label)
         return prior is None or (prior["state"] == "pending"
@@ -408,6 +577,8 @@ def claim_key_mail(target, ocr, stop_event, run, tag, save):
     if key in receipts and receipts[key]["stamp"] != stamp:
         raise ValueError("当前邮件与本站钥匙发件时间记录不一致")
     receipts[key] = {"stamp": stamp, "state": "claimed"}
+    if len(settlements) > 1:
+        receipts[key]["settlement"] = fortress.format_stamp(settlement)
     if all(receipts.get(target_key, {}).get("state") == "claimed" for target_key in wanted):
         run["keys"][tag] = fortress.format_stamp(datetime.now(fortress.SHANGHAI))
     save()
@@ -437,26 +608,43 @@ def _member_to_root(target, ocr, stop_event, tag):
                                               "返回野外纠错失败，流程已停止")
 
 
+def _currently_returned(run, tag):
+    current = run.get("current_alliance")
+    if current is None:
+        current = max(run["returned"], key=run["returned"].get, default=None)
+    if current != tag:
+        return None
+    return max(filter(None, (run["returned"].get(tag), run.get("current_alliance_entered_at"))), default=None)
+
+
 def _next_key(run, *, start_return):
     now = datetime.now(fortress.SHANGHAI)
-    first = None
-    for due, tag in fortress.return_queue(run):
-        arrival = run["returned"].get(tag)
-        if arrival and fortress.parse_stamp(arrival) < due:
-            return due, tag
-        if start_return and first is None and due > now:
-            first = due, tag
-    return first
+    waiting = run.get("key_waiting")
+    eligible = []
+    for settlement, tag in fortress.key_windows(run):
+        checkpoint = [fortress.format_stamp(settlement), tag]
+        if waiting == checkpoint:
+            return settlement, tag
+        if start_return:
+            cutoff = fortress.key_return_by(run, tag, settlement)
+            arrival = _currently_returned(run, tag)
+            if (arrival and fortress.parse_stamp(arrival) < cutoff) or cutoff > now:
+                eligible.append((cutoff, settlement, tag))
+    if eligible:
+        _, settlement, tag = min(eligible)
+        return settlement, tag
+    return None
 
 
-def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate):
-    arrival = run["returned"].get(tag)
-    if not arrival:
-        _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, due)
+def _key_visit(target, ocr, stop_event, run, tag, settlement, save, notify, on_timeout, rate, *, march_at=None):
+    cutoff = fortress.key_return_by(run, tag, settlement)
+    arrival = _currently_returned(run, tag)
+    if not arrival or fortress.parse_stamp(arrival) >= cutoff:
+        _visit(target, ocr, stop_event, run, tag, save, notify, on_timeout, rate, cutoff)
         arrived = datetime.now(fortress.SHANGHAI)
         run["returned"][tag] = fortress.format_stamp(arrived)
         save()
-        if arrived >= due:
+        if arrived >= cutoff:
             raise ValueError(f"[{tag}] 入盟时已超过钥匙返回截止")
         notify(f"[{tag}] 已在截止前返回")
         _member_to_root(target, ocr, stop_event, tag)
@@ -464,11 +652,21 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
         _, image, lines = fortress._alliance_frame(target, ocr, stop_event)
         if fortress.joined_tag_matches(image, lines, ocr, tag):
             _member_to_root(target, ocr, stop_event, tag)
-    notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(due)} 的钥匙")
+        run["returned"][tag] = arrival
+    run["key_waiting"] = [fortress.format_stamp(settlement), tag]
+    if march_at is not None:
+        run["key_march_at"] = fortress.format_stamp(march_at)
+    else:
+        run.pop("key_march_at", None)
+    save()
+    notify(f"[{tag}] 在联盟邮件等待 {fortress.format_stamp(settlement)} 的钥匙")
     read_failed = False
-    while not stop_event.is_set() and tag not in run["keys"]:
+    while not stop_event.is_set() and settlement in fortress.pending_key_settlements(run, tag):
+        if march_at is not None and datetime.now(fortress.SHANGHAI) >= march_at - timedelta(seconds=fortress.RECOVERY_SECONDS):
+            notify(f"[{tag}] 尚未收到 {settlement:%H:%M:%S} 的钥匙邮件，返回堡垒路线")
+            break
         try:
-            mail = claim_key_mail(target, ocr, stop_event, run, tag, save)
+            mail = claim_key_mail(target, ocr, stop_event, run, tag, save, settlement=settlement)
         except fortress.PageNotVerified as error:
             if read_failed:
                 raise RecoveryFailed(f"[{tag}] 无法核对联盟邮件，流程已停止 · {error}") from error
@@ -482,11 +680,16 @@ def _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout,
             stop_event.wait(1)
             continue
         notify(f"[{tag}] 已确认领取 {mail.target} 钥匙 · {fortress.format_stamp(mail.stamp)}")
+    if not stop_event.is_set():
+        run.pop("key_waiting", None)
+        run.pop("key_march_at", None)
+        save()
 
 
 def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=100):
     active = None
     victory_read_failed = False
+    checked_keys = set()
     while not stop_event.is_set():
         normal_station = run["index"] < len(run["route"])
         deferred = run.get("deferred_victory", {})
@@ -494,12 +697,19 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
         key_visit = _next_key(run, start_return=not remaining_sites)
         if key_visit:
             due, tag = key_visit
-            _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate)
+            same_wait = run.get("key_waiting") == [fortress.format_stamp(due), tag]
+            march = run.get("key_march_at") if same_wait else None
+            if march:
+                _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate,
+                           march_at=fortress.parse_stamp(march))
+            else:
+                _key_visit(target, ocr, stop_event, run, tag, due, save, notify, on_timeout, rate)
             active = None
             continue
         if not remaining_sites:
-            missed = [tag for due, tag in fortress.return_queue(run)
-                      if due <= datetime.now(fortress.SHANGHAI) and tag not in run["keys"]]
+            now = datetime.now(fortress.SHANGHAI)
+            missed = [f"{tag} {due:%H:%M:%S}" for due, tag in fortress.key_windows(run)
+                      if fortress.key_return_by(run, tag, due) <= now]
             return "堡垒路线已完成" + (f" · 超过钥匙截止：{'、'.join(missed)}" if missed else "")
 
         requested = (run["route"][run["index"]] if normal_station
@@ -532,7 +742,17 @@ def run_route(target, ocr, stop_event, run, save, *, notify, on_timeout, rate=10
                 names = "、".join(f"{entry['kind']}{entry['number']}" for entry in station["targets"])
                 notify(f"[{tag}] 已识别目标 {names}")
             notify(f"[{tag}] 等待指定目标蓝色占领")
-            if not _occupation(target, ocr, stop_event, station):
+            def consider_key():
+                return _key_during_march(target, ocr, stop_event, run, station, checked_keys, save, notify)
+
+            occupation = _occupation(target, ocr, stop_event, station, consider_key=consider_key)
+            if not occupation:
+                continue
+            if isinstance(occupation, tuple):
+                settlement, key_tag, march_at = occupation
+                _key_visit(target, ocr, stop_event, run, key_tag, settlement, save, notify, on_timeout, rate,
+                           march_at=march_at)
+                active = None
                 continue
             run["occupied"].append(tag)
             save()
